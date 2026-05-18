@@ -1,0 +1,10 @@
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 100
+AlignConsecutiveDeclarations:
+  Enabled: true
+  PadOperators: false
+AlignConsecutiveAssignments:
+  Enabled: false
+BreakBeforeBraces: Linux
+SpaceBeforeParens: ControlStatements
