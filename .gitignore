@@ -1,3 +1,7 @@
 minimoni
+minimoni-debug
 minimoni-linux-*
 src/embed.h
+*.db
+*.db-wal
+*.db-shm

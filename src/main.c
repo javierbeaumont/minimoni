@@ -21,52 +21,44 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#include "db.h"
 #include "metrics.h"
 
 int main(void)
 {
     metrics_t m;
+    db_t      db;
 
-    /* First call — seeds the CPU delta snapshot; cpu_valid will be 0 */
+    /* First collect — seeds the CPU delta snapshot */
     if (metrics_collect(&m, "/") != 0) {
         fprintf(stderr, "metrics_collect failed\n");
         return 1;
     }
-    printf("--- pass 1 (cpu_valid=%d) ---\n", m.cpu_valid);
-    printf("load:    %.2f  %.2f  %.2f\n", m.load_1m, m.load_5m, m.load_15m);
-    printf("uptime:  %.0f s\n", m.uptime_seconds);
 
     sleep(1);
 
-    /* Second call — CPU delta now valid */
+    /* Second collect — CPU delta now valid */
     if (metrics_collect(&m, "/") != 0) {
         fprintf(stderr, "metrics_collect failed\n");
         return 1;
     }
 
-    printf("\n--- pass 2 ---\n");
-    printf("load:    %.2f  %.2f  %.2f\n", m.load_1m, m.load_5m, m.load_15m);
+    if (db_open(&db, "/tmp/minimoni-test.db") != 0)
+        return 1;
 
-    if (m.cpu_valid) {
-        printf("cpu:     user=%.1f%%  sys=%.1f%%  idle=%.1f%%\n", m.cpu_user_pct, m.cpu_system_pct,
-               m.cpu_idle_pct);
-    } else {
-        printf("cpu:     (not valid)\n");
+    if (db_insert(&db, &m) != 0) {
+        db_close(&db);
+        return 1;
     }
+    printf("row inserted\n");
 
-    printf("mem:     total=%.1fMB  used=%.1fMB  avail=%.1fMB  (%.1f%%)\n", m.mem_total_mb,
-           m.mem_used_mb, m.mem_available_mb, m.mem_percent);
-    printf("disk:    total=%.2fGB  used=%.2fGB  free=%.2fGB  (%.1f%%)\n", m.disk_total_gb,
-           m.disk_used_gb, m.disk_free_gb, m.disk_percent);
-
-    if (m.temp_valid) {
-        printf("temp:    %.1f C\n", m.temp_celsius);
-    } else {
-        printf("temp:    (no sensor)\n");
+    if (db_prune(&db, 90) != 0) {
+        db_close(&db);
+        return 1;
     }
+    printf("prune ok\n");
 
-    printf("net:     rx=%lld bytes  tx=%lld bytes\n", m.net_rx_bytes, m.net_tx_bytes);
-    printf("uptime:  %.0f s\n", m.uptime_seconds);
-
+    db_close(&db);
+    printf("verify: sqlite3 /tmp/minimoni-test.db 'SELECT * FROM metrics'\n");
     return 0;
 }

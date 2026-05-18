@@ -15,11 +15,14 @@ CIVETWEB_FLAGS = -DNO_SSL -DNO_CGI -DNO_CACHING \
   -DUSE_WEBSOCKET=0 -DUSE_IPV6=0 -DNO_FILES -DNDEBUG
 
 # SRC expands as modules are implemented
-SRC = src/main.c src/metrics.c
+SRC = src/main.c src/metrics.c src/db.c
 VENDOR = vendor/sqlite3.c vendor/civetweb.c vendor/tomlc17.c
 
 all: embed minimoni
 
+# embed.h: dashboard/index.html serialised as a C byte array by xxd.
+# Included by the HTTP handler so the dashboard ships inside the binary.
+# Not tracked in git — run "make embed" before the first build or after editing the dashboard.
 embed:
 	xxd -i dashboard/index.html > src/embed.h
 
