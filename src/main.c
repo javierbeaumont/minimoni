@@ -21,11 +21,18 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#include "config.h"
 #include "db.h"
 #include "metrics.h"
 
 int main(void)
 {
+    config_t cfg;
+    if (config_open(&cfg, NULL) != 0)
+        return 1;
+    printf("config: listen=%s  interval=%lds  db=%s  ranges=%d  alerts=%d\n", cfg.listen,
+           cfg.interval_seconds, cfg.db_path, cfg.range_count, cfg.alert_count);
+
     metrics_t m;
     db_t      db;
 

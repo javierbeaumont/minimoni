@@ -1,0 +1,40 @@
+[server]
+listen = "0.0.0.0:8080"
+
+[collect]
+db        = "/var/lib/minimoni/metrics.db"
+interval  = "1m"
+disk_path = "/"
+
+[dashboard]
+# title   = "My Server"
+# refresh = 30               # browser poll interval in seconds
+# ranges  = ["1d", "7d", "30d", "90d"]  # last value sets retention
+# points  = 300                          # target data points per chart
+
+# charts = ["cpu_load", "cpu_usage", "memory", "disk", "temp", "net"]
+# cards  = ["cpu_load", "memory", "disk", "temp", "net", "uptime"]
+
+# cpu_load_unit = "abs"      # "abs" | "%" (% = normalized by core count)
+# memory_unit   = "mb"       # "mb" | "gb" | "%"
+# disk_unit     = "gb"       # "gb" | "tb" | "%"
+# temp_unit     = "c"        # "c" | "f" | "%"
+# temp_max      = 100        # 100% reference when temp_unit="%"
+# net_unit      = "mb"       # "mb" | "gb" | "mbps" | "gbps"
+# uptime_unit   = "auto"     # "h" | "d" | "auto"
+
+[[alert]]
+name = "disk-full"
+metric = "disk_percent"
+operator = ">"
+threshold = 90
+webhook = "https://ntfy.sh/my-server"
+cooldown = "1h"
+
+[[alert]]
+name = "high-temp"
+metric = "temp"
+operator = ">"
+threshold = 80
+command = "/usr/local/bin/alert.sh"
+cooldown = "30m"

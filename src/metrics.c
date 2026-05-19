@@ -92,9 +92,9 @@ static void collect_cpu(metrics_t *m)
         return;
     }
 
-    m->cpu_user_pct = (double)(d_user + d_nice) * 100.0 / (double)total;
-    m->cpu_system_pct = (double)(d_system + d_irq + d_softirq) * 100.0 / (double)total;
-    m->cpu_idle_pct = (double)(d_idle + d_iowait) * 100.0 / (double)total;
+    m->cpu_user_percent = (double)(d_user + d_nice) * 100.0 / (double)total;
+    m->cpu_system_percent = (double)(d_system + d_irq + d_softirq) * 100.0 / (double)total;
+    m->cpu_idle_percent = (double)(d_idle + d_iowait) * 100.0 / (double)total;
     m->cpu_valid = 1;
 }
 

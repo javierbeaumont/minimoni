@@ -15,7 +15,7 @@ CIVETWEB_FLAGS = -DNO_SSL -DNO_CGI -DNO_CACHING \
   -DUSE_WEBSOCKET=0 -DUSE_IPV6=0 -DNO_FILES -DNDEBUG
 
 # SRC expands as modules are implemented
-SRC = src/main.c src/metrics.c src/db.c
+SRC = src/main.c src/metrics.c src/db.c src/config.c
 VENDOR = vendor/sqlite3.c vendor/civetweb.c vendor/tomlc17.c
 
 all: embed minimoni
