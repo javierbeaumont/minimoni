@@ -54,4 +54,53 @@ int db_insert(db_t *db, const metrics_t *m);
  */
 int db_prune(db_t *db, int retention_days);
 
+/* -------------------------------------------------------------------------
+ * Query API
+ * ---------------------------------------------------------------------- */
+
+/* One row of metrics, either from the latest snapshot or from a range query. */
+typedef struct {
+    char timestamp[24];
+    long unix_time;
+    /* load (always valid) */
+    double load_1m, load_5m, load_15m;
+    /* cpu (cpu_valid=0 on the first collect cycle — no previous snapshot) */
+    int    cpu_valid;
+    double cpu_user_percent, cpu_system_percent, cpu_idle_percent;
+    /* memory */
+    double mem_total_mb, mem_used_mb, mem_available_mb, mem_percent;
+    /* disk */
+    double disk_total_gb, disk_used_gb, disk_free_gb, disk_percent;
+    /* temperature (temp_valid=0 when sensor is absent) */
+    int    temp_valid;
+    double temp_celsius;
+    /* net throughput in bytes/s (net_valid=0 on the first row or after a
+     * counter reset — the dashboard shows a gap instead of a spike) */
+    int    net_valid;
+    double net_rx_bps;
+    double net_tx_bps;
+    /* uptime */
+    double uptime_seconds;
+} db_row_t;
+
+/*
+ * Fetch the most recent metrics row into *row.  Net throughput is computed
+ * from the two most recent rows; net_valid=0 when only one row exists or
+ * when the counter rolled over.
+ * Returns 0 on success, 1 when the table is empty, -1 on error.
+ */
+int db_current(db_t *db, db_row_t *row);
+
+/*
+ * Query time-series data for the past range_seconds seconds.
+ * bucket_sec=0  → return raw rows (no aggregation).
+ * bucket_sec>0  → aggregate into buckets of that size (AVG per bucket).
+ * Net throughput is computed via LAG() and exposed as bytes/s; negative
+ * deltas (counter reset) become net_valid=0 in the returned rows.
+ *
+ * On success allocates *out_rows on the heap (caller must free) and returns
+ * the row count (>= 0).  Returns -1 on error.
+ */
+int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_rows);
+
 #endif /* MINIMONI_DB_H */

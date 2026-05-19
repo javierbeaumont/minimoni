@@ -7,7 +7,7 @@ CLANG_FORMAT ?= $(shell command -v clang-format \
   || echo /Library/Developer/CommandLineTools/usr/bin/clang-format)
 
 # SQLite: minimal tuning (dead code removed by LTO, not OMIT flags)
-SQLITE_FLAGS = -DSQLITE_THREADSAFE=0 -DSQLITE_DEFAULT_MEMSTATUS=0 \
+SQLITE_FLAGS = -DSQLITE_THREADSAFE=1 -DSQLITE_DEFAULT_MEMSTATUS=0 \
   -DSQLITE_DEFAULT_WAL_SYNCHRONOUS=1 -DSQLITE_LIKE_DOESNT_MATCH_BLOBS
 
 # civetweb: HTTP-only, strip unused features
@@ -15,7 +15,7 @@ CIVETWEB_FLAGS = -DNO_SSL -DNO_CGI -DNO_CACHING \
   -DUSE_WEBSOCKET=0 -DUSE_IPV6=0 -DNO_FILES -DNDEBUG
 
 # SRC expands as modules are implemented
-SRC = src/main.c src/metrics.c src/db.c src/config.c
+SRC = src/main.c src/metrics.c src/db.c src/config.c src/http.c
 VENDOR = vendor/sqlite3.c vendor/civetweb.c vendor/tomlc17.c
 
 all: embed minimoni
