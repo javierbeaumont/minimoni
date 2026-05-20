@@ -223,10 +223,24 @@ See `config.example.toml` for a fully annotated reference.
 
 ## Vendored dependencies
 
-All three compile directly into the binary — no runtime dependencies, no package manager.
+All four compile directly into the binary — no runtime dependencies, no package manager.
 
 | Library | Version | Purpose | License |
 |---|---|---|---|
 | [SQLite](https://www.sqlite.org/) | 3.53.1 | Single-file metric database | Public domain |
 | [civetweb](https://github.com/civetweb/civetweb) | 1.16 | Embedded HTTP server, JSON API | MIT |
 | [tomlc17](https://github.com/cktan/tomlc17) | R260517 | TOML configuration parser | MIT |
+| [BearSSL](https://bearssl.org/) | 0.6 | TLS client for HTTPS webhook delivery | MIT |
+
+## Architecture Decision Records
+
+Significant technology choices are documented as ADRs in [`docs/adr/`](docs/adr/). Each
+record captures the context, the alternatives considered, the decision made, and its
+consequences — so future contributors understand not just what was chosen but why.
+
+| ADR | Decision |
+|---|---|
+| [0001](docs/adr/0001-sqlite.md) | SQLite as the metric store |
+| [0002](docs/adr/0002-civetweb.md) | civetweb as the HTTP server |
+| [0003](docs/adr/0003-tomlc17.md) | tomlc17 as the TOML parser |
+| [0004](docs/adr/0004-bearssl.md) | BearSSL for HTTPS webhook delivery |

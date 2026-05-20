@@ -27,6 +27,8 @@ typedef struct {
     sqlite3_stmt *stmt_insert;
     sqlite3_stmt *stmt_prune_metrics;
     sqlite3_stmt *stmt_prune_alerts;
+    sqlite3_stmt *stmt_alert_check; /* SELECT COUNT from alert_log by name + cutoff */
+    sqlite3_stmt *stmt_alert_fire;  /* INSERT into alert_log */
 } db_t;
 
 /*
@@ -102,5 +104,22 @@ int db_current(db_t *db, db_row_t *row);
  * the row count (>= 0).  Returns -1 on error.
  */
 int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_rows);
+
+/* -------------------------------------------------------------------------
+ * Alert log
+ * ---------------------------------------------------------------------- */
+
+/*
+ * Check whether alert_name fired within the last cooldown_seconds.
+ * Returns 0 if cooled down (safe to fire), 1 if still on cooldown,
+ * -1 on database error.
+ */
+int db_alert_on_cooldown(db_t *db, const char *alert_name, long cooldown_seconds);
+
+/*
+ * Record a fire event for alert_name in alert_log with the current UTC time.
+ * Returns 0 on success, -1 on error.
+ */
+int db_alert_log_fire(db_t *db, const char *alert_name);
 
 #endif /* MINIMONI_DB_H */

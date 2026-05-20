@@ -14,8 +14,12 @@ SQLITE_FLAGS = -DSQLITE_THREADSAFE=1 -DSQLITE_DEFAULT_MEMSTATUS=0 \
 CIVETWEB_FLAGS = -DNO_SSL -DNO_CGI -DNO_CACHING \
   -DUSE_WEBSOCKET=0 -DUSE_IPV6=0 -DNO_FILES -DNDEBUG
 
+# BearSSL: vendored TLS library for HTTPS webhook support
+BEARSSL_LIB = vendor/bearssl/build/libbearssl.a
+BEARSSL_INC = -Ivendor/bearssl/inc
+
 # SRC expands as modules are implemented
-SRC = src/main.c src/metrics.c src/db.c src/config.c src/http.c
+SRC = src/main.c src/metrics.c src/db.c src/config.c src/http.c src/alerts.c
 VENDOR = vendor/sqlite3.c vendor/civetweb.c vendor/tomlc17.c
 
 all: embed minimoni
@@ -26,22 +30,26 @@ all: embed minimoni
 embed:
 	xxd -i dashboard/index.html > src/embed.h
 
-minimoni: $(SRC) $(VENDOR)
-	$(CC) $(CFLAGS) -O2 $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) -Ivendor -Isrc -o $@ $^ $(LDFLAGS)
+$(BEARSSL_LIB):
+	$(MAKE) -C vendor/bearssl CC="$(CC)"
 
-release: embed
-	$(CC) $(CFLAGS) -Os -flto $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) \
-	  -Ivendor -Isrc -o minimoni $(SRC) $(VENDOR) $(LDFLAGS) -Wl,--gc-sections
+minimoni: $(SRC) $(VENDOR) $(BEARSSL_LIB)
+	$(CC) $(CFLAGS) -O2 $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
+	  -Ivendor -Isrc -o $@ $(SRC) $(VENDOR) $(BEARSSL_LIB) $(LDFLAGS)
+
+release: embed $(BEARSSL_LIB)
+	$(CC) $(CFLAGS) -Os -flto $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
+	  -Ivendor -Isrc -o minimoni $(SRC) $(VENDOR) $(BEARSSL_LIB) $(LDFLAGS) -Wl,--gc-sections
 	strip minimoni
 
 release-linux:
 	docker run --rm -v "$(PWD)":/work -w /work alpine:latest \
 	  sh -c "apk add --quiet gcc musl-dev make xxd && make release"
 
-debug: embed
+debug: embed $(BEARSSL_LIB)
 	$(CC) $(CFLAGS) -O0 -g -fsanitize=address,undefined \
-	  $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) -Ivendor -Isrc \
-	  -o minimoni-debug $(SRC) $(VENDOR) $(LDFLAGS_DEBUG)
+	  $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) -Ivendor -Isrc \
+	  -o minimoni-debug $(SRC) $(VENDOR) $(BEARSSL_LIB) $(LDFLAGS_DEBUG)
 
 lint:
 	docker run --rm -v "$(PWD)":/work -w /work alpine:latest \
@@ -57,3 +65,4 @@ hooks:
 
 clean:
 	rm -f minimoni minimoni-debug src/embed.h
+	-$(MAKE) -C vendor/bearssl clean 2>/dev/null

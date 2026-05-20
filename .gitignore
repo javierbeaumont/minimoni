@@ -1,6 +1,8 @@
 minimoni
 minimoni-debug
+minimoni-test
 minimoni-linux-*
+vendor/bearssl/build/
 src/embed.h
 *.db
 *.db-wal
