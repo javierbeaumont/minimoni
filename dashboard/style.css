@@ -1,0 +1,256 @@
+/* ── CSS custom properties (design tokens) ───────────────────────── */
+
+:root {
+  /* Dark theme defaults — Tailwind zinc scale for neutrals */
+  --bg:   #09090b;  /* zinc-950 — page background */
+  --surf: #18181b;  /* zinc-900 — card / panel surface */
+  --brd:  #27272a;  /* zinc-800 — borders */
+  --txt:  #fafafa;  /* zinc-50  — primary text, 17.9:1 on --bg, WCAG AAA */
+  --mut:  #a1a1aa;  /* zinc-400 — muted text, 8.2:1 on --bg, WCAG AAA */
+  /* Semantic status colors (Tailwind *-400 for dark bg) */
+  --grn:  #4ade80;  /* green-400 — good / active data */
+  --ylw:  #fbbf24;  /* amber-400 — warning */
+  --red:  #f87171;  /* red-400   — critical */
+  --acc:  #4ade80;  /* accent unified with green */
+}
+
+/* Explicit light theme via data attribute set by the toggle button */
+[data-theme="light"] {
+  --bg:   #fafafa;  /* zinc-50  */
+  --surf: #ffffff;
+  --brd:  #e4e4e7;  /* zinc-200 */
+  --txt:  #09090b;  /* zinc-950 */
+  --mut:  #52525b;  /* zinc-600 — 6.8:1 on --bg, WCAG AAA */
+  /* Semantic status colors (Tailwind *-700/*-600 for light bg) */
+  --grn:  #15803d;  /* green-700 — 4.6:1 on --bg, WCAG AA */
+  --ylw:  #b45309;  /* amber-700 — 4.6:1 on --bg, WCAG AA */
+  --red:  #dc2626;  /* red-600   — 4.6:1 on --bg, WCAG AA */
+  --acc:  #15803d;
+}
+
+/* Automatic light theme when the OS preference is light and no explicit
+   theme has been set yet (i.e. the user hasn't clicked the toggle) */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg:   #fafafa;
+    --surf: #ffffff;
+    --brd:  #e4e4e7;
+    --txt:  #09090b;
+    --mut:  #52525b;
+    --grn:  #15803d;
+    --ylw:  #b45309;
+    --red:  #dc2626;
+    --acc:  #15803d;
+  }
+}
+
+/* ── Reset ───────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── Base layout ─────────────────────────────────────────────────── */
+
+body {
+  background: var(--bg);
+  color: var(--txt);
+  font: 14px/1.5 system-ui, sans-serif;
+  padding: 16px;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+/* Right-hand header cluster: range tabs + theme toggle */
+.hdr-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+h1 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* Uptime subtitle below the title */
+.sub {
+  color: var(--mut);
+  font-size: 12px;
+}
+
+/* ── Buttons (range tabs + theme toggle) ─────────────────────────── */
+
+button {
+  background: var(--surf);
+  border: 1px solid var(--brd);
+  color: var(--txt);
+  border-radius: 5px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+button:hover:not(.act) {
+  border-color: var(--acc);
+}
+
+/* Active/selected range tab */
+button.act {
+  background: var(--acc);
+  border-color: var(--acc);
+  color: #fff;
+}
+
+/* ── Metric cards ────────────────────────────────────────────────── */
+
+/* Responsive grid: cards shrink to ~130 px minimum, then grow to fill */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.card {
+  background: var(--surf);
+  border: 1px solid var(--brd);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+/* Small all-caps metric label at the top of each card */
+.clabel {
+  font-size: 11px;
+  color: var(--mut);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-bottom: 5px;
+}
+
+/* Large primary value */
+.cval {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+/* Secondary value shown below the primary */
+.csub {
+  font-size: 11px;
+  color: var(--mut);
+  margin-top: 2px;
+}
+
+/* Color the primary value according to the status level */
+.card.g .cval { color: var(--grn); }
+.card.y .cval { color: var(--ylw); }
+.card.r .cval { color: var(--red); }
+
+/* ── Range tab strip ─────────────────────────────────────────────── */
+
+.ranges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ── Chart panels ────────────────────────────────────────────────── */
+
+.charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+.cbox {
+  background: var(--surf);
+  border: 1px solid var(--brd);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+/* Hidden chart box (used for temperature when no sensor is present) */
+.cbox.hide {
+  display: none;
+}
+
+/* Chart header: title on the left, legend on the right */
+.chdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.ctitle {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ── Chart legend ────────────────────────────────────────────────── */
+
+.legend {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Each legend entry: colored dot + label; clicking toggles the series */
+.leg-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--mut);
+  cursor: pointer;
+  user-select: none;
+}
+
+.leg-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Dimmed + strikethrough when a series is toggled off */
+.leg-item.off {
+  opacity: 0.35;
+  text-decoration: line-through;
+}
+
+/* ── Canvas ──────────────────────────────────────────────────────── */
+
+/* Width is set dynamically by drawChart(); only height is fixed here */
+canvas {
+  display: block;
+  height: 110px;
+}
+
+/* ── Footer ──────────────────────────────────────────────────────── */
+
+footer {
+  text-align: center;
+  margin-top: 28px;
+  padding: 10px;
+  color: var(--mut);
+  font-size: 11px;
+}
+
+footer a {
+  color: var(--mut);
+  text-decoration: none;
+}
+
+footer a:hover {
+  text-decoration: underline;
+}

@@ -1,5 +1,100 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>minimoni</title></head>
-<body><p>Dashboard placeholder.</p></body>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>minimoni</title>
+  <!-- Replaced with inline data URI by tools/bundle.sh at build time -->
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <!-- Replaced with inline <style> by tools/bundle.sh at build time -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ── Header: title, uptime, range tabs, theme toggle ────────────── -->
+  <header>
+    <div>
+      <h1 id="ttl">minimoni</h1>
+      <div class="sub" id="upt"></div>
+    </div>
+    <div class="hdr-right">
+      <div class="ranges" id="rngs"></div>
+      <button id="thm" onclick="toggleTheme()">&#9728; Light</button>
+    </div>
+  </header>
+
+  <!-- ── Metric cards (visibility and order driven by server config) ── -->
+  <div class="cards">
+    <div class="card" id="c-load">
+      <div class="clabel">CPU Load</div>
+      <div class="cval">&#8212;</div>
+      <div class="csub"></div>
+    </div>
+    <div class="card" id="c-cpu">
+      <div class="clabel">CPU Usage</div>
+      <div class="cval">&#8212;</div>
+      <div class="csub"></div>
+    </div>
+    <div class="card" id="c-mem">
+      <div class="clabel">Memory</div>
+      <div class="cval">&#8212;</div>
+      <div class="csub"></div>
+    </div>
+    <div class="card" id="c-disk">
+      <div class="clabel">Disk</div>
+      <div class="cval">&#8212;</div>
+      <div class="csub"></div>
+    </div>
+    <!-- Temperature card: hidden until the server confirms a valid sensor -->
+    <div class="card" id="c-temp" style="display:none">
+      <div class="clabel">Temp</div>
+      <div class="cval">&#8212;</div>
+    </div>
+    <div class="card" id="c-net">
+      <div class="clabel">Network</div>
+      <div class="cval">&#8212;</div>
+      <div class="csub"></div>
+    </div>
+  </div>
+
+  <!-- ── Chart panels (visibility and order driven by server config) ── -->
+  <div class="charts">
+    <div class="cbox" id="b-load">
+      <div class="chdr"><span class="ctitle">CPU Load</span></div>
+      <canvas id="g-load"></canvas>
+    </div>
+    <div class="cbox" id="b-cpu">
+      <div class="chdr"><span class="ctitle">CPU Usage</span></div>
+      <canvas id="g-cpu"></canvas>
+    </div>
+    <div class="cbox" id="b-mem">
+      <div class="chdr"><span class="ctitle">Memory</span></div>
+      <canvas id="g-mem"></canvas>
+    </div>
+    <div class="cbox" id="b-disk">
+      <div class="chdr"><span class="ctitle">Disk</span></div>
+      <canvas id="g-disk"></canvas>
+    </div>
+    <!-- Temperature panel: hidden by default; shown only when pts contain
+         at least one non-null temperature sample -->
+    <div class="cbox hide" id="b-temp">
+      <div class="chdr"><span class="ctitle">Temperature</span></div>
+      <canvas id="g-temp"></canvas>
+    </div>
+    <div class="cbox" id="b-net">
+      <div class="chdr"><span class="ctitle">Network</span></div>
+      <canvas id="g-net"></canvas>
+    </div>
+  </div>
+
+  <!-- ── Footer: shown only when show_footer=true in server config ──── -->
+  <footer id="ftr" style="display:none">
+    <a href="https://github.com/javierbeaumont/minimoni" target="_blank">minimoni</a>
+    <span id="ftr-ver"></span> — zero-dependency system monitoring
+  </footer>
+
+  <!-- Replaced with inline <script> by tools/bundle.sh at build time -->
+  <script src="app.js"></script>
+
+</body>
 </html>
