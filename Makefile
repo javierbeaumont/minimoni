@@ -1,5 +1,6 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11
+VERSION := $(shell git describe --tags --always 2>/dev/null || echo unknown)
+CFLAGS = -Wall -Wextra -std=c11 -DMINIMONI_VERSION=\"$(VERSION)\"
 LDFLAGS = -static -lpthread
 LDFLAGS_DEBUG = -lpthread
 
@@ -44,7 +45,7 @@ release: embed $(BEARSSL_LIB)
 
 release-linux:
 	docker run --rm -v "$(PWD)":/work -w /work alpine:latest \
-	  sh -c "apk add --quiet gcc musl-dev make xxd && make release"
+	  sh -c "apk add --quiet gcc musl-dev make xxd git && make release"
 
 debug: embed $(BEARSSL_LIB)
 	$(CC) $(CFLAGS) -O0 -g -fsanitize=address,undefined \
