@@ -98,6 +98,8 @@ void config_defaults(config_t *cfg)
     snprintf(cfg->ranges[3], sizeof(cfg->ranges[3]), "%s", "90d");
     cfg->range_count = 4;
     cfg->points = 300;
+    cfg->threads = 8;
+    cfg->sse_keepalive_seconds = 1;
     cfg->interval_seconds = 60;
     cfg->refresh_seconds = 30;
 }
@@ -116,6 +118,21 @@ int config_load(config_t *cfg, const char *path)
     /* [server] */
     v = toml_seek(root, "server.listen");
     str_copy(cfg->listen, sizeof(cfg->listen), v);
+    v = toml_seek(root, "server.threads");
+    if (v.type == TOML_INT64 && v.u.int64 >= 2 && v.u.int64 <= 256)
+        cfg->threads = (int)v.u.int64;
+    else if (v.type == TOML_INT64 && v.u.int64 < 2) {
+        fprintf(stderr, "config: threads must be >= 2 (got %lld); aborting\n", v.u.int64);
+        toml_free(res);
+        return -1;
+    } else if (v.type == TOML_INT64)
+        fprintf(stderr, "config: threads must be <= 256 (got %lld); using default\n", v.u.int64);
+    v = toml_seek(root, "server.sse_keepalive");
+    if (v.type == TOML_INT64 && v.u.int64 > 0)
+        cfg->sse_keepalive_seconds = (int)v.u.int64;
+    else if (v.type == TOML_INT64)
+        fprintf(stderr, "config: sse_keepalive must be > 0 (got %lld); using default\n", v.u.int64);
+
     /* [collect] */
     v = toml_seek(root, "collect.interval");
     if (v.type == TOML_STRING) {
@@ -146,6 +163,8 @@ int config_load(config_t *cfg, const char *path)
     v = toml_seek(root, "dashboard.refresh");
     if (v.type == TOML_INT64 && v.u.int64 > 0)
         cfg->refresh_seconds = (int)v.u.int64;
+    else if (v.type == TOML_INT64)
+        fprintf(stderr, "config: refresh must be > 0 (got %lld); using default\n", v.u.int64);
     v = toml_seek(root, "dashboard.memory_card_unit");
     str_copy(cfg->memory_card_unit, sizeof(cfg->memory_card_unit), v);
     v = toml_seek(root, "dashboard.memory_chart_unit");
@@ -197,9 +216,13 @@ int config_load(config_t *cfg, const char *path)
         cfg->temp_max = (float)v.u.fp64;
     else if (v.type == TOML_INT64 && v.u.int64 > 0)
         cfg->temp_max = (float)v.u.int64;
+    else if (v.type == TOML_FP64 || v.type == TOML_INT64)
+        fprintf(stderr, "config: temp_max must be > 0; using default\n");
     v = toml_seek(root, "dashboard.points");
     if (v.type == TOML_INT64 && v.u.int64 > 0)
         cfg->points = (int)v.u.int64;
+    else if (v.type == TOML_INT64)
+        fprintf(stderr, "config: points must be > 0 (got %lld); using default\n", v.u.int64);
     v = toml_seek(root, "dashboard.ranges");
     if (v.type == TOML_ARRAY && v.u.arr.size > 0) {
         int count = 0;
@@ -290,6 +313,17 @@ int config_load(config_t *cfg, const char *path)
     }
 
     toml_free(res);
+
+    if (cfg->refresh_seconds > cfg->interval_seconds) {
+        fprintf(stderr, "config: refresh (%ds) > interval (%lds); clamping refresh to interval\n",
+                cfg->refresh_seconds, cfg->interval_seconds);
+        cfg->refresh_seconds = (int)cfg->interval_seconds;
+    }
+
+    if (cfg->sse_keepalive_seconds >= cfg->refresh_seconds)
+        fprintf(stderr, "config: sse_keepalive (%ds) >= refresh (%ds); keepalive inactive\n",
+                cfg->sse_keepalive_seconds, cfg->refresh_seconds);
+
     return 0;
 }
 
