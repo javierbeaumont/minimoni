@@ -76,12 +76,19 @@ void config_defaults(config_t *cfg)
     snprintf(cfg->db_path, sizeof(cfg->db_path), "%s", "./metrics.db");
     snprintf(cfg->disk_path, sizeof(cfg->disk_path), "%s", "/");
     snprintf(cfg->title, sizeof(cfg->title), "%s", "minimoni");
-    snprintf(cfg->memory_unit, sizeof(cfg->memory_unit), "%s", "mb");
-    snprintf(cfg->disk_unit, sizeof(cfg->disk_unit), "%s", "gb");
-    snprintf(cfg->temp_unit, sizeof(cfg->temp_unit), "%s", "c");
+    snprintf(cfg->theme, sizeof(cfg->theme), "%s", "auto");
+    cfg->show_footer = 1;
+    snprintf(cfg->memory_card_unit, sizeof(cfg->memory_card_unit), "%s", "%");
+    snprintf(cfg->memory_chart_unit, sizeof(cfg->memory_chart_unit), "%s", "mb");
+    snprintf(cfg->disk_card_unit, sizeof(cfg->disk_card_unit), "%s", "%");
+    snprintf(cfg->disk_chart_unit, sizeof(cfg->disk_chart_unit), "%s", "gb");
+    snprintf(cfg->temp_card_unit, sizeof(cfg->temp_card_unit), "%s", "c");
+    snprintf(cfg->temp_chart_unit, sizeof(cfg->temp_chart_unit), "%s", "c");
     cfg->temp_max = 100.0f;
-    snprintf(cfg->cpu_load_unit, sizeof(cfg->cpu_load_unit), "%s", "abs");
-    snprintf(cfg->net_unit, sizeof(cfg->net_unit), "%s", "mb");
+    snprintf(cfg->cpu_load_card_unit, sizeof(cfg->cpu_load_card_unit), "%s", "abs");
+    snprintf(cfg->cpu_load_chart_unit, sizeof(cfg->cpu_load_chart_unit), "%s", "abs");
+    snprintf(cfg->net_card_unit, sizeof(cfg->net_card_unit), "%s", "mb");
+    snprintf(cfg->net_chart_unit, sizeof(cfg->net_chart_unit), "%s", "mb");
     snprintf(cfg->uptime_unit, sizeof(cfg->uptime_unit), "%s", "auto");
     cfg->chart_count = 0; /* 0 = show all in default order */
     cfg->card_count = 0;
@@ -109,7 +116,6 @@ int config_load(config_t *cfg, const char *path)
     /* [server] */
     v = toml_seek(root, "server.listen");
     str_copy(cfg->listen, sizeof(cfg->listen), v);
-
     /* [collect] */
     v = toml_seek(root, "collect.interval");
     if (v.type == TOML_STRING) {
@@ -127,37 +133,65 @@ int config_load(config_t *cfg, const char *path)
     /* [dashboard] */
     v = toml_seek(root, "dashboard.title");
     str_copy(cfg->title, sizeof(cfg->title), v);
+    v = toml_seek(root, "dashboard.show_footer");
+    if (v.type == TOML_BOOLEAN)
+        cfg->show_footer = v.u.boolean ? 1 : 0;
+    v = toml_seek(root, "dashboard.theme");
+    if (v.type == TOML_STRING) {
+        if (strcmp(v.u.s, "light") == 0 || strcmp(v.u.s, "dark") == 0 || strcmp(v.u.s, "auto") == 0)
+            str_copy(cfg->theme, sizeof(cfg->theme), v);
+        else
+            fprintf(stderr, "config: invalid theme '%s', using default\n", v.u.s);
+    }
     v = toml_seek(root, "dashboard.refresh");
     if (v.type == TOML_INT64 && v.u.int64 > 0)
         cfg->refresh_seconds = (int)v.u.int64;
-    v = toml_seek(root, "dashboard.memory_unit");
-    str_copy(cfg->memory_unit, sizeof(cfg->memory_unit), v);
-    v = toml_seek(root, "dashboard.disk_unit");
-    str_copy(cfg->disk_unit, sizeof(cfg->disk_unit), v);
-    v = toml_seek(root, "dashboard.cpu_load_unit");
-    str_copy(cfg->cpu_load_unit, sizeof(cfg->cpu_load_unit), v);
-    v = toml_seek(root, "dashboard.net_unit");
-    str_copy(cfg->net_unit, sizeof(cfg->net_unit), v);
+    v = toml_seek(root, "dashboard.memory_card_unit");
+    str_copy(cfg->memory_card_unit, sizeof(cfg->memory_card_unit), v);
+    v = toml_seek(root, "dashboard.memory_chart_unit");
+    str_copy(cfg->memory_chart_unit, sizeof(cfg->memory_chart_unit), v);
+    v = toml_seek(root, "dashboard.disk_card_unit");
+    str_copy(cfg->disk_card_unit, sizeof(cfg->disk_card_unit), v);
+    v = toml_seek(root, "dashboard.disk_chart_unit");
+    str_copy(cfg->disk_chart_unit, sizeof(cfg->disk_chart_unit), v);
+    v = toml_seek(root, "dashboard.cpu_load_card_unit");
+    str_copy(cfg->cpu_load_card_unit, sizeof(cfg->cpu_load_card_unit), v);
+    v = toml_seek(root, "dashboard.cpu_load_chart_unit");
+    str_copy(cfg->cpu_load_chart_unit, sizeof(cfg->cpu_load_chart_unit), v);
+    v = toml_seek(root, "dashboard.net_card_unit");
+    str_copy(cfg->net_card_unit, sizeof(cfg->net_card_unit), v);
+    v = toml_seek(root, "dashboard.net_chart_unit");
+    str_copy(cfg->net_chart_unit, sizeof(cfg->net_chart_unit), v);
     v = toml_seek(root, "dashboard.uptime_unit");
     str_copy(cfg->uptime_unit, sizeof(cfg->uptime_unit), v);
     v = toml_seek(root, "dashboard.charts");
     if (v.type == TOML_ARRAY) {
-        for (int i = 0; i < v.u.arr.size && cfg->chart_count < MAX_CHARTS; i++) {
-            toml_datum_t e = v.u.arr.elem[i];
-            if (e.type == TOML_STRING)
-                snprintf(cfg->charts[cfg->chart_count++], 16, "%s", e.u.s);
+        if (v.u.arr.size == 0) {
+            cfg->chart_count = -1; /* explicit empty: hide all */
+        } else {
+            for (int i = 0; i < v.u.arr.size && cfg->chart_count < MAX_CHARTS; i++) {
+                toml_datum_t e = v.u.arr.elem[i];
+                if (e.type == TOML_STRING)
+                    snprintf(cfg->charts[cfg->chart_count++], 16, "%s", e.u.s);
+            }
         }
     }
     v = toml_seek(root, "dashboard.cards");
     if (v.type == TOML_ARRAY) {
-        for (int i = 0; i < v.u.arr.size && cfg->card_count < MAX_CARDS; i++) {
-            toml_datum_t e = v.u.arr.elem[i];
-            if (e.type == TOML_STRING)
-                snprintf(cfg->cards[cfg->card_count++], 16, "%s", e.u.s);
+        if (v.u.arr.size == 0) {
+            cfg->card_count = -1; /* explicit empty: hide all */
+        } else {
+            for (int i = 0; i < v.u.arr.size && cfg->card_count < MAX_CARDS; i++) {
+                toml_datum_t e = v.u.arr.elem[i];
+                if (e.type == TOML_STRING)
+                    snprintf(cfg->cards[cfg->card_count++], 16, "%s", e.u.s);
+            }
         }
     }
-    v = toml_seek(root, "dashboard.temp_unit");
-    str_copy(cfg->temp_unit, sizeof(cfg->temp_unit), v);
+    v = toml_seek(root, "dashboard.temp_card_unit");
+    str_copy(cfg->temp_card_unit, sizeof(cfg->temp_card_unit), v);
+    v = toml_seek(root, "dashboard.temp_chart_unit");
+    str_copy(cfg->temp_chart_unit, sizeof(cfg->temp_chart_unit), v);
     v = toml_seek(root, "dashboard.temp_max");
     if (v.type == TOML_FP64 && v.u.fp64 > 0)
         cfg->temp_max = (float)v.u.fp64;
