@@ -86,11 +86,31 @@ static void jbuf_str(jbuf_t *j, const char *key, const char *val)
     jbuf_raw(j, tmp);
 }
 
+static int cfg_has(const char list[][16], int count, const char *name)
+{
+    if (count == 0)
+        return 1; /* default: show all */
+    if (count < 0)
+        return 0; /* explicit empty list: hide all */
+    for (int i = 0; i < count; i++)
+        if (strcmp(list[i], name) == 0)
+            return 1;
+    return 0;
+}
+
 static void jbuf_real(jbuf_t *j, const char *key, double val)
 {
     jbuf_sep(j);
     char tmp[128];
     snprintf(tmp, sizeof(tmp), "\"%s\":%.4g", key, val);
+    jbuf_raw(j, tmp);
+}
+
+static void jbuf_long(jbuf_t *j, const char *key, long val)
+{
+    jbuf_sep(j);
+    char tmp[64];
+    snprintf(tmp, sizeof(tmp), "\"%s\":%ld", key, val);
     jbuf_raw(j, tmp);
 }
 
@@ -162,10 +182,12 @@ static const int BUCKETS[] = {60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 2
 
 /* Return the best bucket size in seconds, or 0 for raw (no aggregation).
  * Iterates ascending so ties naturally resolve to the smaller bucket. */
-static int pick_bucket(long range_sec, int interval_sec, int points)
+static int pick_bucket(long range_sec, int interval_sec, int points, int actual_count)
 {
     if (points <= 0)
         points = 300;
+    if (actual_count >= 0 && actual_count <= points)
+        return 0; /* fewer rows than target — show raw for progressive resolution */
     long ideal = range_sec / (long)points;
     if (ideal <= interval_sec)
         return 0; /* raw */
@@ -207,6 +229,36 @@ static int read_num_cores(void)
     return (n > 0) ? n : 1;
 }
 
+static void read_temp_critical(http_ctx_t *ctx)
+{
+    ctx->temp_critical_valid = 0;
+    for (int i = 0; i < 16; i++) {
+        char path[128];
+        snprintf(path, sizeof(path), "/sys/class/thermal/thermal_zone0/trip_point_%d_type", i);
+        FILE *f = fopen(path, "r");
+        if (!f)
+            break;
+        char type[32] = {0};
+        fgets(type, sizeof(type), f);
+        fclose(f);
+        type[strcspn(type, "\n")] = '\0';
+        if (strcmp(type, "critical") != 0)
+            continue;
+        snprintf(path, sizeof(path), "/sys/class/thermal/thermal_zone0/trip_point_%d_temp", i);
+        f = fopen(path, "r");
+        if (!f)
+            break;
+        long md = 0;
+        int  ok = (fscanf(f, "%ld", &md) == 1);
+        fclose(f);
+        if (ok && md > 0) {
+            ctx->temp_critical = (double)md / 1000.0;
+            ctx->temp_critical_valid = 1;
+        }
+        break;
+    }
+}
+
 /* =========================================================================
  * Serialize one db_row_t to a jbuf using the configured units.
  * Used by /api/current and /stream (SSE).
@@ -215,10 +267,10 @@ static int read_num_cores(void)
 static void serialize_current(jbuf_t *j, const db_row_t *r, const http_ctx_t *ctx)
 {
     const config_t *cfg = ctx->cfg;
-    const char     *lu = cfg->cpu_load_unit;
-    const char     *mu = cfg->memory_unit;
-    const char     *du = cfg->disk_unit;
-    const char     *nu = cfg->net_unit;
+    const char     *lu = cfg->cpu_load_card_unit;
+    const char     *mu = cfg->memory_card_unit;
+    const char     *du = cfg->disk_card_unit;
+    const char     *nu = cfg->net_card_unit;
 
     jbuf_str(j, "timestamp", r->timestamp);
 
@@ -238,6 +290,7 @@ static void serialize_current(jbuf_t *j, const db_row_t *r, const http_ctx_t *ct
 
     if (mu[0] != '%') {
         jbuf_real(j, "mem_used", mem_convert(r->mem_used_mb, mu));
+        jbuf_real(j, "mem_available", mem_convert(r->mem_available_mb, mu));
         jbuf_real(j, "mem_total", mem_convert(r->mem_total_mb, mu));
     }
     jbuf_real(j, "mem_percent", r->mem_percent);
@@ -249,10 +302,17 @@ static void serialize_current(jbuf_t *j, const db_row_t *r, const http_ctx_t *ct
     }
     jbuf_real(j, "disk_percent", r->disk_percent);
 
-    if (r->temp_valid)
-        jbuf_real(j, "temp", temp_convert(r->temp_celsius, cfg->temp_unit, cfg->temp_max));
-    else
-        jbuf_null(j, "temp");
+    if (cfg_has(cfg->cards, cfg->card_count, "temp")) {
+        if (r->temp_valid)
+            jbuf_real(j, "temp", temp_convert(r->temp_celsius, cfg->temp_card_unit, cfg->temp_max));
+        else
+            jbuf_null(j, "temp");
+        if (ctx->temp_critical_valid)
+            jbuf_real(j, "temp_critical",
+                      temp_convert(ctx->temp_critical, cfg->temp_card_unit, cfg->temp_max));
+        else
+            jbuf_null(j, "temp_critical");
+    }
 
     if (r->net_valid) {
         jbuf_real(j, "net_rx", net_convert(r->net_rx_bps, nu));
@@ -263,6 +323,67 @@ static void serialize_current(jbuf_t *j, const db_row_t *r, const http_ctx_t *ct
     }
 
     jbuf_real(j, "uptime_seconds", r->uptime_seconds);
+
+    jbuf_str(j, "mem_card_unit", cfg->memory_card_unit);
+    jbuf_str(j, "mem_chart_unit", cfg->memory_chart_unit);
+    jbuf_str(j, "disk_card_unit", cfg->disk_card_unit);
+    jbuf_str(j, "disk_chart_unit", cfg->disk_chart_unit);
+    jbuf_str(j, "temp_card_unit", cfg->temp_card_unit);
+    jbuf_str(j, "temp_chart_unit", cfg->temp_chart_unit);
+    jbuf_str(j, "net_card_unit", cfg->net_card_unit);
+    jbuf_str(j, "net_chart_unit", cfg->net_chart_unit);
+    jbuf_str(j, "cpu_load_card_unit", cfg->cpu_load_card_unit);
+    jbuf_str(j, "cpu_load_chart_unit", cfg->cpu_load_chart_unit);
+
+    jbuf_str(j, "title", cfg->title);
+    jbuf_str(j, "version", MINIMONI_VERSION);
+    jbuf_str(j, "theme", cfg->theme);
+    jbuf_sep(j);
+    jbuf_raw(j, cfg->show_footer ? "\"show_footer\":true" : "\"show_footer\":false");
+    jbuf_str(j, "uptime_unit", cfg->uptime_unit);
+
+    jbuf_sep(j);
+    jbuf_raw(j, "\"ranges\":[");
+    for (int i = 0; i < cfg->range_count; i++) {
+        char rs[16];
+        snprintf(rs, sizeof(rs), "%s\"%s\"", i > 0 ? "," : "", cfg->ranges[i]);
+        jbuf_raw(j, rs);
+    }
+    jbuf_raw(j, "]");
+
+    if (cfg->chart_count == 0) {
+        jbuf_sep(j);
+        jbuf_raw(j, "\"charts\":null");
+    } else if (cfg->chart_count < 0) {
+        jbuf_sep(j);
+        jbuf_raw(j, "\"charts\":[]");
+    } else {
+        jbuf_sep(j);
+        jbuf_raw(j, "\"charts\":[");
+        for (int i = 0; i < cfg->chart_count; i++) {
+            char cs[24];
+            snprintf(cs, sizeof(cs), "%s\"%s\"", i > 0 ? "," : "", cfg->charts[i]);
+            jbuf_raw(j, cs);
+        }
+        jbuf_raw(j, "]");
+    }
+
+    if (cfg->card_count == 0) {
+        jbuf_sep(j);
+        jbuf_raw(j, "\"cards\":null");
+    } else if (cfg->card_count < 0) {
+        jbuf_sep(j);
+        jbuf_raw(j, "\"cards\":[]");
+    } else {
+        jbuf_sep(j);
+        jbuf_raw(j, "\"cards\":[");
+        for (int i = 0; i < cfg->card_count; i++) {
+            char ks[24];
+            snprintf(ks, sizeof(ks), "%s\"%s\"", i > 0 ? "," : "", cfg->cards[i]);
+            jbuf_raw(j, ks);
+        }
+        jbuf_raw(j, "]");
+    }
 }
 
 /* =========================================================================
@@ -271,7 +392,7 @@ static void serialize_current(jbuf_t *j, const db_row_t *r, const http_ctx_t *ct
 
 static int handler_root(struct mg_connection *conn, void *cbdata)
 {
-    const http_ctx_t *ctx = (const http_ctx_t *)cbdata;
+    (void)cbdata;
     mg_send_http_ok(conn, "text/html; charset=utf-8", (long long)dashboard_index_html_len);
     mg_write(conn, dashboard_index_html, dashboard_index_html_len);
     return 200;
@@ -280,7 +401,7 @@ static int handler_root(struct mg_connection *conn, void *cbdata)
 static int handler_health(struct mg_connection *conn, void *cbdata)
 {
     (void)cbdata;
-    static const char body[] = "{\"status\":\"ok\",\"version\":\"1.0.0\"}";
+    static const char body[] = "{\"status\":\"ok\",\"version\":\"" MINIMONI_VERSION "\"}";
     mg_send_http_ok(conn, "application/json", sizeof(body) - 1);
     mg_write(conn, body, sizeof(body) - 1);
     return 200;
@@ -311,7 +432,7 @@ static int handler_current(struct mg_connection *conn, void *cbdata)
         return 500;
     }
 
-    char   buf[2048];
+    char   buf[4096];
     jbuf_t j;
     jbuf_init(&j, buf, sizeof(buf));
     jbuf_begin(&j);
@@ -364,7 +485,8 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
     if (rsec <= 0)
         rsec = 86400L;
 
-    int bucket = pick_bucket(rsec, (int)ctx->cfg->interval_seconds, ctx->cfg->points);
+    int actual_count = db_count_range(ctx->db, rsec);
+    int bucket = pick_bucket(rsec, (int)ctx->cfg->interval_seconds, ctx->cfg->points, actual_count);
 
     db_row_t *rows = NULL;
     int       cnt = db_query_range(ctx->db, rsec, bucket, &rows);
@@ -379,10 +501,10 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
     }
 
     const config_t *cfg = ctx->cfg;
-    const char     *lu = cfg->cpu_load_unit;
-    const char     *mu = cfg->memory_unit;
-    const char     *du = cfg->disk_unit;
-    const char     *nu = cfg->net_unit;
+    const char     *lu = cfg->cpu_load_chart_unit;
+    const char     *mu = cfg->memory_chart_unit;
+    const char     *du = cfg->disk_chart_unit;
+    const char     *nu = cfg->net_chart_unit;
     int             pct_mu = (mu[0] == '%');
     int             pct_du = (du[0] == '%');
 
@@ -401,7 +523,7 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
         jbuf_init(&j, pt, sizeof(pt));
         jbuf_begin(&j);
 
-        jbuf_str(&j, "t", r->timestamp);
+        jbuf_long(&j, "t", r->unix_time);
 
         jbuf_real(&j, "l1", load_convert(r->load_1m, ctx->num_cores, lu));
         jbuf_real(&j, "l5", load_convert(r->load_5m, ctx->num_cores, lu));
@@ -419,6 +541,7 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
 
         if (!pct_mu) {
             jbuf_real(&j, "mu", mem_convert(r->mem_used_mb, mu));
+            jbuf_real(&j, "ma", mem_convert(r->mem_available_mb, mu));
             jbuf_real(&j, "mt", mem_convert(r->mem_total_mb, mu));
         }
         jbuf_real(&j, "mp", r->mem_percent);
@@ -430,10 +553,13 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
         }
         jbuf_real(&j, "dp", r->disk_percent);
 
-        if (r->temp_valid)
-            jbuf_real(&j, "tp", temp_convert(r->temp_celsius, cfg->temp_unit, cfg->temp_max));
-        else
-            jbuf_null(&j, "tp");
+        if (cfg_has(cfg->charts, cfg->chart_count, "temp")) {
+            if (r->temp_valid)
+                jbuf_real(&j, "tp",
+                          temp_convert(r->temp_celsius, cfg->temp_chart_unit, cfg->temp_max));
+            else
+                jbuf_null(&j, "tp");
+        }
 
         if (r->net_valid) {
             jbuf_real(&j, "nr", net_convert(r->net_rx_bps, nu));
@@ -469,7 +595,7 @@ static int handler_stream(struct mg_connection *conn, void *cbdata)
     for (;;) {
         db_row_t row;
         if (db_current(ctx->db, &row) == 0) {
-            char   buf[2048];
+            char   buf[4096];
             jbuf_t j;
             jbuf_init(&j, buf, sizeof(buf));
             jbuf_begin(&j);
@@ -481,10 +607,19 @@ static int handler_stream(struct mg_connection *conn, void *cbdata)
                 break; /* client disconnected */
         }
 
-        /* Wait refresh_seconds in 1-second ticks so we notice stopping quickly. */
+        /* Wait refresh_seconds in 1-second ticks. Send SSE keepalive comments
+         * at the configured interval to detect client disconnection early.
+         * Keepalive is inactive when sse_keepalive_seconds >= refresh_seconds. */
         struct timespec ts = {1, 0};
-        for (int i = 0; i < ctx->cfg->refresh_seconds && !ctx->stopping; i++)
+        int             ka = ctx->cfg->sse_keepalive_seconds;
+        int             ka_active = ka > 0 && ka < ctx->cfg->refresh_seconds;
+        for (int i = 1; i <= ctx->cfg->refresh_seconds && !ctx->stopping; i++) {
             nanosleep(&ts, NULL);
+            if (ka_active && i % ka == 0) {
+                if (mg_printf(conn, ": keepalive\n\n") <= 0)
+                    return 200;
+            }
+        }
 
         if (ctx->stopping)
             break;
@@ -502,8 +637,11 @@ int http_start(http_ctx_t *ctx, const config_t *cfg, db_t *db)
     ctx->cfg = cfg;
     ctx->db = db;
     ctx->num_cores = read_num_cores();
+    read_temp_critical(ctx);
 
-    const char *options[] = {"listening_ports",    cfg->listen, "num_threads", "4",
+    char threads_str[8];
+    snprintf(threads_str, sizeof(threads_str), "%d", cfg->threads);
+    const char *options[] = {"listening_ports",    cfg->listen, "num_threads", threads_str,
                              "request_timeout_ms", "30000",     NULL};
 
     struct mg_callbacks cbs;
