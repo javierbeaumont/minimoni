@@ -105,6 +105,14 @@ int db_current(db_t *db, db_row_t *row);
  */
 int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_rows);
 
+/*
+ * Return the number of raw rows in the past range_seconds seconds.
+ * Used by the HTTP handler to skip bucketing when fewer rows than the
+ * target point count exist (progressive resolution at startup).
+ * Returns the count (>= 0) on success, -1 on error.
+ */
+int db_count_range(db_t *db, long range_seconds);
+
 /* -------------------------------------------------------------------------
  * Alert log
  * ---------------------------------------------------------------------- */
