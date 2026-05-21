@@ -155,7 +155,34 @@ static int collect_disk(metrics_t *m, const char *disk_path)
 
 static void collect_temp(metrics_t *m)
 {
-    FILE *f = fopen("/sys/class/thermal/thermal_zone0/temp", "r");
+    /* Prefer CPU-specific zones over generic ACPI zones. */
+    static const char *PREFERRED[] = {"x86_pkg_temp", "cpu-thermal", "soc_thermal", NULL};
+
+    int best_zone = 0;
+    int best_pri = (int)(sizeof(PREFERRED) / sizeof(PREFERRED[0]));
+
+    for (int z = 0; z < 32; z++) {
+        char path[128];
+        snprintf(path, sizeof(path), "/sys/class/thermal/thermal_zone%d/type", z);
+        FILE *f = fopen(path, "r");
+        if (!f)
+            break;
+        char type[32] = {0};
+        fgets(type, sizeof(type), f);
+        fclose(f);
+        type[strcspn(type, "\n")] = '\0';
+
+        for (int p = 0; PREFERRED[p]; p++) {
+            if (strcmp(type, PREFERRED[p]) == 0 && p < best_pri) {
+                best_pri = p;
+                best_zone = z;
+            }
+        }
+    }
+
+    char path[128];
+    snprintf(path, sizeof(path), "/sys/class/thermal/thermal_zone%d/temp", best_zone);
+    FILE *f = fopen(path, "r");
     if (!f) {
         m->temp_valid = 0;
         return;
