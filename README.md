@@ -16,6 +16,22 @@ minimoni collect -->  collect metrics  -->  SQLite     (oneshot — for systemd 
 Metrics are read from `/proc/` and `/sys/`. The dashboard HTML is embedded in the binary
 at build time.
 
+## Installation
+
+Prebuilt static binaries are available on the
+[releases page](https://github.com/javierbeaumont/minimoni/releases).
+
+```sh
+ARCH=$(uname -m)
+case $ARCH in x86_64) ARCH=amd64 ;; aarch64) ARCH=arm64 ;; esac
+BASE=https://github.com/javierbeaumont/minimoni/releases/latest/download
+curl -fsSL $BASE/minimoni-linux-$ARCH -o /usr/local/bin/minimoni
+chmod +x /usr/local/bin/minimoni
+```
+
+Supported platforms: `linux-amd64` (x86\_64), `linux-arm64` (Raspberry Pi 3/4/5,
+AArch64 boards).
+
 ## Building
 
 ```sh
