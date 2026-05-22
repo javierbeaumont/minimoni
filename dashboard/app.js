@@ -11,22 +11,22 @@ var THRESH = {
 
 /* Chart series colours — purely for identification, no semantic meaning.
  * Semantic status (good/warn/critical) uses --grn/--ylw/--red from CSS.
- * C1 rose-500  (#f43f5e): load1, user, mem, disk, tx, temp
- * C2 sky-600   (#0284c7): load5, sys, memAvail, diskFree, rx
- * C3 zinc-500  (#71717a): load15 */
+ * C1 sky-400   (#38bdf8): load1, user, mem, disk, tx
+ * C2 violet-400 (#a78bfa): load5, sys, memAvail, diskFree, rx
+ * C3 slate-400 (#94a3b8): load15, temp */
 var CLR = {
-  load1:    '#f43f5e',
-  load5:    '#0284c7',
-  load15:   '#71717a',
-  user:     '#f43f5e',
-  sys:      '#0284c7',
-  mem:      '#f43f5e',
-  memAvail: '#0284c7',
-  disk:     '#f43f5e',
-  diskFree: '#0284c7',
-  temp:     '#f43f5e',
-  rx:       '#0284c7',
-  tx:       '#f43f5e',
+  load1:    '#38bdf8',
+  load5:    '#a78bfa',
+  load15:   '#94a3b8',
+  user:     '#38bdf8',
+  sys:      '#a78bfa',
+  mem:      '#38bdf8',
+  memAvail: '#a78bfa',
+  disk:     '#38bdf8',
+  diskFree: '#a78bfa',
+  temp:     '#38bdf8',
+  rx:       '#a78bfa',
+  tx:       '#38bdf8',
 };
 
 /* ── State ───────────────────────────────────────────────────────── */
