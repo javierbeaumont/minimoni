@@ -71,7 +71,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create ${{ github.ref_name }} \
-            --generate-notes \
+            --notes-file RELEASE_NOTES.md \
             minimoni-linux-amd64 \
             minimoni-linux-arm64 \
             config.example.toml
