@@ -1,4 +1,5 @@
-CC = gcc
+CC     = gcc
+STRIP  ?= strip
 VERSION := $(shell git describe --tags --always 2>/dev/null || echo unknown)
 CFLAGS = -Wall -Wextra -std=c11 -DMINIMONI_VERSION=\"$(VERSION)\"
 LDFLAGS = -static -lpthread
@@ -42,7 +43,7 @@ minimoni: $(SRC) $(VENDOR) $(BEARSSL_LIB)
 release: embed $(BEARSSL_LIB)
 	$(CC) $(CFLAGS) -Os -flto $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
 	  -Ivendor -Isrc -o minimoni $(SRC) $(VENDOR) $(BEARSSL_LIB) $(LDFLAGS) -Wl,--gc-sections
-	strip minimoni
+	$(STRIP) minimoni
 
 release-linux:
 	docker run --rm -v "$(PWD)":/work -w /work alpine:latest \

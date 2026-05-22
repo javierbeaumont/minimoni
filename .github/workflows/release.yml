@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: linux-amd64
+          - arch: linux-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build (amd64, Alpine musl)
+        if: matrix.arch == 'linux-amd64'
+        run: |
+          docker run --rm \
+            -v "$PWD":/work \
+            -w /work \
+            alpine:latest \
+            sh -c '
+              set -e
+              git config --global --add safe.directory /work
+              apk add --quiet --no-cache gcc musl-dev make xxd git
+              make release
+            '
+
+      - name: Build (arm64, cross-compile)
+        if: matrix.arch == 'linux-arm64'
+        run: |
+          sudo apt-get install -qq -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu xxd
+          make release CC=aarch64-linux-gnu-gcc STRIP=aarch64-linux-gnu-strip
+
+      - name: Rename binary
+        run: mv minimoni minimoni-${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: minimoni-${{ matrix.arch }}
+          path: minimoni-${{ matrix.arch }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ${{ github.ref_name }} \
+            --generate-notes \
+            minimoni-linux-amd64 \
+            minimoni-linux-arm64 \
+            config.example.toml
