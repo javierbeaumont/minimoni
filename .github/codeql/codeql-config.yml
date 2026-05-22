@@ -1,0 +1,7 @@
+name: minimoni CodeQL config
+
+# Scan only our own code. The vendor/ tree holds curated third-party
+# sources (SQLite, civetweb, tomlc17, BearSSL) — we cannot patch those,
+# only update the vendored version, so alerts there are noise.
+paths-ignore:
+  - vendor/**
