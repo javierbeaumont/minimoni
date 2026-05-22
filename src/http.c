@@ -578,6 +578,7 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
     }
 
     free(rows);
+    db_release_memory(ctx->db);
     mg_write(conn, "]}", 2);
     return 200;
 }

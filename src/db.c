@@ -455,6 +455,8 @@ static const char SQL_RAW[] =
     "  uptime_seconds"
     " FROM d ORDER BY ts";
 
+void db_release_memory(db_t *db) { sqlite3_db_release_memory(db->handle); }
+
 int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_rows)
 {
     char offset[32];

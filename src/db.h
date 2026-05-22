@@ -113,6 +113,12 @@ int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_
  */
 int db_count_range(db_t *db, long range_seconds);
 
+/*
+ * Release SQLite's internal memory (page cache, temp buffers) back to
+ * the allocator.  Call after heavy range queries to keep RSS in check.
+ */
+void db_release_memory(db_t *db);
+
 /* -------------------------------------------------------------------------
  * Alert log
  * ---------------------------------------------------------------------- */
