@@ -34,7 +34,7 @@ embed:
 	sh tools/bundle.sh | xxd -i -n dashboard_index_html - > src/embed.h
 
 $(BEARSSL_LIB):
-	$(MAKE) -C vendor/bearssl CC="$(CC)"
+	$(MAKE) -C vendor/bearssl lib CC="$(CC)"
 
 minimoni: $(SRC) $(VENDOR) $(BEARSSL_LIB)
 	$(CC) $(CFLAGS) -O2 $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
