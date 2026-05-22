@@ -31,8 +31,6 @@
 #include "http.h"
 #include "metrics.h"
 
-#define VERSION "1.0.0"
-
 static volatile sig_atomic_t shutdown_flag = 0;
 
 static void handle_signal(int sig)
@@ -202,7 +200,7 @@ int main(int argc, char **argv)
     }
 
     if (strcmp(argv[1], "--version") == 0) {
-        printf("minimoni %s\n", VERSION);
+        printf("minimoni %s\n", MINIMONI_VERSION);
         return 0;
     }
 

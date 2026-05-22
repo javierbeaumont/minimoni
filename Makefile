@@ -31,7 +31,7 @@ all: embed minimoni
 # then xxd converts the result to a C byte array included by the HTTP handler.
 # Not tracked in git — run "make embed" before the first build or after editing the dashboard.
 embed:
-	sh tools/bundle.sh | xxd -i - > src/embed.h
+	sh tools/bundle.sh | xxd -i -n dashboard_index_html - > src/embed.h
 
 $(BEARSSL_LIB):
 	$(MAKE) -C vendor/bearssl CC="$(CC)"
