@@ -14,9 +14,14 @@ and homelab servers) where every MB counts.
 - TOML configuration — sensible defaults, works with zero config
 - Can run on systems as small as a Raspberry Pi Zero (512 MB RAM)
 
-| Dark | Light |
-|---|---|
-| ![minimoni dark theme — 7d range](docs/screenshot-dark.png) | ![minimoni light theme — 30d range](docs/screenshot-light.png) |
+![minimoni dashboard — dark theme (7d range)](docs/screenshot-dark.png)
+
+<details>
+<summary>Light theme</summary>
+
+![minimoni dashboard — light theme (30d range)](docs/screenshot-light.png)
+
+</details>
 
 ## How it works
 
