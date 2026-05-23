@@ -58,7 +58,26 @@ static int valid_range(const char *s)
 {
     char *end;
     long  n = strtol(s, &end, 10);
-    return n > 0 && (*end == 'h' || *end == 'd') && *(end + 1) == '\0';
+    return n > 0 && (*end == 'm' || *end == 'h' || *end == 'd') && *(end + 1) == '\0';
+}
+
+/* Per-unit upper bounds: above these, the next-larger unit is the natural
+ * expression (e.g. 121m → 2h+) and 3653d is the maximum number of days in
+ * any 10-calendar-year window (worst case: 3 leap years). Anything past
+ * these is either a typo or an unrealistic value that risks integer
+ * overflow downstream in parse_duration's multiplication by 60/3600/86400.
+ * User-facing messages talk about "10 years" for clarity. */
+static int range_in_bounds(const char *s)
+{
+    long n = strtol(s, NULL, 10);
+    char u = s[strlen(s) - 1];
+    if (u == 'm')
+        return n <= 120;
+    if (u == 'h')
+        return n <= 72;
+    if (u == 'd')
+        return n <= 3653;
+    return 0;
 }
 
 static int valid_op(const char *s)
@@ -251,7 +270,15 @@ int config_load(config_t *cfg, const char *path)
                 continue;
             }
             if (!valid_range(e.u.s)) {
-                fprintf(stderr, "config: ranges[%d]: invalid '%s' (use <n>h or <n>d)\n", i, e.u.s);
+                fprintf(stderr, "config: ranges[%d]: invalid '%s' (use <n>m, <n>h or <n>d)\n", i,
+                        e.u.s);
+                continue;
+            }
+            if (!range_in_bounds(e.u.s)) {
+                fprintf(stderr,
+                        "config: ranges[%d]: '%s' exceeds limit "
+                        "(max 120 minutes, 72 hours, or 10 years)\n",
+                        i, e.u.s);
                 continue;
             }
             long d = parse_duration(e.u.s);
@@ -264,10 +291,18 @@ int config_load(config_t *cfg, const char *path)
             }
             snprintf(cfg->ranges[count++], sizeof(cfg->ranges[0]), "%s", e.u.s);
         }
-        if (count > 0)
+        if (count > 0) {
             cfg->range_count = count;
-        else
-            fprintf(stderr, "config: ranges: all values invalid, using defaults\n");
+        } else {
+            /* User explicitly defined `ranges` but every entry was invalid or
+             * shorter than `interval`. Refusing instead of silently falling
+             * back to defaults is the honest behaviour — a config that ships
+             * to production with bogus ranges should fail loud. */
+            fprintf(stderr, "config: dashboard.ranges has no valid entries (all rejected or "
+                            "< interval); aborting\n");
+            toml_free(res);
+            return -1;
+        }
     }
 
     /* [[alert]] */

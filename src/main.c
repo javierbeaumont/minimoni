@@ -59,7 +59,10 @@ static const char *parse_config_flag(int argc, char **argv, int start)
     return NULL;
 }
 
-/* Convert a range string ("1d", "24h", …) to days (ceiling for hours). */
+/* Convert a range string ("1d", "24h", "30m", …) to days (ceiling).
+ * Sub-day ranges (m, h<24) clamp to 1 day for retention purposes — the
+ * dashboard tab still shows the sub-day range, but db_prune granularity
+ * is days, so we keep at least one. */
 static int range_to_days(const char *r)
 {
     int  n = (int)strtol(r, NULL, 10);
@@ -68,6 +71,8 @@ static int range_to_days(const char *r)
         return n;
     if (u == 'h')
         return (n + 23) / 24;
+    if (u == 'm')
+        return (n + 1439) / 1440;
     return 1;
 }
 

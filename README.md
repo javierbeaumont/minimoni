@@ -306,7 +306,7 @@ theme        = "auto"       # "auto" | "light" | "dark" — "auto" follows OS pr
 show_footer  = true         # show version footer (default: true)
 refresh      = 30           # SSE push interval in seconds (default: 30)
 
-ranges = ["1d", "7d", "30d", "90d"]  # time range tabs; last value = retention
+ranges = ["1d", "7d", "30d", "90d"]  # time range tabs; largest sets retention
 points = 300                          # target data points per chart (default: 300)
 
 charts = ["cpu_load", "cpu_usage", "memory", "disk", "temp", "net"]
@@ -354,11 +354,14 @@ exceed `collect.interval`: a push more frequent than collection would send stale
 bandwidth. If `refresh` is set higher than `interval`, minimoni clamps it to `interval` and logs
 a warning. Default: `30`.
 
-**`ranges`** — time range tabs shown in the dashboard, in the listed order. The **last (largest)
-value sets the retention period**: rows older than that are deleted after each collect cycle.
-Units: `h` (hours) or `d` (days). Values shorter than `collect.interval` are silently ignored.
-Repeats and custom ordering are valid (e.g. `["4h", "2d", "45d", "2d"]` shows four tabs in that
-order with 45-day retention). Default: `["1d", "7d", "30d", "90d"]`.
+**`ranges`** — time range tabs shown in the dashboard, in the listed order. The **largest value
+sets the retention period** (regardless of position): rows older than that are deleted after
+each collect cycle. Units and per-unit caps: `m` (max 120), `h` (max 72), `d` (max 10 years).
+Values shorter than `collect.interval` are skipped with a warning; if every value is invalid
+or skipped, the daemon aborts at config load (instead of silently falling back to defaults).
+Repeats and custom ordering are valid (e.g. `["4h", "2d", "45d", "2d"]` shows four tabs in
+that order with 45-day retention). Sub-day ranges round up to 1 day for retention purposes
+(prune granularity is days). Default: `["1d", "7d", "30d", "90d"]`.
 
 **`points`** — target number of data points per chart. The server picks the nearest
 human-readable bucket size (1m, 2m, 5m, 10m, 15m, 30m, 1h, 2h, 3h, 6h, 12h, 24h) that
