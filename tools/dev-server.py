@@ -19,11 +19,10 @@ PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9090
 DASHBOARD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'dashboard')
 DASHBOARD = os.path.join(DASHBOARD_DIR, 'index.html')
 
-STATIC_TYPES = {
-    '.html': 'text/html; charset=utf-8',
-    '.css':  'text/css',
-    '.js':   'text/javascript',
-    '.svg':  'image/svg+xml',
+STATIC_FILES = {
+    'app.js':      'text/javascript',
+    'style.css':   'text/css',
+    'favicon.svg': 'image/svg+xml',
 }
 
 def _git_version():
@@ -176,12 +175,17 @@ class Handler(BaseHTTPRequestHandler):
                 pass
 
         else:
-            # Serve static files from dashboard/ (style.css, app.js, favicon.svg, …)
-            ext = os.path.splitext(path)[1]
-            ctype = STATIC_TYPES.get(ext)
-            if ctype:
-                fpath = os.path.join(DASHBOARD_DIR, os.path.basename(path))
-                if os.path.isfile(fpath):
+            # Serve static files from dashboard/ — strict allowlist of known
+            # filenames. Defence in depth: after looking up the filename in
+            # the allowlist, realpath() resolves any symlink trickery and
+            # startswith() confirms the result stays within DASHBOARD_DIR.
+            # This is the path-injection sanitiser CodeQL recognises.
+            filename = os.path.basename(path)
+            if filename in STATIC_FILES:
+                ctype = STATIC_FILES[filename]
+                fpath = os.path.realpath(os.path.join(DASHBOARD_DIR, filename))
+                base = os.path.realpath(DASHBOARD_DIR)
+                if fpath.startswith(base + os.sep) and os.path.isfile(fpath):
                     with open(fpath, 'rb') as f:
                         self._send(200, ctype, f.read())
                     return
