@@ -2,6 +2,7 @@ minimoni
 minimoni-debug
 minimoni-test
 minimoni-linux-*
+tests/unit
 vendor/bearssl/build/
 src/embed.h
 *.db

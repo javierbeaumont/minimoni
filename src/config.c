@@ -136,11 +136,29 @@ int config_load(config_t *cfg, const char *path)
     /* [collect] */
     v = toml_seek(root, "collect.interval");
     if (v.type == TOML_STRING) {
-        long d = parse_duration(v.u.s);
-        if (d > 0)
-            cfg->interval_seconds = d;
-        else
-            fprintf(stderr, "config: invalid interval '%s', using default\n", v.u.s);
+        fprintf(stderr,
+                "config: interval is now an integer (seconds); got string '%s'. "
+                "Replace with e.g. `interval = 60` for 1 minute.\n",
+                v.u.s);
+        toml_free(res);
+        return -1;
+    }
+    if (v.type == TOML_INT64) {
+        if (v.u.int64 < 1) {
+            fprintf(stderr, "config: interval must be >= 1 second (got %lld); aborting\n",
+                    v.u.int64);
+            toml_free(res);
+            return -1;
+        }
+        if (v.u.int64 > 3600) {
+            fprintf(stderr,
+                    "config: interval must be <= 3600 seconds / 1 hour (got %lld); "
+                    "clamping to 3600\n",
+                    v.u.int64);
+            cfg->interval_seconds = 3600;
+        } else {
+            cfg->interval_seconds = (long)v.u.int64;
+        }
     }
     v = toml_seek(root, "collect.db");
     str_copy(cfg->db_path, sizeof(cfg->db_path), v);

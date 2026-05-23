@@ -254,21 +254,22 @@ minimoni works with zero config. To customize, create `config.toml` in the worki
 ```toml
 [collect]
 db        = "/var/lib/minimoni/metrics.db"
-interval  = "1m"
+interval  = 60
 disk_path = "/"
 ```
 
 **`db`** — path to the SQLite database. Default: `./metrics.db`. For a persistent installation,
 use `/var/lib/minimoni/metrics.db` (create the directory first).
 
-**`interval`** — how often to collect. Format: `<n>s`, `<n>m`, `<n>h`, `<n>d`. Default: `1m`.
+**`interval`** — how often to collect, in seconds (integer). Range: `1` to `3600`. Default: `60`.
+Values below 1 abort with an error; values above 3600 emit a warning and clamp to 3600.
 Lower intervals give finer granularity; higher intervals reduce database growth:
 
-| Interval | 90-day database |
-|----------|-----------------|
-| `30s`    | ~75 MB          |
-| `1m`     | ~25 MB          |
-| `5m`     | ~5 MB           |
+| Interval (s) | 90-day database |
+|--------------|-----------------|
+| `30`         | ~75 MB          |
+| `60`         | ~25 MB          |
+| `300`        | ~5 MB           |
 
 **`disk_path`** — filesystem path passed to `statvfs()`. Default: `/`. To monitor a volume
 mounted at `/data`, set `disk_path = "/data"`.
