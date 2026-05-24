@@ -14,7 +14,6 @@ disk_path = "/"
 # show_footer = true
 # refresh     = 30            # SSE push interval in seconds
 # ranges      = ["1d", "7d", "30d", "90d"]  # largest value sets retention; units: m/h/d
-# points      = 300           # target data points per chart
 
 # charts = ["cpu_load", "cpu_usage", "memory", "disk", "temp", "net"]
 # cards  = ["cpu_load", "memory", "disk", "temp", "net", "uptime"]

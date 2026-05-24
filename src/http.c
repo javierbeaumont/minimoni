@@ -184,8 +184,12 @@ static const int BUCKETS[] = {60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 2
  * Iterates ascending so ties naturally resolve to the smaller bucket. */
 static int pick_bucket(long range_sec, int interval_sec, int points, int actual_count)
 {
+    /* Default 480 = 1 point per 4 backing pixels at 1920×1080 fullscreen,
+     * the threshold where the eye no longer perceives pixel-level discreteness.
+     * Smaller defaults (300 in earlier versions) showed visible escalation on
+     * HiDPI and custom fullscreen layouts; this covers both cleanly. */
     if (points <= 0)
-        points = 300;
+        points = 480;
     if (actual_count >= 0 && actual_count <= points)
         return 0; /* fewer rows than target — show raw for progressive resolution */
     long ideal = range_sec / (long)points;
@@ -485,8 +489,27 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
     if (rsec <= 0)
         rsec = 86400L;
 
+    /* Optional points hint from the client. The dashboard JS chooses how many
+     * data points it can render and passes it here. The server caps at 5120
+     * (the widest realistic backing-pixel width for a fullscreen chart on a
+     * 5K Mac Retina / 5120-wide ultra-wide monitor) to bound query memory
+     * (~750 KB per response). Values <=0 or missing fall back to the
+     * pick_bucket default. */
+    int  points = 0;
+    char points_str[16] = "";
+    if (ri->query_string)
+        mg_get_var(ri->query_string, strlen(ri->query_string), "points", points_str,
+                   sizeof(points_str));
+    if (points_str[0]) {
+        long p = strtol(points_str, NULL, 10);
+        if (p > 5120)
+            p = 5120;
+        if (p > 0)
+            points = (int)p;
+    }
+
     int actual_count = db_count_range(ctx->db, rsec);
-    int bucket = pick_bucket(rsec, (int)ctx->cfg->interval_seconds, ctx->cfg->points, actual_count);
+    int bucket = pick_bucket(rsec, (int)ctx->cfg->interval_seconds, points, actual_count);
 
     db_row_t *rows = NULL;
     int       cnt = db_query_range(ctx->db, rsec, bucket, &rows);

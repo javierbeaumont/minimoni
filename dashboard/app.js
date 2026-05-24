@@ -720,7 +720,12 @@ function loadCurrent() {
 }
 
 function loadMetrics() {
-  fetch('/api/metrics?range=' + curRange).then(function(r) {
+  /* The default dashboard targets 480 points per chart — 1 point per 4
+     backing pixels at 1920×1080 fullscreen, the threshold where the eye no
+     longer sees discreteness. A custom dashboard can compute its own value
+     from the canvas width and pass it via the points query parameter; the
+     server caps it at 5120 to bound query memory. */
+  fetch('/api/metrics?range=' + curRange + '&points=480').then(function(r) {
     if (!r.ok) return;
     r.json().then(function(d) {
       pts = d.points || [];
