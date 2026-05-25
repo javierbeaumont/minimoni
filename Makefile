@@ -69,7 +69,7 @@ test: tests/unit.c
 	./tests/unit
 
 fmt:
-	find src -name '*.[ch]' | xargs $(CLANG_FORMAT) -i
+	find src tests -name '*.[ch]' | xargs $(CLANG_FORMAT) -i
 
 hooks:
 	cp hooks/pre-commit .git/hooks/pre-commit
