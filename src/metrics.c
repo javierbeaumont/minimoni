@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/statvfs.h>
+#include <time.h>
 
 #include "metrics.h"
 
@@ -203,25 +204,36 @@ static void collect_temp(metrics_t *m)
 
 /* --- Network ------------------------------------------------------------- */
 
-static void collect_net(metrics_t *m)
+/* Snapshot of cumulative byte counters + the wall-clock time they were
+ * sampled. The bps fields exposed in metrics_t are computed from the delta
+ * between consecutive snapshots (same pattern as the CPU delta above). */
+typedef struct {
+    long long rx, tx;
+    time_t    t;
+} net_raw_t;
+
+static int       s_prev_net_valid = 0;
+static net_raw_t s_prev_net;
+
+/* Read /proc/net/dev and sum rx/tx bytes across all non-loopback interfaces
+ * into *cur. Returns 0 on success, -1 if the file cannot be opened or its
+ * header lines are missing. */
+static int read_net_raw(net_raw_t *cur)
 {
+    cur->rx = 0;
+    cur->tx = 0;
+    cur->t = time(NULL);
+
     FILE *f = fopen("/proc/net/dev", "r");
-    if (!f) {
-        m->net_rx_bytes = 0;
-        m->net_tx_bytes = 0;
-        return;
-    }
+    if (!f)
+        return -1;
 
     /* skip the two header lines */
     char line[256];
     if (!fgets(line, sizeof(line), f) || !fgets(line, sizeof(line), f)) {
         fclose(f);
-        m->net_rx_bytes = 0;
-        m->net_tx_bytes = 0;
-        return;
+        return -1;
     }
-
-    long long rx_total = 0, tx_total = 0;
 
     while (fgets(line, sizeof(line), f)) {
         char               iface[64];
@@ -238,13 +250,44 @@ static void collect_net(metrics_t *m)
         if (strcmp(iface, "lo") == 0)
             continue;
 
-        rx_total += rx;
-        tx_total += tx;
+        cur->rx += rx;
+        cur->tx += tx;
     }
 
     fclose(f);
-    m->net_rx_bytes = rx_total;
-    m->net_tx_bytes = tx_total;
+    return 0;
+}
+
+static void collect_net(metrics_t *m)
+{
+    net_raw_t cur;
+    if (read_net_raw(&cur) != 0) {
+        m->net_valid = 0;
+        return;
+    }
+
+    if (!s_prev_net_valid) {
+        s_prev_net = cur;
+        s_prev_net_valid = 1;
+        m->net_valid = 0;
+        return;
+    }
+
+    time_t    dt = cur.t - s_prev_net.t;
+    long long drx = cur.rx - s_prev_net.rx;
+    long long dtx = cur.tx - s_prev_net.tx;
+
+    s_prev_net = cur;
+
+    /* Counter reset (negative delta) or zero/negative time delta → invalid. */
+    if (dt <= 0 || drx < 0 || dtx < 0) {
+        m->net_valid = 0;
+        return;
+    }
+
+    m->net_rx_bps = (double)drx / (double)dt;
+    m->net_tx_bps = (double)dtx / (double)dt;
+    m->net_valid = 1;
 }
 
 /* --- Uptime -------------------------------------------------------------- */

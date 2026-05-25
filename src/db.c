@@ -28,6 +28,11 @@
 #define RETRY_COUNT 3
 #define RETRY_DELAY_NS (100 * 1000000L) /* 100 ms */
 
+/* SQLite header magic — ASCII "moni". Set on fresh installs to mark the
+ * file as a minimoni database (queryable via PRAGMA application_id). */
+#define MINIMONI_APPLICATION_ID 0x6D6F6E69
+#define MINIMONI_SCHEMA_VERSION 1
+
 /* --- SQL statements ------------------------------------------------------ */
 
 static const char SQL_CREATE[] =
@@ -40,8 +45,9 @@ static const char SQL_CREATE[] =
     "  disk_total_gb    REAL, disk_used_gb REAL,"
     "  disk_free_gb     REAL, disk_percent REAL,"
     "  temp_celsius     REAL,"
-    "  net_rx_bytes     INTEGER, net_tx_bytes INTEGER,"
-    "  uptime_seconds   REAL"
+    "  net_rx_bps       REAL, net_tx_bps REAL,"
+    "  uptime_seconds   REAL,"
+    "  bucket_sec       INTEGER"
     ");"
     "CREATE INDEX IF NOT EXISTS idx_metrics_ts ON metrics(timestamp);"
     "CREATE TABLE IF NOT EXISTS alert_log ("
@@ -55,8 +61,9 @@ static const char SQL_INSERT[] = "INSERT INTO metrics ("
                                  "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
                                  "  mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
                                  "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
-                                 "  temp_celsius, net_rx_bytes, net_tx_bytes, uptime_seconds"
-                                 ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                                 "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds,"
+                                 "  bucket_sec"
+                                 ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
 static const char SQL_PRUNE_METRICS[] = "DELETE FROM metrics WHERE timestamp < datetime('now', ?)";
 
@@ -84,11 +91,15 @@ static int step_with_retry(sqlite3_stmt *stmt)
     return rc;
 }
 
+/* Forward declaration; definition lives next to db_consolidate. */
+static char *build_consolidate_sql(void);
+
 /* --- Public API ---------------------------------------------------------- */
 
-int db_open(db_t *db, const char *path)
+int db_open(db_t *db, const char *path, int interval_sec)
 {
     memset(db, 0, sizeof(*db));
+    db->interval_sec = interval_sec;
 
     if (sqlite3_open(path, &db->handle) != SQLITE_OK) {
         fprintf(stderr, "db: cannot open %s: %s\n", path, sqlite3_errmsg(db->handle));
@@ -113,6 +124,15 @@ int db_open(db_t *db, const char *path)
         return -1;
     }
 
+    /* Mark the DB as a minimoni database (idempotent — overwrites if set).
+     * Robust detection of pre-existing schema versions is deferred to a
+     * later release; for now we always tag with the current values. */
+    char pragma[64];
+    snprintf(pragma, sizeof(pragma), "PRAGMA application_id = %d", MINIMONI_APPLICATION_ID);
+    sqlite3_exec(db->handle, pragma, NULL, NULL, NULL);
+    snprintf(pragma, sizeof(pragma), "PRAGMA user_version = %d", MINIMONI_SCHEMA_VERSION);
+    sqlite3_exec(db->handle, pragma, NULL, NULL, NULL);
+
     if (sqlite3_prepare_v2(db->handle, SQL_INSERT, -1, &db->stmt_insert, NULL) != SQLITE_OK ||
         sqlite3_prepare_v2(db->handle, SQL_PRUNE_METRICS, -1, &db->stmt_prune_metrics, NULL) !=
             SQLITE_OK ||
@@ -123,6 +143,13 @@ int db_open(db_t *db, const char *path)
         sqlite3_prepare_v2(db->handle, SQL_ALERT_FIRE, -1, &db->stmt_alert_fire, NULL) !=
             SQLITE_OK) {
         fprintf(stderr, "db: prepare error: %s\n", sqlite3_errmsg(db->handle));
+        db_close(db);
+        return -1;
+    }
+
+    db->sql_consolidate = build_consolidate_sql();
+    if (!db->sql_consolidate) {
+        fprintf(stderr, "db: failed to build consolidate SQL\n");
         db_close(db);
         return -1;
     }
@@ -139,6 +166,7 @@ void db_close(db_t *db)
     sqlite3_finalize(db->stmt_prune_alerts);
     sqlite3_finalize(db->stmt_alert_check);
     sqlite3_finalize(db->stmt_alert_fire);
+    free(db->sql_consolidate);
     sqlite3_close(db->handle);
     memset(db, 0, sizeof(*db));
 }
@@ -184,9 +212,16 @@ int db_insert(db_t *db, const metrics_t *m)
     else
         sqlite3_bind_null(s, 16);
 
-    sqlite3_bind_int64(s, 17, m->net_rx_bytes);
-    sqlite3_bind_int64(s, 18, m->net_tx_bytes);
+    if (m->net_valid) {
+        sqlite3_bind_double(s, 17, m->net_rx_bps);
+        sqlite3_bind_double(s, 18, m->net_tx_bps);
+    } else {
+        sqlite3_bind_null(s, 17);
+        sqlite3_bind_null(s, 18);
+    }
+
     sqlite3_bind_double(s, 19, m->uptime_seconds);
+    sqlite3_bind_int(s, 20, db->interval_sec);
 
     int rc = step_with_retry(s);
     if (rc != SQLITE_DONE) {
@@ -317,17 +352,17 @@ static void read_row(sqlite3_stmt *s, db_row_t *r)
 
 int db_current(db_t *db, db_row_t *row)
 {
-    /* Two most recent rows ordered newest-first; columns mirror the SELECT
-     * list used by db_query_range so the same read_row() helper applies,
-     * except columns 17/18 here are raw cumulative bytes (not rates). */
+    /* Single-row read; columns mirror the SELECT list used by db_query_range
+     * so the same read_row() helper applies. Net rates are stored directly
+     * (computed at insert time in metrics.c), no LAG/delta needed. */
     static const char SQL[] = "SELECT timestamp,"
                               "  CAST(strftime('%s',timestamp) AS INTEGER),"
                               "  load_1m, load_5m, load_15m,"
                               "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
                               "  mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
                               "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
-                              "  temp_celsius, net_rx_bytes, net_tx_bytes, uptime_seconds"
-                              " FROM metrics ORDER BY timestamp DESC LIMIT 2";
+                              "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds"
+                              " FROM metrics ORDER BY timestamp DESC LIMIT 1";
 
     sqlite3_stmt *s;
     if (sqlite3_prepare_v2(db->handle, SQL, -1, &s, NULL) != SQLITE_OK) {
@@ -335,60 +370,12 @@ int db_current(db_t *db, db_row_t *row)
         return -1;
     }
 
-    memset(row, 0, sizeof(*row));
-
     if (sqlite3_step(s) != SQLITE_ROW) {
         sqlite3_finalize(s);
         return 1; /* no rows yet */
     }
 
-    /* Latest row — read all scalar fields directly */
-    const char *ts = (const char *)sqlite3_column_text(s, 0);
-    if (ts)
-        snprintf(row->timestamp, sizeof(row->timestamp), "%s", ts);
-    row->unix_time = (long)sqlite3_column_int64(s, 1);
-    row->load_1m = sqlite3_column_double(s, 2);
-    row->load_5m = sqlite3_column_double(s, 3);
-    row->load_15m = sqlite3_column_double(s, 4);
-    row->cpu_valid = (sqlite3_column_type(s, 5) != SQLITE_NULL);
-    if (row->cpu_valid) {
-        row->cpu_user_percent = sqlite3_column_double(s, 5);
-        row->cpu_system_percent = sqlite3_column_double(s, 6);
-        row->cpu_idle_percent = sqlite3_column_double(s, 7);
-    }
-    row->mem_total_mb = sqlite3_column_double(s, 8);
-    row->mem_used_mb = sqlite3_column_double(s, 9);
-    row->mem_available_mb = sqlite3_column_double(s, 10);
-    row->mem_percent = sqlite3_column_double(s, 11);
-    row->disk_total_gb = sqlite3_column_double(s, 12);
-    row->disk_used_gb = sqlite3_column_double(s, 13);
-    row->disk_free_gb = sqlite3_column_double(s, 14);
-    row->disk_percent = sqlite3_column_double(s, 15);
-    row->temp_valid = (sqlite3_column_type(s, 16) != SQLITE_NULL);
-    if (row->temp_valid)
-        row->temp_celsius = sqlite3_column_double(s, 16);
-
-    long long cur_rx = sqlite3_column_int64(s, 17);
-    long long cur_tx = sqlite3_column_int64(s, 18);
-    row->uptime_seconds = sqlite3_column_double(s, 19);
-
-    /* Previous row — only needed for net rate */
-    if (sqlite3_step(s) == SQLITE_ROW) {
-        long      prev_ts = (long)sqlite3_column_int64(s, 1);
-        long long prev_rx = sqlite3_column_int64(s, 17);
-        long long prev_tx = sqlite3_column_int64(s, 18);
-        long      dt = row->unix_time - prev_ts;
-        if (dt > 0) {
-            long long drx = cur_rx - prev_rx;
-            long long dtx = cur_tx - prev_tx;
-            if (drx >= 0 && dtx >= 0) {
-                row->net_valid = 1;
-                row->net_rx_bps = (double)drx / (double)dt;
-                row->net_tx_bps = (double)dtx / (double)dt;
-            }
-        }
-    }
-
+    read_row(s, row);
     sqlite3_finalize(s);
     return 0;
 }
@@ -428,32 +415,14 @@ int db_count_range(db_t *db, long range_seconds)
  * 19  uptime_seconds
  */
 
-static const char SQL_RAW[] =
-    "WITH d AS ("
-    "  SELECT timestamp,"
-    "    CAST(strftime('%s',timestamp) AS INTEGER) AS ts,"
-    "    load_1m, load_5m, load_15m,"
-    "    cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
-    "    mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
-    "    disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
-    "    temp_celsius,"
-    "    net_rx_bytes - LAG(net_rx_bytes) OVER (ORDER BY timestamp) AS rx_d,"
-    "    net_tx_bytes - LAG(net_tx_bytes) OVER (ORDER BY timestamp) AS tx_d,"
-    "    CAST(strftime('%s',timestamp) AS INTEGER)"
-    "      - CAST(strftime('%s',LAG(timestamp) OVER (ORDER BY timestamp)) AS INTEGER) AS dt,"
-    "    uptime_seconds"
-    "  FROM metrics WHERE timestamp >= datetime('now',?)"
-    ")"
-    "SELECT timestamp, ts,"
-    "  load_1m, load_5m, load_15m,"
-    "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
-    "  mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
-    "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
-    "  temp_celsius,"
-    "  CASE WHEN rx_d>=0 AND dt>0 THEN CAST(rx_d AS REAL)/dt ELSE NULL END,"
-    "  CASE WHEN tx_d>=0 AND dt>0 THEN CAST(tx_d AS REAL)/dt ELSE NULL END,"
-    "  uptime_seconds"
-    " FROM d ORDER BY ts";
+static const char SQL_RAW[] = "SELECT timestamp,"
+                              "  CAST(strftime('%s',timestamp) AS INTEGER) AS ts,"
+                              "  load_1m, load_5m, load_15m,"
+                              "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
+                              "  mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
+                              "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
+                              "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds"
+                              " FROM metrics WHERE timestamp >= datetime('now',?) ORDER BY ts";
 
 void db_release_memory(db_t *db) { sqlite3_db_release_memory(db->handle); }
 
@@ -472,35 +441,25 @@ int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_
         sqlite3_bind_text(s, 1, offset, -1, SQLITE_TRANSIENT);
     } else {
         /* Build bucketed SQL with the bucket size embedded as a literal so
-         * integer division in SQLite uses the correct type. */
+         * integer division in SQLite uses the correct type. Net rates are
+         * already stored bytes/s — plain AVG, no LAG/CTE needed. */
         char sql[2048];
         snprintf(sql, sizeof(sql),
-                 "WITH d AS ("
-                 "  SELECT"
-                 "    (CAST(strftime('%%s',timestamp) AS INTEGER)/%d)*%d AS bkt,"
-                 "    load_1m, load_5m, load_15m,"
-                 "    cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
-                 "    mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
-                 "    disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
-                 "    temp_celsius,"
-                 "    net_rx_bytes - LAG(net_rx_bytes) OVER (ORDER BY timestamp) AS rx_d,"
-                 "    net_tx_bytes - LAG(net_tx_bytes) OVER (ORDER BY timestamp) AS tx_d,"
-                 "    CAST(strftime('%%s',timestamp) AS INTEGER)"
-                 "      - CAST(strftime('%%s',LAG(timestamp)"
-                 "          OVER (ORDER BY timestamp)) AS INTEGER) AS dt,"
-                 "    uptime_seconds"
-                 "  FROM metrics WHERE timestamp >= datetime('now',?)"
-                 ")"
                  "SELECT datetime(bkt,'unixepoch'), bkt,"
                  "  AVG(load_1m), AVG(load_5m), AVG(load_15m),"
                  "  AVG(cpu_user_percent), AVG(cpu_system_percent), AVG(cpu_idle_percent),"
                  "  AVG(mem_total_mb), AVG(mem_used_mb), AVG(mem_available_mb), AVG(mem_percent),"
                  "  AVG(disk_total_gb), AVG(disk_used_gb), AVG(disk_free_gb), AVG(disk_percent),"
-                 "  AVG(temp_celsius),"
-                 "  AVG(CASE WHEN rx_d>=0 AND dt>0 THEN CAST(rx_d AS REAL)/dt ELSE NULL END),"
-                 "  AVG(CASE WHEN tx_d>=0 AND dt>0 THEN CAST(tx_d AS REAL)/dt ELSE NULL END),"
-                 "  AVG(uptime_seconds)"
-                 " FROM d GROUP BY bkt ORDER BY bkt",
+                 "  AVG(temp_celsius), AVG(net_rx_bps), AVG(net_tx_bps), AVG(uptime_seconds)"
+                 " FROM ("
+                 "  SELECT (CAST(strftime('%%s',timestamp) AS INTEGER)/%d)*%d AS bkt,"
+                 "    load_1m, load_5m, load_15m,"
+                 "    cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
+                 "    mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
+                 "    disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
+                 "    temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds"
+                 "  FROM metrics WHERE timestamp >= datetime('now',?)"
+                 ") GROUP BY bkt ORDER BY bkt",
                  bucket_sec, bucket_sec);
         if (sqlite3_prepare_v2(db->handle, sql, -1, &s, NULL) != SQLITE_OK) {
             fprintf(stderr, "db: range bucket prepare: %s\n", sqlite3_errmsg(db->handle));
@@ -543,4 +502,136 @@ int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_
 
     *out_rows = rows;
     return (int)cnt;
+}
+
+/* --- db_consolidate (write-time tiered consolidation) --------------------- */
+
+/*
+ * Tier ladder. Each entry describes a transition: source rows with bucket_sec
+ * NULL or strictly less than `bucket_sec` (i.e., they belong to a finer tier
+ * or are still raw) AND whose bucket boundary has aged past `threshold_sec`
+ * are grouped, averaged, and re-inserted with the new bucket_sec.
+ *
+ * The ladder is fixed and aligned to a design point of P=1440 max points per
+ * query (see docs/adr/0005-tiered-consolidation.md). Tiers whose bucket_sec
+ * is ≤ the user's collect interval are inert: the `bucket_sec < N` predicate
+ * matches no rows (raw rows have bucket_sec = interval), so those passes are
+ * no-ops at runtime.
+ *
+ * WHERE clause operates on the bucket BOUNDARY (bucket_end <= now - X), NOT
+ * on each row's timestamp. A row-level predicate would fire as each raw row
+ * crosses the threshold, producing one duplicate consolidated row per
+ * collect cycle inside the same bucket window. The bucket-level predicate
+ * guarantees that all rows in a given bucket qualify together or not at all.
+ *
+ * AVG() ignores NULLs, so cpu_user_percent / temp_celsius / net_rx_bps carry
+ * their validity semantics naturally — a bucket whose rows are all NULL
+ * aggregates to NULL.
+ */
+
+struct tier_transition {
+    int  bucket_sec;    /* destination bucket size (seconds) */
+    long threshold_sec; /* consolidate when bucket_end <= now - this */
+};
+
+static const struct tier_transition TIER_TRANSITIONS[] = {
+    {5, 2L * 3600},        /* Raw → T1: 5s buckets,  threshold 2h */
+    {30, 12L * 3600},      /* T1  → T2: 30s buckets, threshold 12h */
+    {300, 5L * 86400},     /* T2  → T3: 5m buckets,  threshold 5d */
+    {3600, 60L * 86400},   /* T3  → T4: 1h buckets,  threshold 60d */
+    {21600, 365L * 86400}, /* T4  → T5: 6h buckets,  threshold 365d */
+};
+#define NUM_TIER_TRANSITIONS (sizeof(TIER_TRANSITIONS) / sizeof(TIER_TRANSITIONS[0]))
+
+/*
+ * Build the consolidate SQL once: BEGIN IMMEDIATE; (5 × INSERT/DELETE); COMMIT;
+ * Returns heap-allocated string (caller frees), or NULL on allocation failure.
+ *
+ * Each transition contributes ~1.1 KB of SQL; 8 KB is comfortably enough for
+ * the 5 transitions plus header/footer. The numeric substitutions (bucket_sec
+ * and threshold) are baked in at build time so consolidate just executes the
+ * pre-formed string verbatim.
+ */
+static char *build_consolidate_sql(void)
+{
+    enum { SQL_BUF_SIZE = 8192 };
+    char *sql = malloc(SQL_BUF_SIZE);
+    if (!sql)
+        return NULL;
+
+    int   remaining = SQL_BUF_SIZE;
+    char *p = sql;
+    int   n;
+
+    n = snprintf(p, remaining, "BEGIN IMMEDIATE;");
+    if (n < 0 || n >= remaining)
+        goto fail;
+    p += n;
+    remaining -= n;
+
+    for (size_t i = 0; i < NUM_TIER_TRANSITIONS; i++) {
+        int  bs = TIER_TRANSITIONS[i].bucket_sec;
+        long th = TIER_TRANSITIONS[i].threshold_sec;
+
+        n = snprintf(
+            p, remaining,
+            "INSERT INTO metrics ("
+            "  timestamp, load_1m, load_5m, load_15m,"
+            "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
+            "  mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
+            "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
+            "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds, bucket_sec"
+            ") SELECT"
+            "  datetime((CAST(strftime('%%s',timestamp) AS INTEGER)/%d)*%d, 'unixepoch'),"
+            "  AVG(load_1m), AVG(load_5m), AVG(load_15m),"
+            "  AVG(cpu_user_percent), AVG(cpu_system_percent), AVG(cpu_idle_percent),"
+            "  AVG(mem_total_mb), AVG(mem_used_mb), AVG(mem_available_mb), AVG(mem_percent),"
+            "  AVG(disk_total_gb), AVG(disk_used_gb), AVG(disk_free_gb), AVG(disk_percent),"
+            "  AVG(temp_celsius), AVG(net_rx_bps), AVG(net_tx_bps), AVG(uptime_seconds),"
+            "  %d"
+            " FROM metrics"
+            " WHERE (CAST(strftime('%%s',timestamp) AS INTEGER)/%d)*%d + %d"
+            "         <= CAST(strftime('%%s','now') AS INTEGER) - %ld"
+            "   AND (bucket_sec IS NULL OR bucket_sec < %d)"
+            " GROUP BY (CAST(strftime('%%s',timestamp) AS INTEGER)/%d)*%d;"
+            "DELETE FROM metrics"
+            " WHERE (CAST(strftime('%%s',timestamp) AS INTEGER)/%d)*%d + %d"
+            "         <= CAST(strftime('%%s','now') AS INTEGER) - %ld"
+            "   AND (bucket_sec IS NULL OR bucket_sec < %d);",
+            bs, bs,              /* SELECT datetime expression */
+            bs,                  /* INSERT bucket_sec value */
+            bs, bs, bs, th, bs,  /* INSERT WHERE */
+            bs, bs,              /* GROUP BY */
+            bs, bs, bs, th, bs); /* DELETE WHERE */
+        if (n < 0 || n >= remaining)
+            goto fail;
+        p += n;
+        remaining -= n;
+    }
+
+    n = snprintf(p, remaining, "COMMIT;");
+    if (n < 0 || n >= remaining)
+        goto fail;
+
+    return sql;
+
+fail:
+    free(sql);
+    return NULL;
+}
+
+int db_consolidate(db_t *db)
+{
+    if (!db->sql_consolidate)
+        return -1;
+    char *errmsg = NULL;
+    if (sqlite3_exec(db->handle, db->sql_consolidate, NULL, NULL, &errmsg) != SQLITE_OK) {
+        fprintf(stderr, "db: consolidate error: %s\n", errmsg ? errmsg : "(unknown)");
+        sqlite3_free(errmsg);
+        /* Best-effort rollback in case the BEGIN succeeded but a later
+         * statement failed before COMMIT. */
+        sqlite3_exec(db->handle, "ROLLBACK", NULL, NULL, NULL);
+        return -1;
+    }
+    return 0;
 }

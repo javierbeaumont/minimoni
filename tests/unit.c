@@ -22,10 +22,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
-/* Pull the module under test in directly. */
+/* Pull the modules under test in directly. */
 #include "../src/config.c"
+#include "../src/db.c"
 
 /* --- Test infrastructure ------------------------------------------------- */
 
@@ -420,6 +422,392 @@ static int test_order_largest_middle(void)
     return cfg.range_count == 3 && strcmp(cfg.ranges[1], "90d") == 0 ? 0 : 1;
 }
 
+/* --- Consolidation infrastructure --------------------------------------- */
+
+static int  g_db_counter = 0;
+static char g_tmpdb_path[256];
+
+static int open_test_db(db_t *db)
+{
+    snprintf(g_tmpdb_path, sizeof(g_tmpdb_path), "/tmp/minimoni-test-db-%d-%d.db", getpid(),
+             g_db_counter++);
+    char wal[280], shm[280];
+    snprintf(wal, sizeof(wal), "%s-wal", g_tmpdb_path);
+    snprintf(shm, sizeof(shm), "%s-shm", g_tmpdb_path);
+    unlink(g_tmpdb_path);
+    unlink(wal);
+    unlink(shm);
+    return db_open(db, g_tmpdb_path, 60);
+}
+
+static void close_test_db(db_t *db)
+{
+    db_close(db);
+    char wal[280], shm[280];
+    snprintf(wal, sizeof(wal), "%s-wal", g_tmpdb_path);
+    snprintf(shm, sizeof(shm), "%s-shm", g_tmpdb_path);
+    unlink(g_tmpdb_path);
+    unlink(wal);
+    unlink(shm);
+}
+
+/* Insert a raw metrics row with an explicit unix timestamp. All numeric
+ * fields get plausible non-zero values so AVG() has data to work with. */
+static int insert_raw_row(sqlite3 *h, long unix_ts)
+{
+    char sql[1024];
+    snprintf(sql, sizeof(sql),
+             "INSERT INTO metrics ("
+             "  timestamp, load_1m, load_5m, load_15m,"
+             "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
+             "  mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
+             "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
+             "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds"
+             ") VALUES ("
+             "  datetime(%ld,'unixepoch'),"
+             "  1.0,1.0,1.0,"
+             "  50.0,5.0,45.0,"
+             "  1000.0,500.0,500.0,50.0,"
+             "  10.0,5.0,5.0,50.0,"
+             "  42.0,100.0,200.0,1000.0"
+             ");",
+             unix_ts);
+    return sqlite3_exec(h, sql, NULL, NULL, NULL);
+}
+
+/* Insert a row with explicit bucket_sec value, used by per-transition
+ * regression tests to simulate "rows already in tier N" without going
+ * through earlier consolidation passes. */
+static int insert_tier_row(sqlite3 *h, long unix_ts, int bucket_sec_value)
+{
+    char sql[1024];
+    snprintf(sql, sizeof(sql),
+             "INSERT INTO metrics ("
+             "  timestamp, load_1m, load_5m, load_15m,"
+             "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
+             "  mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
+             "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
+             "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds, bucket_sec"
+             ") VALUES ("
+             "  datetime(%ld,'unixepoch'),"
+             "  1.0,1.0,1.0,"
+             "  50.0,5.0,45.0,"
+             "  1000.0,500.0,500.0,50.0,"
+             "  10.0,5.0,5.0,50.0,"
+             "  42.0,100.0,200.0,1000.0,%d"
+             ");",
+             unix_ts, bucket_sec_value);
+    return sqlite3_exec(h, sql, NULL, NULL, NULL);
+}
+
+static int count_rows(sqlite3 *h, const char *where)
+{
+    char sql[256];
+    snprintf(sql, sizeof(sql), "SELECT COUNT(*) FROM metrics WHERE %s", where);
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(h, sql, -1, &stmt, NULL) != SQLITE_OK)
+        return -1;
+    int count = -1;
+    if (sqlite3_step(stmt) == SQLITE_ROW)
+        count = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+    return count;
+}
+
+/* --- Consolidation: positive cases -------------------------------------- */
+
+static int test_consolidate_basic(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    /* 5 raw rows in a single bucket, 7 days ago — past the T2→T3 threshold
+     * (5 d). At interval=60s the finer tiers (5s/30s) are inert, so the
+     * first consolidation that fires is into 5-min buckets (bucket_sec=300). */
+    long bucket = ((time(NULL) - 7 * 86400) / 300) * 300;
+    for (int i = 0; i < 5; i++) {
+        if (insert_raw_row(db.handle, bucket + i * 60) != SQLITE_OK) {
+            close_test_db(&db);
+            return 1;
+        }
+    }
+
+    if (db_consolidate(&db) != 0) {
+        close_test_db(&db);
+        return 1;
+    }
+
+    int medium = count_rows(db.handle, "bucket_sec = 300");
+    int raw = count_rows(db.handle, "bucket_sec IS NULL OR bucket_sec < 300");
+    close_test_db(&db);
+
+    return (medium == 1 && raw == 0) ? 0 : 1;
+}
+
+static int test_consolidate_multiple_buckets(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    /* 15 rows spanning 3 adjacent 5-min buckets, all 7 days ago (past
+     * the T2→T3 threshold for interval=60s). */
+    long base = ((time(NULL) - 7 * 86400) / 300) * 300;
+    for (int b = 0; b < 3; b++) {
+        for (int i = 0; i < 5; i++) {
+            if (insert_raw_row(db.handle, base + b * 300 + i * 60) != SQLITE_OK) {
+                close_test_db(&db);
+                return 1;
+            }
+        }
+    }
+
+    if (db_consolidate(&db) != 0) {
+        close_test_db(&db);
+        return 1;
+    }
+
+    int medium = count_rows(db.handle, "bucket_sec = 300");
+    int raw = count_rows(db.handle, "bucket_sec IS NULL OR bucket_sec < 300");
+    close_test_db(&db);
+
+    return (medium == 3 && raw == 0) ? 0 : 1;
+}
+
+static int test_consolidate_idempotent(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    /* 5 raw rows, 7 days ago (past T2→T3 threshold). */
+    long bucket = ((time(NULL) - 7 * 86400) / 300) * 300;
+    for (int i = 0; i < 5; i++) {
+        if (insert_raw_row(db.handle, bucket + i * 60) != SQLITE_OK) {
+            close_test_db(&db);
+            return 1;
+        }
+    }
+
+    /* Five back-to-back consolidate cycles must not produce duplicate
+     * medium rows. The bucket_sec < 300 predicate excludes already-
+     * consolidated rows, so subsequent passes are no-ops. */
+    for (int i = 0; i < 5; i++) {
+        if (db_consolidate(&db) != 0) {
+            close_test_db(&db);
+            return 1;
+        }
+    }
+
+    int medium = count_rows(db.handle, "bucket_sec = 300");
+    int raw = count_rows(db.handle, "bucket_sec IS NULL OR bucket_sec < 300");
+    close_test_db(&db);
+
+    return (medium == 1 && raw == 0) ? 0 : 1;
+}
+
+static int test_consolidate_recent_bucket_skipped(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    /* 5 rows in a bucket from one hour ago — bucket_end is roughly 5 h
+     * younger than the 6 h threshold, so the bucket is not yet eligible. */
+    long bucket = ((time(NULL) - 3600) / 300) * 300;
+    for (int i = 0; i < 5; i++) {
+        if (insert_raw_row(db.handle, bucket + i * 60) != SQLITE_OK) {
+            close_test_db(&db);
+            return 1;
+        }
+    }
+
+    if (db_consolidate(&db) != 0) {
+        close_test_db(&db);
+        return 1;
+    }
+
+    int medium = count_rows(db.handle, "bucket_sec = 300");
+    int raw = count_rows(db.handle, "bucket_sec IS NULL OR bucket_sec < 300");
+    close_test_db(&db);
+
+    return (medium == 0 && raw == 5) ? 0 : 1;
+}
+
+/* Regression test for the row-level vs bucket-level predicate.
+ *
+ * Tests the T2→T3 transition (the first one that fires at interval=60s):
+ * threshold = 5 days, destination bucket = 5 min (300 s).
+ *
+ * The 5-min bucket [bucket_start, bucket_start+300) is chosen so that it
+ * strictly straddles (now - 5d): bucket_start <= now-5d < bucket_start+300.
+ * Therefore bucket_end > now-5d and a correct bucket-end predicate keeps the
+ * bucket as raw. A row-level predicate (timestamp < now-5d) would catch the
+ * subset of rows in [bucket_start, now-5d) and produce a partial T3 row,
+ * leaving fewer than 5 raw rows behind.
+ *
+ * Edge case: when (now - 5d) is exactly a multiple of 300 (roughly 0.3 % of
+ * wall-clock seconds), bucket_start equals now-5d and no row satisfies the
+ * row-level predicate either — both the correct and buggy implementations
+ * leave all 5 rows raw. The test still passes; it just does not distinguish
+ * the two. The other 99.7 % of the time, a regression to the row-level
+ * predicate makes this assertion fail. */
+static int test_consolidate_bucket_straddles_threshold(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    long X = time(NULL) - 5 * 86400;
+    long bucket = (X / 300) * 300;
+
+    for (int i = 0; i < 5; i++) {
+        if (insert_raw_row(db.handle, bucket + i * 60) != SQLITE_OK) {
+            close_test_db(&db);
+            return 1;
+        }
+    }
+
+    if (db_consolidate(&db) != 0) {
+        close_test_db(&db);
+        return 1;
+    }
+
+    int medium = count_rows(db.handle, "bucket_sec = 300");
+    int raw = count_rows(db.handle, "bucket_sec IS NULL OR bucket_sec < 300");
+    close_test_db(&db);
+
+    return (medium == 0 && raw == 5) ? 0 : 1;
+}
+
+/* Per-transition bucket-end predicate regression tests.
+ *
+ * Same shape as test_consolidate_bucket_straddles_threshold above, one per
+ * remaining tier transition. Each inserts 5 rows in a destination-tier
+ * bucket whose end strictly straddles the threshold age, with explicit
+ * bucket_sec to isolate the targeted transition from cascading passes.
+ *
+ * Assertion in each: 0 rows promoted, 5 rows remain at the source tier.
+ * A regression to a row-level predicate would catch part of the bucket and
+ * produce a partial destination row.
+ *
+ * Same 0.3 % edge-case as the original (when threshold age is exactly a
+ * multiple of the destination bucket, row-level and bucket-level give the
+ * same answer — test passes vacuously). */
+
+static int test_consolidate_straddles_raw_t1(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    long X = time(NULL) - 2 * 3600; /* threshold age */
+    long bucket = (X / 5) * 5;      /* destination 5-s bucket */
+
+    for (int i = 0; i < 5; i++) {
+        if (insert_tier_row(db.handle, bucket + i, 1) != SQLITE_OK) {
+            close_test_db(&db);
+            return 1;
+        }
+    }
+
+    if (db_consolidate(&db) != 0) {
+        close_test_db(&db);
+        return 1;
+    }
+
+    int t1 = count_rows(db.handle, "bucket_sec = 5");
+    int source = count_rows(db.handle, "bucket_sec = 1");
+    close_test_db(&db);
+
+    return (t1 == 0 && source == 5) ? 0 : 1;
+}
+
+static int test_consolidate_straddles_t1_t2(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    long X = time(NULL) - 12 * 3600;
+    long bucket = (X / 30) * 30;
+
+    for (int i = 0; i < 5; i++) {
+        if (insert_tier_row(db.handle, bucket + i * 5, 5) != SQLITE_OK) {
+            close_test_db(&db);
+            return 1;
+        }
+    }
+
+    if (db_consolidate(&db) != 0) {
+        close_test_db(&db);
+        return 1;
+    }
+
+    int t2 = count_rows(db.handle, "bucket_sec = 30");
+    int source = count_rows(db.handle, "bucket_sec = 5");
+    close_test_db(&db);
+
+    return (t2 == 0 && source == 5) ? 0 : 1;
+}
+
+static int test_consolidate_straddles_t3_t4(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    long X = time(NULL) - 60L * 86400;
+    long bucket = (X / 3600) * 3600;
+
+    for (int i = 0; i < 5; i++) {
+        if (insert_tier_row(db.handle, bucket + i * 300, 300) != SQLITE_OK) {
+            close_test_db(&db);
+            return 1;
+        }
+    }
+
+    if (db_consolidate(&db) != 0) {
+        close_test_db(&db);
+        return 1;
+    }
+
+    int t4 = count_rows(db.handle, "bucket_sec = 3600");
+    int source = count_rows(db.handle, "bucket_sec = 300");
+    close_test_db(&db);
+
+    return (t4 == 0 && source == 5) ? 0 : 1;
+}
+
+static int test_consolidate_straddles_t4_t5(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    long X = time(NULL) - 365L * 86400;
+    long bucket = (X / 21600) * 21600;
+
+    for (int i = 0; i < 5; i++) {
+        if (insert_tier_row(db.handle, bucket + i * 3600, 3600) != SQLITE_OK) {
+            close_test_db(&db);
+            return 1;
+        }
+    }
+
+    if (db_consolidate(&db) != 0) {
+        close_test_db(&db);
+        return 1;
+    }
+
+    int t5 = count_rows(db.handle, "bucket_sec = 21600");
+    int source = count_rows(db.handle, "bucket_sec = 3600");
+    close_test_db(&db);
+
+    return (t5 == 0 && source == 5) ? 0 : 1;
+}
+
 /* --- Mixed valid + invalid --------------------------------------------- */
 
 static int test_mixed_some_invalid(void)
@@ -512,6 +900,17 @@ static const struct test ALL_TESTS[] = {
     /* mixed */
     T(mixed_some_invalid),
     T(mixed_skip_and_valid),
+    /* consolidation */
+    T(consolidate_basic),
+    T(consolidate_multiple_buckets),
+    T(consolidate_idempotent),
+    T(consolidate_recent_bucket_skipped),
+    T(consolidate_bucket_straddles_threshold),
+    /* per-transition bucket-end predicate regressions */
+    T(consolidate_straddles_raw_t1),
+    T(consolidate_straddles_t1_t2),
+    T(consolidate_straddles_t3_t4),
+    T(consolidate_straddles_t4_t5),
 };
 
 #define NUM_TESTS (sizeof(ALL_TESTS) / sizeof(ALL_TESTS[0]))

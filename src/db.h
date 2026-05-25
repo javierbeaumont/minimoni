@@ -24,19 +24,24 @@
 
 typedef struct {
     sqlite3      *handle;
+    int           interval_sec; /* collect interval, used as bucket_sec for raw rows */
     sqlite3_stmt *stmt_insert;
     sqlite3_stmt *stmt_prune_metrics;
     sqlite3_stmt *stmt_prune_alerts;
     sqlite3_stmt *stmt_alert_check; /* SELECT COUNT from alert_log by name + cutoff */
     sqlite3_stmt *stmt_alert_fire;  /* INSERT into alert_log */
+    char         *sql_consolidate;  /* built once in db_open from the tier table */
 } db_t;
 
 /*
  * Open (or create) the database at path. Enables WAL mode, sets cache
- * to 256 KB, creates the schema, and prepares reusable statements.
+ * to 256 KB, creates the schema (PRAGMA application_id + user_version
+ * are written on fresh creation), and prepares reusable statements.
+ * interval_sec is the collect interval in seconds — stored on insert as
+ * the raw row's bucket_sec.
  * Returns 0 on success, -1 on error (message written to stderr).
  */
-int db_open(db_t *db, const char *path);
+int db_open(db_t *db, const char *path, int interval_sec);
 
 /* Finalize prepared statements and close the database handle. */
 void db_close(db_t *db);
@@ -55,6 +60,21 @@ int db_insert(db_t *db, const metrics_t *m);
  * Returns 0 on success, -1 on error.
  */
 int db_prune(db_t *db, int retention_days);
+
+/*
+ * Run write-time tiered consolidation. Five transitions in a single
+ * BEGIN IMMEDIATE / COMMIT transaction:
+ *   Raw → T1 (5s buckets, threshold 2h)
+ *   T1  → T2 (30s, 12h)
+ *   T2  → T3 (5m, 5d)
+ *   T3  → T4 (1h, 60d)
+ *   T4  → T5 (6h, 365d)
+ * Each transition is no-op when no bucket is fully past its threshold
+ * (cheap index scan). Called once per collect cycle, after db_insert()
+ * and before db_prune(). See docs/adr/0005-tiered-consolidation.md.
+ * Returns 0 on success, -1 on error.
+ */
+int db_consolidate(db_t *db);
 
 /* -------------------------------------------------------------------------
  * Query API
@@ -97,8 +117,8 @@ int db_current(db_t *db, db_row_t *row);
  * Query time-series data for the past range_seconds seconds.
  * bucket_sec=0  → return raw rows (no aggregation).
  * bucket_sec>0  → aggregate into buckets of that size (AVG per bucket).
- * Net throughput is computed via LAG() and exposed as bytes/s; negative
- * deltas (counter reset) become net_valid=0 in the returned rows.
+ * Net throughput is stored as bytes/s directly; rows with net_valid=0
+ * (counter reset or first cycle after start) have NULL bps values.
  *
  * On success allocates *out_rows on the heap (caller must free) and returns
  * the row count (>= 0).  Returns -1 on error.

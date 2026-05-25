@@ -37,8 +37,11 @@ typedef struct {
     int    temp_valid;
     double temp_celsius;
 
-    /* Network — cumulative bytes since boot, sum of all non-loopback interfaces */
-    long long net_rx_bytes, net_tx_bytes;
+    /* Network throughput — bytes/second since the previous collect call,
+     * summed across all non-loopback interfaces. net_valid=0 on the first
+     * call (no previous snapshot) or after a counter reset. */
+    int    net_valid;
+    double net_rx_bps, net_tx_bps;
 
     /* Uptime */
     double uptime_seconds;

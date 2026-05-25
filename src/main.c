@@ -100,7 +100,7 @@ static int run_collect(const char *config_path)
         return 1;
 
     db_t db;
-    if (db_open(&db, cfg.db_path) != 0)
+    if (db_open(&db, cfg.db_path, cfg.interval_seconds) != 0)
         return 1;
 
     metrics_t m;
@@ -126,6 +126,7 @@ static int run_collect(const char *config_path)
     if (db_insert(&db, &m) != 0) {
         ret = 1;
     } else {
+        db_consolidate(&db);
         db_prune(&db, retention_days(&cfg));
         db_row_t row;
         if (db_current(&db, &row) == 0)
@@ -147,7 +148,7 @@ static int run_serve(const char *config_path)
         return 1;
 
     db_t db;
-    if (db_open(&db, cfg.db_path) != 0)
+    if (db_open(&db, cfg.db_path, cfg.interval_seconds) != 0)
         return 1;
 
     http_ctx_t http;
@@ -181,6 +182,7 @@ static int run_serve(const char *config_path)
         if (db_insert(&db, &m) != 0)
             continue;
 
+        db_consolidate(&db);
         db_prune(&db, days);
 
         db_row_t row;

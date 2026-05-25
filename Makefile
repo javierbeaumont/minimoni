@@ -58,12 +58,14 @@ lint:
 	docker run --rm -v "$(PWD)":/work -w /work alpine:latest \
 	  sh -c "apk add --quiet cppcheck && cppcheck --error-exitcode=1 --quiet src/"
 
-# Unit tests — pure C, no Docker / vendor libs beyond tomlc17 (used by config.c).
-# Runs natively on macOS or Linux. Each test is a function in tests/unit.c that
-# returns 0/1; the runner reports pass/fail and exits non-zero on any failure.
+# Unit tests — pure C, no Docker. tests/unit.c #includes the .c modules it
+# exercises (config.c, db.c) so static helpers are reachable; vendor libs are
+# linked alongside. Runs on any POSIX host with gcc. Each test is a function
+# that returns 0/1; the runner reports pass/fail and exits non-zero on any
+# failure.
 test: tests/unit.c
-	$(CC) -Wall -Wextra -std=c11 -Isrc -Ivendor \
-	  tests/unit.c vendor/tomlc17.c -o tests/unit
+	$(CC) -Wall -Wextra -std=c11 -Isrc -Ivendor $(SQLITE_FLAGS) \
+	  tests/unit.c vendor/tomlc17.c vendor/sqlite3.c -o tests/unit -lpthread
 	./tests/unit
 
 fmt:

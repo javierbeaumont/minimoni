@@ -155,10 +155,10 @@ minimoni serve --config /etc/minimoni/config.toml
 | `GET /stream` | SSE: live push every `refresh` seconds | Live updates |
 
 `range` accepts values from `[dashboard].ranges` (default `1d`, `7d`, `30d`, `90d`).
-`points` is optional; the server caps it at `5120` (the widest realistic
-backing-pixel width for a fullscreen chart on 5K/ultra-wide displays) and
-defaults to `480` (1 point per 4 backing pixels at 1080p fullscreen) when
-the parameter is missing.
+`points` is optional; the server caps it at `1,440` — the design point of the
+tiered consolidation ladder, above which the storage cannot guarantee
+gap-free coverage. It defaults to `480` (1 point per 4 backing pixels at
+1080p fullscreen) when the parameter is missing.
 
 ## Systemd setup
 
@@ -368,9 +368,9 @@ that order with 45-day retention). Sub-day ranges round up to 1 day for retentio
 
 The number of data points per chart is no longer a per-install setting — the dashboard
 JS asks for what it can render, via the `points` query parameter on `/api/metrics`
-(see [HTTP endpoints](#http-endpoints)). The server caps it at `5120` (memory bound
-for fullscreen 5K HiDPI / ultra-wide displays) and defaults to `480` if the parameter
-is missing.
+(see [HTTP endpoints](#http-endpoints)). The server caps it at `1,440` (the design
+point of the tiered storage ladder — above this value the ladder cannot guarantee
+gap-free coverage) and defaults to `480` if the parameter is missing.
 
 ### Alerts
 
@@ -553,6 +553,7 @@ consequences — so future contributors understand not just what was chosen but 
 | [0002](docs/adr/0002-civetweb.md) | civetweb as the HTTP server |
 | [0003](docs/adr/0003-tomlc17.md) | tomlc17 as the TOML parser |
 | [0004](docs/adr/0004-bearssl.md) | BearSSL for HTTPS webhook delivery |
+| [0005](docs/adr/0005-tiered-consolidation.md) | Tiered write-time consolidation |
 
 ## Roadmap
 

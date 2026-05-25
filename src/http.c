@@ -490,11 +490,12 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
         rsec = 86400L;
 
     /* Optional points hint from the client. The dashboard JS chooses how many
-     * data points it can render and passes it here. The server caps at 5120
-     * (the widest realistic backing-pixel width for a fullscreen chart on a
-     * 5K Mac Retina / 5120-wide ultra-wide monitor) to bound query memory
-     * (~750 KB per response). Values <=0 or missing fall back to the
-     * pick_bucket default. */
+     * data points it can render and passes it here. The server caps at 1440,
+     * which is the design point of the tier ladder: every tier transition is
+     * sized so that `bucket × 1440 ≤ transition_age`, meaning the system can
+     * deliver up to 1440 source rows in any range without gaps. Above 1440
+     * the ladder cannot guarantee uniform coverage (see ADR-0005). Values
+     * <=0 or missing fall back to the pick_bucket default. */
     int  points = 0;
     char points_str[16] = "";
     if (ri->query_string)
@@ -502,8 +503,8 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
                    sizeof(points_str));
     if (points_str[0]) {
         long p = strtol(points_str, NULL, 10);
-        if (p > 5120)
-            p = 5120;
+        if (p > 1440)
+            p = 1440;
         if (p > 0)
             points = (int)p;
     }
