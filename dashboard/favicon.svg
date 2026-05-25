@@ -3,7 +3,7 @@
   <rect width="32" height="32" rx="5" fill="#18181b"/>
   <!-- Green EKG line -->
   <polyline
-    points="2,16 6,16 9,9 13,23 17,13 21,19 25,16 30,16"
+    points="2,20 6,20 9,7 13,24 17,12 21,20 25,16 30,16"
     fill="none"
     stroke="#4ade80"
     stroke-width="2.5"

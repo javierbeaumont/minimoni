@@ -1,4 +1,4 @@
-# minimoni
+# <img src="dashboard/favicon.svg" alt="" width="18" height="18"> minimoni
 
 Zero-dependency system monitoring in a single C binary. Collects CPU, memory, disk,
 temperature, and network metrics into SQLite and serves an interactive canvas dashboard.
