@@ -28,6 +28,7 @@
 #include "alerts.h"
 #include "config.h"
 #include "db.h"
+#include "db_cmd.h"
 #include "http.h"
 #include "metrics.h"
 
@@ -45,9 +46,10 @@ static void usage(const char *prog)
             "Usage:\n"
             "  %s serve    [--config PATH]\n"
             "  %s collect  [--config PATH]\n"
+            "  %s db info  <db_path>\n"
             "  %s --version\n"
             "  %s --help\n",
-            prog, prog, prog, prog);
+            prog, prog, prog, prog, prog);
 }
 
 static const char *parse_config_flag(int argc, char **argv, int start)
@@ -228,6 +230,21 @@ int main(int argc, char **argv)
         sigaction(SIGINT, &sa, NULL);
         signal(SIGHUP, SIG_IGN);
         return run_serve(parse_config_flag(argc, argv, 2));
+    }
+
+    if (strcmp(argv[1], "db") == 0) {
+        if (argc < 4) {
+            fprintf(stderr, "minimoni: 'db' requires <action> and <db_path>\n");
+            usage(argv[0]);
+            return 1;
+        }
+        const char *action = argv[2];
+        const char *path = argv[3];
+        if (strcmp(action, "info") == 0)
+            return db_cmd_info(path);
+        fprintf(stderr, "minimoni: unknown 'db' action '%s'\n", action);
+        usage(argv[0]);
+        return 1;
     }
 
     fprintf(stderr, "minimoni: unknown subcommand '%s'\n", argv[1]);

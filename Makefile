@@ -21,7 +21,7 @@ BEARSSL_LIB = vendor/bearssl/build/libbearssl.a
 BEARSSL_INC = -Ivendor/bearssl/inc
 
 # SRC expands as modules are implemented
-SRC = src/main.c src/metrics.c src/db.c src/config.c src/http.c src/alerts.c
+SRC = src/main.c src/metrics.c src/db.c src/config.c src/http.c src/alerts.c src/db_cmd.c
 VENDOR = vendor/sqlite3.c vendor/civetweb.c vendor/tomlc17.c
 
 all: embed minimoni
