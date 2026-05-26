@@ -150,14 +150,14 @@ minimoni serve --config /etc/minimoni/config.toml
 |---|---|---|
 | `GET /` | Embedded HTML dashboard | Browser |
 | `GET /api/current` | JSON: latest collected values + config | Snapshot |
-| `GET /api/metrics?range=1d&points=480` | JSON: metric history grouped into ~`points` time buckets | Charts |
+| `GET /api/metrics?range=1d&points=240` | JSON: metric history grouped into ~`points` time buckets | Charts |
 | `GET /api/health` | `{"status":"ok","version":"..."}` | Liveness probe |
 | `GET /stream` | SSE: live push every `refresh` seconds | Live updates |
 
 `range` accepts values from `[dashboard].ranges` (default `1d`, `7d`, `30d`, `90d`).
 `points` is optional; the server caps it at `1,440` — the design point of the
 tiered consolidation ladder, above which the storage cannot guarantee
-gap-free coverage. It defaults to `480` when the parameter is missing. The
+gap-free coverage. It defaults to `240` when the parameter is missing. The
 bundled dashboard JS computes this value dynamically from the canvas width
 (1 point per 4 backing pixels, clamped to `[120, 1440]`).
 
@@ -371,7 +371,7 @@ The number of data points per chart is no longer a per-install setting — the d
 JS asks for what it can render, via the `points` query parameter on `/api/metrics`
 (see [HTTP endpoints](#http-endpoints)). The server caps it at `1,440` (the design
 point of the tiered storage ladder — above this value the ladder cannot guarantee
-gap-free coverage) and defaults to `480` if the parameter is missing.
+gap-free coverage) and defaults to `240` if the parameter is missing.
 
 ### Alerts
 

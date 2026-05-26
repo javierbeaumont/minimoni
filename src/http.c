@@ -184,12 +184,12 @@ static const int BUCKETS[] = {60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 2
  * Iterates ascending so ties naturally resolve to the smaller bucket. */
 static int pick_bucket(long range_sec, int interval_sec, int points, int actual_count)
 {
-    /* Default 480 = 1 point per 4 backing pixels at 1920×1080 fullscreen,
-     * the threshold where the eye no longer perceives pixel-level discreteness.
-     * Smaller defaults (300 in earlier versions) showed visible escalation on
-     * HiDPI and custom fullscreen layouts; this covers both cleanly. */
+    /* Default 240 = enough to eyeball a trend without wasting work for
+     * clients that didn't pass `points` (curl, custom dashboards). The
+     * bundled dashboard computes its own value from canvas width × dpr
+     * and almost always passes it. */
     if (points <= 0)
-        points = 480;
+        points = 240;
     if (actual_count >= 0 && actual_count <= points)
         return 0; /* fewer rows than target — show raw for progressive resolution */
     long ideal = range_sec / (long)points;
