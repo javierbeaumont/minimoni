@@ -12,6 +12,8 @@
   --ylw:  #fbbf24;  /* amber-400 — warning */
   --red:  #f87171;  /* red-400   — critical */
   --acc:  #4ade80;  /* accent unified with green */
+  /* Text on active/accent button: dark text on bright green-400, 13:1, WCAG AAA */
+  --act-txt: #09090b;
 }
 
 /* Explicit light theme via data attribute set by the toggle button */
@@ -26,6 +28,8 @@
   --ylw:  #b45309;  /* amber-700 — 4.6:1 on --bg, WCAG AA */
   --red:  #dc2626;  /* red-600   — 4.6:1 on --bg, WCAG AA */
   --acc:  #15803d;
+  /* White text on dark green-700: 9.6:1, WCAG AAA */
+  --act-txt: #fafafa;
 }
 
 /* Automatic light theme when the OS preference is light and no explicit
@@ -41,6 +45,7 @@
     --ylw:  #b45309;
     --red:  #dc2626;
     --acc:  #15803d;
+    --act-txt: #fafafa;
   }
 }
 
@@ -59,14 +64,17 @@
 body {
   background: var(--bg);
   color: var(--txt);
-  font: 14px/1.5 system-ui, sans-serif;
+  font: 0.875rem/1.5 system-ui, sans-serif;
   padding: 16px;
+  overflow-x: clip;
 }
 
 header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 20px;
 }
 
@@ -75,6 +83,7 @@ header {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 h1 {
@@ -108,7 +117,14 @@ button:hover:not(.act) {
 button.act {
   background: var(--acc);
   border-color: var(--acc);
-  color: #fff;
+  color: var(--act-txt);
+}
+
+/* Keyboard focus indicator — only shown for keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--acc);
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 
 /* ── Metric cards ────────────────────────────────────────────────── */
@@ -167,8 +183,15 @@ button.act {
 
 .charts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(650px, 1fr));
   gap: 14px;
+}
+
+/* Single column on screens too narrow for the 650px minimum */
+@media (max-width: 500px) {
+  .charts {
+    grid-template-columns: 1fr;
+  }
 }
 
 .cbox {
@@ -230,10 +253,16 @@ button.act {
 
 /* ── Canvas ──────────────────────────────────────────────────────── */
 
-/* Width is set dynamically by drawChart(); only height is fixed here */
+/* Width is set dynamically by drawChart(); height is read by drawChart() via clientHeight */
 canvas {
   display: block;
   height: 160px;
+}
+
+@media (min-width: 900px) {
+  canvas {
+    height: 220px;
+  }
 }
 
 /* ── Footer ──────────────────────────────────────────────────────── */

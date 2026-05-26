@@ -8,7 +8,7 @@ and homelab servers) where every MB counts.
 
 - Single static binary (~2 MB) — zero runtime dependencies, no package manager
 - CPU load and usage, memory, disk, temperature, network throughput, and uptime
-- Interactive canvas dashboard — dark/light theme, live updates via SSE
+- Interactive canvas dashboard — responsive, accessible, dark/light theme, live updates via SSE
 - SQLite storage with configurable retention
 - Webhook and command alerts with per-alert cooldown
 - TOML configuration — sensible defaults, works with zero config
@@ -157,8 +157,9 @@ minimoni serve --config /etc/minimoni/config.toml
 `range` accepts values from `[dashboard].ranges` (default `1d`, `7d`, `30d`, `90d`).
 `points` is optional; the server caps it at `1,440` — the design point of the
 tiered consolidation ladder, above which the storage cannot guarantee
-gap-free coverage. It defaults to `480` (1 point per 4 backing pixels at
-1080p fullscreen) when the parameter is missing.
+gap-free coverage. It defaults to `480` when the parameter is missing. The
+bundled dashboard JS computes this value dynamically from the canvas width
+(1 point per 4 backing pixels, clamped to `[120, 1440]`).
 
 ## Systemd setup
 

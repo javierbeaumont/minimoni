@@ -98,14 +98,14 @@ function drawChart(id, series, opts) {
   if (!cv) return;
 
   /* Scale the canvas backing store to the device pixel ratio so the
-     chart looks sharp on retina / HiDPI screens */
+     chart looks sharp on retina / HiDPI screens.
+     Height is driven by CSS — JS only sets the width to match the panel. */
   var dpr = devicePixelRatio || 1;
   var w   = cv.parentElement.clientWidth - 24;
-  var h   = 110;
-  cv.width        = w * dpr;
-  cv.height       = h * dpr;
-  cv.style.width  = w + 'px';
-  cv.style.height = h + 'px';
+  var h   = cv.clientHeight || 160;
+  cv.width       = w * dpr;
+  cv.height      = h * dpr;
+  cv.style.width = w + 'px';
 
   var ctx = cv.getContext('2d');
   ctx.scale(dpr, dpr);
@@ -133,7 +133,12 @@ function drawChart(id, series, opts) {
   var tx = function(i) { return Pl + (i / Math.max(n - 1, 1)) * cw; };
   var ty = function(v) { return Pt + (1 - (v - yMn) / yr) * ch; };
 
-  /* Grid lines */
+  var ts      = opts.ts || [];
+  var span    = ts.length > 1 ? ts[ts.length - 1] - ts[0] : 0;
+  /* How many X-axis labels fit (~50 px/label, 7 max to avoid clutter) */
+  var maxLbls = Math.min(7, Math.max(2, Math.floor(cw / 50)));
+
+  /* Grid lines — horizontal */
   ctx.strokeStyle = cssv('--brd');
   ctx.lineWidth   = 0.5;
   for (var gi = 0; gi <= 4; gi++) {
@@ -142,6 +147,19 @@ function drawChart(id, series, opts) {
     ctx.moveTo(Pl, gy);
     ctx.lineTo(Pl + cw, gy);
     ctx.stroke();
+  }
+
+  /* Grid lines — vertical, aligned with X-axis label positions */
+  if (ts.length > 1) {
+    for (var vi = 0; vi < maxLbls; vi++) {
+      var vti = vi === maxLbls - 1
+        ? ts.length - 1
+        : Math.round(vi * (ts.length - 1) / (maxLbls - 1));
+      ctx.beginPath();
+      ctx.moveTo(tx(vti), Pt);
+      ctx.lineTo(tx(vti), Pt + ch);
+      ctx.stroke();
+    }
   }
 
   /* Y-axis labels at bottom, middle, top */
@@ -154,13 +172,15 @@ function drawChart(id, series, opts) {
     ctx.fillText(fmtY(v, opts.unit), Pl - 3, Pt + (1 - f) * ch + 3);
   });
 
-  /* X-axis: first and last timestamp */
-  var ts = opts.ts || [];
+  /* X-axis labels: evenly distributed across the chart width */
   if (ts.length > 1) {
-    ctx.textAlign = 'left';
-    ctx.fillText(fmtT(ts[0]), Pl, h - 4);
-    ctx.textAlign = 'right';
-    ctx.fillText(fmtT(ts[ts.length - 1]), Pl + cw, h - 4);
+    for (var li = 0; li < maxLbls; li++) {
+      var lti = li === maxLbls - 1
+        ? ts.length - 1
+        : Math.round(li * (ts.length - 1) / (maxLbls - 1));
+      ctx.textAlign = li === 0 ? 'left' : li === maxLbls - 1 ? 'right' : 'center';
+      ctx.fillText(fmtX(ts[lti], span), tx(lti), h - 4);
+    }
   }
 
   /* Series */
@@ -226,12 +246,28 @@ function fmtY(v, u) {
   return v < 10 ? v.toFixed(1) : v.toFixed(0);
 }
 
-/* Format a Unix timestamp as HH:MM */
-function fmtT(t) {
+/* Format an X-axis label driven by the actual data span (seconds):
+ *   ≤ 1 h  → MM:SS     ≤ 2 d  → HH:MM    ≤ 60 d → Mon DD
+ *   < 2 y  → Mon 'YY   ≥ 2 y  → YYYY
+ * Boundaries are inclusive so a "1d" range (span = 86400 s exactly) lands
+ * in HH:MM, not in Mon DD. Slight overlap into 2d gives headroom for
+ * custom ranges or bucket-end drift. */
+function fmtX(t, span) {
   if (!t) return '';
-  var d = new Date(t * 1000);
-  return d.getHours().toString().padStart(2, '0') + ':' +
-         d.getMinutes().toString().padStart(2, '0');
+  var d  = new Date(t * 1000);
+  var mo = ['Jan','Feb','Mar','Apr','May','Jun',
+            'Jul','Aug','Sep','Oct','Nov','Dec'];
+  if (span <= 3600)
+    return d.getMinutes().toString().padStart(2, '0') + ':' +
+           d.getSeconds().toString().padStart(2, '0');
+  if (span <= 86400 * 2)
+    return d.getHours().toString().padStart(2, '0') + ':' +
+           d.getMinutes().toString().padStart(2, '0');
+  if (span <= 86400 * 60)
+    return mo[d.getMonth()] + ' ' + d.getDate();
+  if (span < 86400 * 730)
+    return mo[d.getMonth()] + " '" + String(d.getFullYear()).slice(2);
+  return String(d.getFullYear());
 }
 
 /* Format uptime according to the configured unit (auto picks the
@@ -685,8 +721,20 @@ function buildLegends() {
       s.className = 'leg-item';
       s.innerHTML = '<span class="leg-dot" style="background:' + item.c + '"></span>'
                  + item.label;
+      s.setAttribute('tabindex', '0');
+      s.setAttribute('role', 'checkbox');
+      s.setAttribute('aria-checked', 'true');
+      s.setAttribute('aria-label', item.label + ' series');
       /* IIFE captures idx so each closure refers to its own series index */
-      s.onclick   = (function(i) { return function() { toggleSeries(id, i); }; })(idx);
+      s.onclick = (function(i) { return function() { toggleSeries(id, i); }; })(idx);
+      s.addEventListener('keydown', (function(i) {
+        return function(e) {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            toggleSeries(id, i);
+          }
+        };
+      })(idx));
       wrap.appendChild(s);
     });
     hdr.appendChild(wrap);
@@ -696,7 +744,9 @@ function buildLegends() {
 function toggleSeries(id, idx) {
   seriesHidden[id][idx] = !seriesHidden[id][idx];
   var items = document.getElementById('leg-' + id).querySelectorAll('.leg-item');
-  items[idx].classList.toggle('off', seriesHidden[id][idx]);
+  var item  = items[idx];
+  item.classList.toggle('off', seriesHidden[id][idx]);
+  item.setAttribute('aria-checked', seriesHidden[id][idx] ? 'false' : 'true');
   renderAll();
 }
 
@@ -720,12 +770,13 @@ function loadCurrent() {
 }
 
 function loadMetrics() {
-  /* The default dashboard targets 480 points per chart — 1 point per 4
-     backing pixels at 1920×1080 fullscreen, the threshold where the eye no
-     longer sees discreteness. A custom dashboard can compute its own value
-     from the canvas width and pass it via the points query parameter; the
-     server caps it at 5120 to bound query memory. */
-  fetch('/api/metrics?range=' + curRange + '&points=480').then(function(r) {
+  /* Compute how many points the canvas can actually resolve: 1 point per
+     4 backing pixels (the threshold where discreteness becomes invisible).
+     The server hard-caps at 1440; we clamp to [120, 1440]. */
+  var cv     = document.getElementById('g-load');
+  var w      = cv ? cv.parentElement.clientWidth - 24 : 800;
+  var points = Math.min(1440, Math.max(120, Math.round(w * (devicePixelRatio || 1) / 4)));
+  fetch('/api/metrics?range=' + curRange + '&points=' + points).then(function(r) {
     if (!r.ok) return;
     r.json().then(function(d) {
       pts = d.points || [];
@@ -781,6 +832,8 @@ function connectSSE() {
 if (!window.matchMedia('(prefers-color-scheme: dark)').matches) {
   document.getElementById('thm').textContent = '🌙 Dark';
 }
+
+document.getElementById('thm').addEventListener('click', toggleTheme);
 
 buildLegends();
 buildTabs();
