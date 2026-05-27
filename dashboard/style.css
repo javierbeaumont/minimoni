@@ -14,6 +14,23 @@
   --acc:  #4ade80;  /* accent unified with green */
   /* Text on active/accent button: dark text on bright green-400, 13:1, WCAG AAA */
   --act-txt: #09090b;
+  /* Chart series identification colours — override here to customise line/dot colours.
+   * These are fixed across light/dark themes (identification, not semantic meaning).
+   * C1 sky-400 (#38bdf8): load1, cpu user, mem used, disk used, net tx
+   * C2 violet-400 (#a78bfa): load5, cpu sys, mem avail, disk free, net rx
+   * C3 slate-400 (#94a3b8): load15, temperature */
+  --clr-load1:     #38bdf8;
+  --clr-load5:     #a78bfa;
+  --clr-load15:    #94a3b8;
+  --clr-cpu-user:  #38bdf8;
+  --clr-cpu-sys:   #a78bfa;
+  --clr-mem-used:  #38bdf8;
+  --clr-mem-avail: #a78bfa;
+  --clr-disk-used: #38bdf8;
+  --clr-disk-free: #a78bfa;
+  --clr-temp:      #94a3b8;
+  --clr-net-rx:    #a78bfa;
+  --clr-net-tx:    #38bdf8;
 }
 
 /* Explicit light theme via data attribute set by the toggle button */
@@ -161,10 +178,26 @@ button.act {
 
 /* Secondary value shown below the primary */
 .csub {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   font-size: 11px;
   color: var(--mut);
   margin-top: 2px;
 }
+
+/* Active sub-metric label in .clabel (e.g. "1m", "user") */
+.card-unit      { font-size: 10px; }
+.card-unit.hide { display: none; }
+
+/* Each clickable secondary metric inside .csub */
+.card-sub       { display: inline-flex; gap: 2px; align-items: baseline; cursor: pointer; }
+.card-sub.hide  { display: none; }
+
+/* Status colour on the secondary value — mirrors .card.g/y/r on .cval */
+.card-sub-val.g { color: var(--grn); }
+.card-sub-val.y { color: var(--ylw); }
+.card-sub-val.r { color: var(--red); }
 
 /* Color the primary value according to the status level */
 .card.g .cval { color: var(--grn); }

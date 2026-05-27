@@ -9,24 +9,22 @@ var THRESH = {
   temp: [70, 80],
 };
 
-/* Chart series colours — purely for identification, no semantic meaning.
- * Semantic status (good/warn/critical) uses --grn/--ylw/--red from CSS.
- * C1 sky-400   (#38bdf8): load1, user, mem, disk, tx
- * C2 violet-400 (#a78bfa): load5, sys, memAvail, diskFree, rx
- * C3 slate-400 (#94a3b8): load15, temp */
+/* Chart series colours — sourced from CSS custom properties so a
+ * customiser only needs to change style.css (or override the vars).
+ * cssv() is a function declaration and is therefore hoisted. */
 var CLR = {
-  load1:    '#38bdf8',
-  load5:    '#a78bfa',
-  load15:   '#94a3b8',
-  user:     '#38bdf8',
-  sys:      '#a78bfa',
-  mem:      '#38bdf8',
-  memAvail: '#a78bfa',
-  disk:     '#38bdf8',
-  diskFree: '#a78bfa',
-  temp:     '#38bdf8',
-  rx:       '#a78bfa',
-  tx:       '#38bdf8',
+  load1:    cssv('--clr-load1'),
+  load5:    cssv('--clr-load5'),
+  load15:   cssv('--clr-load15'),
+  user:     cssv('--clr-cpu-user'),
+  sys:      cssv('--clr-cpu-sys'),
+  mem:      cssv('--clr-mem-used'),
+  memAvail: cssv('--clr-mem-avail'),
+  disk:     cssv('--clr-disk-used'),
+  diskFree: cssv('--clr-disk-free'),
+  temp:     cssv('--clr-temp'),
+  rx:       cssv('--clr-net-rx'),
+  tx:       cssv('--clr-net-tx'),
 };
 
 /* ── State ───────────────────────────────────────────────────────── */
@@ -47,33 +45,6 @@ var cfgRanges     = ['1d', '7d', '30d', '90d'];
 /* Three-state visibility: null = show all, [] = hide all, [...] = listed only */
 var cfgVisCharts  = null;
 var cfgVisCards   = null;
-
-/* ── Chart legend definitions ────────────────────────────────────── */
-
-/* Entries for each chart's interactive legend (temperature has none) */
-var LEGENDS = {
-  'g-load': [
-    { label: '1m',  c: CLR.load1  },
-    { label: '5m',  c: CLR.load5  },
-    { label: '15m', c: CLR.load15 },
-  ],
-  'g-cpu': [
-    { label: 'user', c: CLR.user },
-    { label: 'sys',  c: CLR.sys  },
-  ],
-  'g-mem': [
-    { label: 'used',  c: CLR.mem      },
-    { label: 'avail', c: CLR.memAvail },
-  ],
-  'g-disk': [
-    { label: 'used', c: CLR.disk     },
-    { label: 'free', c: CLR.diskFree },
-  ],
-  'g-net': [
-    { label: '↓', c: CLR.rx },
-    { label: '↑', c: CLR.tx },
-  ],
-};
 
 /* Per-chart, per-series hidden state; toggled by clicking a legend item */
 var seriesHidden = {
@@ -329,9 +300,6 @@ function setCard(id, val, sub, cls) {
   el.className = 'card' + (cls ? ' ' + cls : '');
 }
 
-/* Map a status level to its CSS variable (used for inline sub-value spans) */
-var lvlClr = { g: 'var(--grn)', y: 'var(--ylw)', r: 'var(--red)', '': 'inherit' };
-
 /* Swap which sub-metric (0 or 1) is shown as primary in a card.
    Replays lastCurrent so the change is visible immediately. */
 function swapCard(id, idx) {
@@ -339,12 +307,13 @@ function swapCard(id, idx) {
   if (lastCurrent) updateCards(lastCurrent);
 }
 
-/* Build the clickable HTML for a secondary metric shown inside .csub */
-function subSpan(label, c, valHtml, oc) {
-  return '<span style="color:' + c + ';cursor:pointer" onclick="' + oc + '">'
-       + label + ' </span>'
-       + '<span style="cursor:pointer" onclick="' + oc + '">'
-       + valHtml + '</span>';
+/* Wire click handlers onto the pre-declared .card-sub elements in HTML */
+function wireCards() {
+  document.querySelectorAll('.card-sub[data-card]').forEach(function(el) {
+    var cardId = el.dataset.card;
+    var idx    = parseInt(el.dataset.idx, 10);
+    el.addEventListener('click', function() { swapCard(cardId, idx); });
+  });
 }
 
 /* ── Update cards from current snapshot ──────────────────────────── */
@@ -440,52 +409,38 @@ function updateCards(d) {
   var loadFmt = cfgCardUnits.load === '%'
     ? function(v) { return v.toFixed(1) + '%'; }
     : function(v) { return v.toFixed(2); };
-  var loadS = [
-    { label: '1m',  c: CLR.load1,  v: d.load_1m,  fmt: loadFmt },
-    { label: '5m',  c: CLR.load5,  v: d.load_5m,  fmt: loadFmt },
-    { label: '15m', c: CLR.load15, v: d.load_15m, fmt: loadFmt },
-  ];
-  var lp = cardPrimary.load;
-  var lc = document.getElementById('c-load');
-  var lcLvl = cardLevel(d.load_1m, THRESH.load);
+  var loadV  = [d.load_1m, d.load_5m, d.load_15m];
+  var lp     = cardPrimary.load;
+  var lc     = document.getElementById('c-load');
+  var lcLvl  = cardLevel(d.load_1m, THRESH.load);
   lc.className = 'card' + (lcLvl ? ' ' + lcLvl : '');
-  lc.querySelector('.clabel').innerHTML =
-    'CPU Load <span style="color:' + loadS[lp].c +
-    ';font-size:10px">' + loadS[lp].label + '</span>';
-  lc.querySelector('.cval').textContent =
-    loadS[lp].v != null ? loadS[lp].fmt(loadS[lp].v) : '—';
-  var loadSub = '';
-  loadS.forEach(function(s, i) {
-    if (i === lp || s.v == null) return;
-    var vc = lvlClr[cardLevel(s.v, THRESH.load)];
-    loadSub += (loadSub ? '&ensp;' : '') +
-      subSpan(s.label, s.c,
-        '<span style="color:' + vc + '">' + s.fmt(s.v) + '</span>',
-        'swapCard(\'load\',' + i + ')');
+  lc.querySelectorAll('.card-unit').forEach(function(u, i) { u.classList.toggle('hide', i !== lp); });
+  lc.querySelector('.cval').textContent = loadV[lp] != null ? loadFmt(loadV[lp]) : '—';
+  loadV.forEach(function(v, i) {
+    var sub   = lc.querySelector('.card-sub[data-idx="' + i + '"]');
+    var valEl = sub.querySelector('.card-sub-val');
+    sub.classList.toggle('hide', i === lp);
+    valEl.textContent = v != null ? loadFmt(v) : '—';
+    valEl.className   = 'card-sub-val' + (v != null ? ' ' + cardLevel(v, THRESH.load) : '');
   });
-  lc.querySelector('.csub').innerHTML = loadSub;
 
   /* CPU Usage (absent on the first collect before a delta is available) */
   if (d.cpu_user_percent != null) {
     var pctFmt = function(v) { return v.toFixed(1) + '%'; };
-    var cpuS = [
-      { label: 'user', c: CLR.user, v: d.cpu_user_percent,   fmt: pctFmt },
-      { label: 'sys',  c: CLR.sys,  v: d.cpu_system_percent, fmt: pctFmt },
-    ];
-    var cp    = cardPrimary.cpu;
-    var cc    = document.getElementById('c-cpu');
-    var ccLvl = cardLevel(d.cpu_user_percent, THRESH.cpu);
+    var cpuV   = [d.cpu_user_percent, d.cpu_system_percent];
+    var cp     = cardPrimary.cpu;
+    var cc     = document.getElementById('c-cpu');
+    var ccLvl  = cardLevel(d.cpu_user_percent, THRESH.cpu);
     cc.className = 'card' + (ccLvl ? ' ' + ccLvl : '');
-    cc.querySelector('.clabel').innerHTML =
-      'CPU Usage <span style="color:' + cpuS[cp].c +
-      ';font-size:10px">' + cpuS[cp].label + '</span>';
-    cc.querySelector('.cval').textContent = cpuS[cp].v != null ? cpuS[cp].fmt(cpuS[cp].v) : '—';
-    var cpuSub = '';
-    cpuS.forEach(function(s, i) {
-      if (i === cp || s.v == null) return;
-      cpuSub = subSpan(s.label, s.c, s.fmt(s.v), 'swapCard(\'cpu\',' + i + ')');
+    cc.querySelectorAll('.card-unit').forEach(function(u, i) { u.classList.toggle('hide', i !== cp); });
+    cc.querySelector('.cval').textContent = cpuV[cp] != null ? pctFmt(cpuV[cp]) : '—';
+    cpuV.forEach(function(v, i) {
+      var sub   = cc.querySelector('.card-sub[data-idx="' + i + '"]');
+      var valEl = sub.querySelector('.card-sub-val');
+      sub.classList.toggle('hide', i === cp);
+      valEl.textContent = v != null ? pctFmt(v) : '—';
+      valEl.className   = 'card-sub-val';  /* cpu has no threshold-based sub colouring */
     });
-    cc.querySelector('.csub').innerHTML = cpuSub;
   }
 
   /* Memory */
@@ -499,30 +454,22 @@ function updateCards(d) {
           return v.toFixed(0) + ' MB';
         }
       : function(v) { return v.toFixed(1) + '%'; };
-    var memS = memIsAbs ? [
-      { label: 'used',  c: CLR.mem,      v: d.mem_used,      fmt: memFmt },
-      { label: 'avail', c: CLR.memAvail, v: d.mem_available, fmt: memFmt },
-    ] : [
-      { label: 'used',  c: CLR.mem,      v: d.mem_percent,       fmt: memFmt },
-      { label: 'avail', c: CLR.memAvail, v: 100 - d.mem_percent, fmt: memFmt },
-    ];
-    var mp = cardPrimary.mem;
-    var mc = document.getElementById('c-mem');
+    var memV = memIsAbs
+      ? [d.mem_used, d.mem_available]
+      : [d.mem_percent, 100 - d.mem_percent];
+    var mp    = cardPrimary.mem;
+    var mc    = document.getElementById('c-mem');
     var mcLvl = cardLevel(d.mem_percent, THRESH.mem);
     mc.className = 'card' + (mcLvl ? ' ' + mcLvl : '');
-    mc.querySelector('.clabel').innerHTML =
-      'Memory <span style="color:' + memS[mp].c +
-      ';font-size:10px">' + memS[mp].label + '</span>';
-    mc.querySelector('.cval').textContent = memS[mp].fmt(memS[mp].v);
-    var memSub = '';
-    memS.forEach(function(s, i) {
-      if (i === mp) return;
-      var mvc = lvlClr[cardLevel(d.mem_percent, THRESH.mem)];
-      memSub = subSpan(s.label, s.c,
-        '<span style="color:' + mvc + '">' + s.fmt(s.v) + '</span>',
-        'swapCard(\'mem\',' + i + ')');
+    mc.querySelectorAll('.card-unit').forEach(function(u, i) { u.classList.toggle('hide', i !== mp); });
+    mc.querySelector('.cval').textContent = memFmt(memV[mp]);
+    memV.forEach(function(v, i) {
+      var sub   = mc.querySelector('.card-sub[data-idx="' + i + '"]');
+      var valEl = sub.querySelector('.card-sub-val');
+      sub.classList.toggle('hide', i === mp);
+      valEl.textContent = memFmt(v);
+      valEl.className   = 'card-sub-val ' + cardLevel(d.mem_percent, THRESH.mem);
     });
-    mc.querySelector('.csub').innerHTML = memSub;
   }
 
   /* Disk */
@@ -535,30 +482,22 @@ function updateCards(d) {
           return v.toFixed(1) + ' GB';
         }
       : function(v) { return v.toFixed(1) + '%'; };
-    var diskS = diskIsAbs ? [
-      { label: 'used', c: CLR.disk,     v: d.disk_used, fmt: diskFmt },
-      { label: 'free', c: CLR.diskFree, v: d.disk_free, fmt: diskFmt },
-    ] : [
-      { label: 'used', c: CLR.disk,     v: d.disk_percent,       fmt: diskFmt },
-      { label: 'free', c: CLR.diskFree, v: 100 - d.disk_percent, fmt: diskFmt },
-    ];
-    var dkp  = cardPrimary.disk;
-    var dcel = document.getElementById('c-disk');
+    var diskV   = diskIsAbs
+      ? [d.disk_used, d.disk_free]
+      : [d.disk_percent, 100 - d.disk_percent];
+    var dkp     = cardPrimary.disk;
+    var dcel    = document.getElementById('c-disk');
     var dcelLvl = cardLevel(d.disk_percent, THRESH.disk);
     dcel.className = 'card' + (dcelLvl ? ' ' + dcelLvl : '');
-    dcel.querySelector('.clabel').innerHTML =
-      'Disk <span style="color:' + diskS[dkp].c +
-      ';font-size:10px">' + diskS[dkp].label + '</span>';
-    dcel.querySelector('.cval').textContent = diskS[dkp].fmt(diskS[dkp].v);
-    var diskSub = '';
-    diskS.forEach(function(s, i) {
-      if (i === dkp) return;
-      var dvc = lvlClr[cardLevel(d.disk_percent, THRESH.disk)];
-      diskSub = subSpan(s.label, s.c,
-        '<span style="color:' + dvc + '">' + s.fmt(s.v) + '</span>',
-        'swapCard(\'disk\',' + i + ')');
+    dcel.querySelectorAll('.card-unit').forEach(function(u, i) { u.classList.toggle('hide', i !== dkp); });
+    dcel.querySelector('.cval').textContent = diskFmt(diskV[dkp]);
+    diskV.forEach(function(v, i) {
+      var sub   = dcel.querySelector('.card-sub[data-idx="' + i + '"]');
+      var valEl = sub.querySelector('.card-sub-val');
+      sub.classList.toggle('hide', i === dkp);
+      valEl.textContent = diskFmt(v);
+      valEl.className   = 'card-sub-val ' + cardLevel(d.disk_percent, THRESH.disk);
     });
-    dcel.querySelector('.csub').innerHTML = diskSub;
   }
 
   /* Temperature — card is shown only when the server sends a non-null
@@ -571,26 +510,21 @@ function updateCards(d) {
   /* Store the critical trip-point for the chart reference line */
   if (d.temp_critical != null) tempCritical = d.temp_critical;
 
-  /* Network */
+  /* Network — netV[0]=tx(↑), netV[1]=rx(↓), matching the HTML card-sub order */
   if (d.net_rx != null) {
-    var netS = [
-      { label: '↑', c: CLR.tx, v: d.net_tx },
-      { label: '↓', c: CLR.rx, v: d.net_rx },
-    ];
-    var np = cardPrimary.net;
-    var nc = document.getElementById('c-net');
+    var netV = [d.net_tx, d.net_rx];
+    var np   = cardPrimary.net;
+    var nc   = document.getElementById('c-net');
     nc.className = 'card';
-    nc.querySelector('.clabel').innerHTML =
-      'Network <span style="color:' + netS[np].c +
-      ';font-size:10px">' + netS[np].label + '</span>';
-    nc.querySelector('.cval').textContent = fmtNet(netS[np].v, cfgCardUnits.net);
-    var netSub = '';
-    netS.forEach(function(s, i) {
-      if (i === np) return;
-      var oc = 'swapCard(\'net\',' + i + ')';
-      netSub = subSpan(s.label, s.c, fmtNet(s.v, cfgCardUnits.net), oc);
+    nc.querySelectorAll('.card-unit').forEach(function(u, i) { u.classList.toggle('hide', i !== np); });
+    nc.querySelector('.cval').textContent = fmtNet(netV[np], cfgCardUnits.net);
+    netV.forEach(function(v, i) {
+      var sub   = nc.querySelector('.card-sub[data-idx="' + i + '"]');
+      var valEl = sub.querySelector('.card-sub-val');
+      sub.classList.toggle('hide', i === np);
+      valEl.textContent = fmtNet(v, cfgCardUnits.net);
+      valEl.className   = 'card-sub-val';  /* network has no threshold-based sub colouring */
     });
-    nc.querySelector('.csub').innerHTML = netSub;
   }
 
   /* Uptime subtitle */
@@ -709,35 +643,21 @@ function renderAll() {
 
 /* ── Legend build & toggle ───────────────────────────────────────── */
 
-/* Inject a legend strip into each chart header at startup */
+/* Wire handlers onto the pre-declared .leg-item elements in HTML */
 function buildLegends() {
-  Object.keys(LEGENDS).forEach(function(id) {
-    var hdr  = document.getElementById(id).parentElement.querySelector('.chdr');
-    var wrap = document.createElement('div');
-    wrap.className = 'legend';
-    wrap.id        = 'leg-' + id;
-    LEGENDS[id].forEach(function(item, idx) {
-      var s = document.createElement('span');
-      s.className = 'leg-item';
-      s.innerHTML = '<span class="leg-dot" style="background:' + item.c + '"></span>'
-                 + item.label;
-      s.setAttribute('tabindex', '0');
-      s.setAttribute('role', 'checkbox');
-      s.setAttribute('aria-checked', 'true');
-      s.setAttribute('aria-label', item.label + ' series');
-      /* IIFE captures idx so each closure refers to its own series index */
-      s.onclick = (function(i) { return function() { toggleSeries(id, i); }; })(idx);
-      s.addEventListener('keydown', (function(i) {
-        return function(e) {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            toggleSeries(id, i);
-          }
-        };
-      })(idx));
-      wrap.appendChild(s);
-    });
-    hdr.appendChild(wrap);
+  document.querySelectorAll('.legend[data-chart] .leg-item').forEach(function(s) {
+    var id  = s.closest('.legend').dataset.chart;
+    var idx = parseInt(s.dataset.series, 10);
+    /* IIFE captures idx so each closure refers to its own series index */
+    s.onclick = (function(i) { return function() { toggleSeries(id, i); }; })(idx);
+    s.addEventListener('keydown', (function(i) {
+      return function(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          toggleSeries(id, i);
+        }
+      };
+    })(idx));
   });
 }
 
@@ -835,6 +755,7 @@ if (!window.matchMedia('(prefers-color-scheme: dark)').matches) {
 
 document.getElementById('thm').addEventListener('click', toggleTheme);
 
+wireCards();
 buildLegends();
 buildTabs();
 renderAll();

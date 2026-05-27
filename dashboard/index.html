@@ -28,24 +28,50 @@
   <!-- ── Metric cards (visibility and order driven by server config) ── -->
   <div class="cards">
     <div class="card" id="c-load">
-      <div class="clabel">CPU Load</div>
+      <div class="clabel">CPU Load
+        <span class="card-unit" data-series="0" style="color:var(--clr-load1)">1m</span>
+        <span class="card-unit hide" data-series="1" style="color:var(--clr-load5)">5m</span>
+        <span class="card-unit hide" data-series="2" style="color:var(--clr-load15)">15m</span>
+      </div>
       <div class="cval">&#8212;</div>
-      <div class="csub"></div>
+      <div class="csub">
+        <span class="card-sub hide" data-card="load" data-idx="0"><span class="card-sub-lbl" style="color:var(--clr-load1)">1m</span> <span class="card-sub-val"></span></span>
+        <span class="card-sub" data-card="load" data-idx="1"><span class="card-sub-lbl" style="color:var(--clr-load5)">5m</span> <span class="card-sub-val"></span></span>
+        <span class="card-sub" data-card="load" data-idx="2"><span class="card-sub-lbl" style="color:var(--clr-load15)">15m</span> <span class="card-sub-val"></span></span>
+      </div>
     </div>
     <div class="card" id="c-cpu">
-      <div class="clabel">CPU Usage</div>
+      <div class="clabel">CPU Usage
+        <span class="card-unit" data-series="0" style="color:var(--clr-cpu-user)">user</span>
+        <span class="card-unit hide" data-series="1" style="color:var(--clr-cpu-sys)">sys</span>
+      </div>
       <div class="cval">&#8212;</div>
-      <div class="csub"></div>
+      <div class="csub">
+        <span class="card-sub hide" data-card="cpu" data-idx="0"><span class="card-sub-lbl" style="color:var(--clr-cpu-user)">user</span> <span class="card-sub-val"></span></span>
+        <span class="card-sub" data-card="cpu" data-idx="1"><span class="card-sub-lbl" style="color:var(--clr-cpu-sys)">sys</span> <span class="card-sub-val"></span></span>
+      </div>
     </div>
     <div class="card" id="c-mem">
-      <div class="clabel">Memory</div>
+      <div class="clabel">Memory
+        <span class="card-unit" data-series="0" style="color:var(--clr-mem-used)">used</span>
+        <span class="card-unit hide" data-series="1" style="color:var(--clr-mem-avail)">avail</span>
+      </div>
       <div class="cval">&#8212;</div>
-      <div class="csub"></div>
+      <div class="csub">
+        <span class="card-sub hide" data-card="mem" data-idx="0"><span class="card-sub-lbl" style="color:var(--clr-mem-used)">used</span> <span class="card-sub-val"></span></span>
+        <span class="card-sub" data-card="mem" data-idx="1"><span class="card-sub-lbl" style="color:var(--clr-mem-avail)">avail</span> <span class="card-sub-val"></span></span>
+      </div>
     </div>
     <div class="card" id="c-disk">
-      <div class="clabel">Disk</div>
+      <div class="clabel">Disk
+        <span class="card-unit" data-series="0" style="color:var(--clr-disk-used)">used</span>
+        <span class="card-unit hide" data-series="1" style="color:var(--clr-disk-free)">free</span>
+      </div>
       <div class="cval">&#8212;</div>
-      <div class="csub"></div>
+      <div class="csub">
+        <span class="card-sub hide" data-card="disk" data-idx="0"><span class="card-sub-lbl" style="color:var(--clr-disk-used)">used</span> <span class="card-sub-val"></span></span>
+        <span class="card-sub" data-card="disk" data-idx="1"><span class="card-sub-lbl" style="color:var(--clr-disk-free)">free</span> <span class="card-sub-val"></span></span>
+      </div>
     </div>
     <!-- Temperature card: hidden until the server confirms a valid sensor -->
     <div class="card" id="c-temp" style="display:none">
@@ -53,28 +79,59 @@
       <div class="cval">&#8212;</div>
     </div>
     <div class="card" id="c-net">
-      <div class="clabel">Network</div>
+      <div class="clabel">Network
+        <span class="card-unit" data-series="0" style="color:var(--clr-net-tx)">↑</span>
+        <span class="card-unit hide" data-series="1" style="color:var(--clr-net-rx)">↓</span>
+      </div>
       <div class="cval">&#8212;</div>
-      <div class="csub"></div>
+      <div class="csub">
+        <span class="card-sub hide" data-card="net" data-idx="0"><span class="card-sub-lbl" style="color:var(--clr-net-tx)">↑</span> <span class="card-sub-val"></span></span>
+        <span class="card-sub" data-card="net" data-idx="1"><span class="card-sub-lbl" style="color:var(--clr-net-rx)">↓</span> <span class="card-sub-val"></span></span>
+      </div>
     </div>
   </div>
 
   <!-- ── Chart panels (visibility and order driven by server config) ── -->
   <div class="charts">
     <div class="cbox" id="b-load">
-      <div class="chdr"><span class="ctitle">CPU Load</span></div>
+      <div class="chdr">
+        <span class="ctitle">CPU Load</span>
+        <div class="legend" id="leg-g-load" data-chart="g-load">
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="1m series" data-series="0"><span class="leg-dot" style="background:var(--clr-load1)"></span>1m</span>
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="5m series" data-series="1"><span class="leg-dot" style="background:var(--clr-load5)"></span>5m</span>
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="15m series" data-series="2"><span class="leg-dot" style="background:var(--clr-load15)"></span>15m</span>
+        </div>
+      </div>
       <canvas id="g-load" role="img" aria-label="CPU Load history chart"></canvas>
     </div>
     <div class="cbox" id="b-cpu">
-      <div class="chdr"><span class="ctitle">CPU Usage</span></div>
+      <div class="chdr">
+        <span class="ctitle">CPU Usage</span>
+        <div class="legend" id="leg-g-cpu" data-chart="g-cpu">
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="user series" data-series="0"><span class="leg-dot" style="background:var(--clr-cpu-user)"></span>user</span>
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="sys series" data-series="1"><span class="leg-dot" style="background:var(--clr-cpu-sys)"></span>sys</span>
+        </div>
+      </div>
       <canvas id="g-cpu" role="img" aria-label="CPU Usage history chart"></canvas>
     </div>
     <div class="cbox" id="b-mem">
-      <div class="chdr"><span class="ctitle">Memory</span></div>
+      <div class="chdr">
+        <span class="ctitle">Memory</span>
+        <div class="legend" id="leg-g-mem" data-chart="g-mem">
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="used series" data-series="0"><span class="leg-dot" style="background:var(--clr-mem-used)"></span>used</span>
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="avail series" data-series="1"><span class="leg-dot" style="background:var(--clr-mem-avail)"></span>avail</span>
+        </div>
+      </div>
       <canvas id="g-mem" role="img" aria-label="Memory history chart"></canvas>
     </div>
     <div class="cbox" id="b-disk">
-      <div class="chdr"><span class="ctitle">Disk</span></div>
+      <div class="chdr">
+        <span class="ctitle">Disk</span>
+        <div class="legend" id="leg-g-disk" data-chart="g-disk">
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="used series" data-series="0"><span class="leg-dot" style="background:var(--clr-disk-used)"></span>used</span>
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="free series" data-series="1"><span class="leg-dot" style="background:var(--clr-disk-free)"></span>free</span>
+        </div>
+      </div>
       <canvas id="g-disk" role="img" aria-label="Disk history chart"></canvas>
     </div>
     <!-- Temperature panel: hidden by default; shown only when pts contain
@@ -84,7 +141,13 @@
       <canvas id="g-temp" role="img" aria-label="Temperature history chart"></canvas>
     </div>
     <div class="cbox" id="b-net">
-      <div class="chdr"><span class="ctitle">Network</span></div>
+      <div class="chdr">
+        <span class="ctitle">Network</span>
+        <div class="legend" id="leg-g-net" data-chart="g-net">
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="rx series" data-series="0"><span class="leg-dot" style="background:var(--clr-net-rx)"></span>↓</span>
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="tx series" data-series="1"><span class="leg-dot" style="background:var(--clr-net-tx)"></span>↑</span>
+        </div>
+      </div>
       <canvas id="g-net" role="img" aria-label="Network history chart"></canvas>
     </div>
   </div>
