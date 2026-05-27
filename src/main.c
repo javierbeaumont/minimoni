@@ -47,9 +47,10 @@ static void usage(const char *prog)
             "  %s serve    [--config PATH]\n"
             "  %s collect  [--config PATH]\n"
             "  %s db info  <db_path>\n"
+            "  %s db exec  <db_path> <SQL>\n"
             "  %s --version\n"
             "  %s --help\n",
-            prog, prog, prog, prog, prog);
+            prog, prog, prog, prog, prog, prog);
 }
 
 static const char *parse_config_flag(int argc, char **argv, int start)
@@ -233,15 +234,31 @@ int main(int argc, char **argv)
     }
 
     if (strcmp(argv[1], "db") == 0) {
-        if (argc < 4) {
-            fprintf(stderr, "minimoni: 'db' requires <action> and <db_path>\n");
+        if (argc < 3) {
+            fprintf(stderr, "minimoni: 'db' requires <action>\n");
             usage(argv[0]);
             return 1;
         }
         const char *action = argv[2];
-        const char *path = argv[3];
-        if (strcmp(action, "info") == 0)
-            return db_cmd_info(path);
+
+        if (strcmp(action, "info") == 0) {
+            if (argc < 4) {
+                fprintf(stderr, "minimoni: 'db info' requires <db_path>\n");
+                usage(argv[0]);
+                return 1;
+            }
+            return db_cmd_info(argv[3]);
+        }
+
+        if (strcmp(action, "exec") == 0) {
+            if (argc != 5) {
+                fprintf(stderr, "minimoni: 'db exec' requires <db_path> <SQL>\n");
+                usage(argv[0]);
+                return 1;
+            }
+            return db_cmd_exec(argv[3], argv[4]);
+        }
+
         fprintf(stderr, "minimoni: unknown 'db' action '%s'\n", action);
         usage(argv[0]);
         return 1;

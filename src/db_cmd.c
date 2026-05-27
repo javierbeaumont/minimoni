@@ -344,3 +344,101 @@ int db_cmd_info(const char *db_path)
     sqlite3_close(db);
     return 0;
 }
+
+/* --- db_cmd_exec -------------------------------------------------------- */
+
+/* Print one column value to stdout in TSV-safe form:
+ *  - NULL                 -> "NULL" literal
+ *  - SQLITE_BLOB          -> X'<hex>' (no decoding of opaque bytes)
+ *  - SQLITE_INTEGER/REAL  -> text representation via sqlite3_column_text
+ *  - SQLITE_TEXT          -> raw bytes (caller-side caveat — see header)
+ */
+static void print_value(sqlite3_stmt *stmt, int col)
+{
+    int type = sqlite3_column_type(stmt, col);
+    if (type == SQLITE_NULL) {
+        fputs("NULL", stdout);
+        return;
+    }
+    if (type == SQLITE_BLOB) {
+        const unsigned char *b = sqlite3_column_blob(stmt, col);
+        int                  n = sqlite3_column_bytes(stmt, col);
+        fputs("X'", stdout);
+        for (int i = 0; i < n; i++)
+            printf("%02X", b[i]);
+        fputc('\'', stdout);
+        return;
+    }
+    /* INTEGER, REAL, TEXT: let SQLite stringify */
+    const unsigned char *t = sqlite3_column_text(stmt, col);
+    if (t)
+        fputs((const char *)t, stdout);
+}
+
+int db_cmd_exec(const char *db_path, const char *sql)
+{
+    if (!db_path || !sql) {
+        fprintf(stderr, "db exec: missing db path or SQL\n");
+        return 2;
+    }
+
+    sqlite3 *db = NULL;
+    int      rc = sqlite3_open_v2(db_path, &db, SQLITE_OPEN_READWRITE, NULL);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "db exec: cannot open '%s': %s\n", db_path,
+                db ? sqlite3_errmsg(db) : sqlite3_errstr(rc));
+        if (db)
+            sqlite3_close(db);
+        return 2;
+    }
+
+    /* Iterate statements via the pzTail mechanism so a multi-statement script
+     * is executed one prepare/step/finalize at a time. Counter `idx` is used
+     * only for error messages. */
+    int         idx = 0;
+    const char *tail = sql;
+    const char *next = NULL;
+
+    while (tail && *tail) {
+        sqlite3_stmt *stmt = NULL;
+        rc = sqlite3_prepare_v2(db, tail, -1, &stmt, &next);
+        if (rc != SQLITE_OK) {
+            fprintf(stderr, "db exec: error at statement %d: %s\n", idx + 1, sqlite3_errmsg(db));
+            if (stmt)
+                sqlite3_finalize(stmt);
+            sqlite3_close(db);
+            return 1;
+        }
+        /* prepare on whitespace/comment-only tail returns NULL stmt — skip */
+        if (!stmt) {
+            tail = next;
+            continue;
+        }
+        idx++;
+
+        int ncols = sqlite3_column_count(stmt);
+        for (;;) {
+            rc = sqlite3_step(stmt);
+            if (rc == SQLITE_DONE)
+                break;
+            if (rc != SQLITE_ROW) {
+                fprintf(stderr, "db exec: error at statement %d: %s\n", idx, sqlite3_errmsg(db));
+                sqlite3_finalize(stmt);
+                sqlite3_close(db);
+                return 1;
+            }
+            for (int c = 0; c < ncols; c++) {
+                if (c > 0)
+                    fputc('\t', stdout);
+                print_value(stmt, c);
+            }
+            fputc('\n', stdout);
+        }
+
+        sqlite3_finalize(stmt);
+        tail = next;
+    }
+
+    sqlite3_close(db);
+    return 0;
+}

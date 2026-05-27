@@ -19,6 +19,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,6 +29,7 @@
 /* Pull the modules under test in directly. */
 #include "../src/config.c"
 #include "../src/db.c"
+#include "../src/db_cmd.c"
 
 /* --- Test infrastructure ------------------------------------------------- */
 
@@ -831,6 +833,245 @@ static int test_mixed_skip_and_valid(void)
     return cfg.range_count == 1 && strcmp(cfg.ranges[0], "1d") == 0 ? 0 : 1;
 }
 
+/* --- db_cmd_exec -------------------------------------------------------- */
+
+/* Capture stdout/stderr produced by db_cmd_exec into caller-provided buffers.
+ * Returns the exec exit code. Used by all db_exec tests.
+ *
+ * Stream redirection done with dup2 to temp files: pipes risk deadlock if
+ * the writer fills the buffer and there is no reader. */
+static int capture_exec(const char *db_path, const char *sql, char *out_buf, size_t out_size,
+                        char *err_buf, size_t err_size)
+{
+    char tmpout[64], tmperr[64];
+    snprintf(tmpout, sizeof(tmpout), "/tmp/minimoni-test-out-%d.txt", getpid());
+    snprintf(tmperr, sizeof(tmperr), "/tmp/minimoni-test-err-%d.txt", getpid());
+
+    fflush(stdout);
+    fflush(stderr);
+    int saved_out = dup(STDOUT_FILENO);
+    int saved_err = dup(STDERR_FILENO);
+    int outfd = open(tmpout, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+    int errfd = open(tmperr, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+    dup2(outfd, STDOUT_FILENO);
+    dup2(errfd, STDERR_FILENO);
+    close(outfd);
+    close(errfd);
+
+    int rc = db_cmd_exec(db_path, sql);
+
+    fflush(stdout);
+    fflush(stderr);
+    dup2(saved_out, STDOUT_FILENO);
+    dup2(saved_err, STDERR_FILENO);
+    close(saved_out);
+    close(saved_err);
+
+    out_buf[0] = '\0';
+    err_buf[0] = '\0';
+    FILE *fo = fopen(tmpout, "r");
+    if (fo) {
+        size_t n = fread(out_buf, 1, out_size - 1, fo);
+        out_buf[n] = '\0';
+        fclose(fo);
+    }
+    FILE *fe = fopen(tmperr, "r");
+    if (fe) {
+        size_t n = fread(err_buf, 1, err_size - 1, fe);
+        err_buf[n] = '\0';
+        fclose(fe);
+    }
+    unlink(tmpout);
+    unlink(tmperr);
+    return rc;
+}
+
+/* Simple SELECT: tab-separated, no header. */
+static int test_exec_select(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+    db_close(&db);
+
+    char out[1024], err[1024];
+    int  rc = capture_exec(g_tmpdb_path, "SELECT 1, 'hi'", out, sizeof(out), err, sizeof(err));
+    int  fail = rc != 0 || strcmp(out, "1\thi\n") != 0;
+    char wal[280];
+    snprintf(wal, sizeof(wal), "%s-wal", g_tmpdb_path);
+    unlink(wal);
+    snprintf(wal, sizeof(wal), "%s-shm", g_tmpdb_path);
+    unlink(wal);
+    unlink(g_tmpdb_path);
+    return fail;
+}
+
+static int test_exec_null_rendering(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+    db_close(&db);
+
+    char out[1024], err[1024];
+    int  rc = capture_exec(g_tmpdb_path, "SELECT NULL", out, sizeof(out), err, sizeof(err));
+    int  fail = rc != 0 || strcmp(out, "NULL\n") != 0;
+    char wal[280];
+    snprintf(wal, sizeof(wal), "%s-wal", g_tmpdb_path);
+    unlink(wal);
+    snprintf(wal, sizeof(wal), "%s-shm", g_tmpdb_path);
+    unlink(wal);
+    unlink(g_tmpdb_path);
+    return fail;
+}
+
+static int test_exec_blob_rendering(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+    db_close(&db);
+
+    char out[1024], err[1024];
+    int  rc = capture_exec(g_tmpdb_path, "SELECT X'deadbeef'", out, sizeof(out), err, sizeof(err));
+    int  fail = rc != 0 || strcmp(out, "X'DEADBEEF'\n") != 0;
+    char wal[280];
+    snprintf(wal, sizeof(wal), "%s-wal", g_tmpdb_path);
+    unlink(wal);
+    snprintf(wal, sizeof(wal), "%s-shm", g_tmpdb_path);
+    unlink(wal);
+    unlink(g_tmpdb_path);
+    return fail;
+}
+
+/* Multi-statement DDL+DML succeeds end-to-end (the migration use case).
+ * stdout stays empty because none of the statements return rows. */
+static int test_exec_multi_stmt_script(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+    db_close(&db);
+
+    char out[1024], err[1024];
+    int  rc = capture_exec(g_tmpdb_path, "CREATE TABLE t(x INT); INSERT INTO t VALUES (1),(2),(3)",
+                           out, sizeof(out), err, sizeof(err));
+    int  fail = rc != 0 || out[0] != '\0' || err[0] != '\0';
+    char wal[280];
+    snprintf(wal, sizeof(wal), "%s-wal", g_tmpdb_path);
+    unlink(wal);
+    snprintf(wal, sizeof(wal), "%s-shm", g_tmpdb_path);
+    unlink(wal);
+    unlink(g_tmpdb_path);
+    return fail;
+}
+
+static int test_exec_sql_error_returns_1(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+    db_close(&db);
+
+    char out[1024], err[1024];
+    int  rc = capture_exec(g_tmpdb_path, "SELECT * FROM nonexistent_table", out, sizeof(out), err,
+                           sizeof(err));
+    int  fail = rc != 1 || strstr(err, "statement 1") == NULL;
+    char wal[280];
+    snprintf(wal, sizeof(wal), "%s-wal", g_tmpdb_path);
+    unlink(wal);
+    snprintf(wal, sizeof(wal), "%s-shm", g_tmpdb_path);
+    unlink(wal);
+    unlink(g_tmpdb_path);
+    return fail;
+}
+
+static int test_exec_open_error_returns_2(void)
+{
+    char out[1024], err[1024];
+    int  rc =
+        capture_exec("/nonexistent/path/to.db", "SELECT 1", out, sizeof(out), err, sizeof(err));
+    return (rc == 2 && strstr(err, "cannot open") != NULL) ? 0 : 1;
+}
+
+static int test_exec_transaction_rollback(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+    /* Create a table; insert a known row. */
+    if (sqlite3_exec(db.handle, "CREATE TABLE t(x INT)", NULL, NULL, NULL) != SQLITE_OK)
+        return 1;
+    if (sqlite3_exec(db.handle, "INSERT INTO t VALUES (1)", NULL, NULL, NULL) != SQLITE_OK)
+        return 1;
+    db_close(&db);
+
+    /* Try a multi-stmt that BEGINs, inserts, then errors. The COMMIT never
+     * runs; the in-progress transaction must roll back when the connection
+     * closes after the error. */
+    char out[1024], err[1024];
+    int  rc = capture_exec(g_tmpdb_path,
+                           "BEGIN; INSERT INTO t VALUES (99); SELECT * FROM nonexistent; COMMIT",
+                           out, sizeof(out), err, sizeof(err));
+    if (rc != 1)
+        goto fail;
+
+    /* Re-open to verify only the pre-existing row is present. */
+    sqlite3 *h = NULL;
+    if (sqlite3_open_v2(g_tmpdb_path, &h, SQLITE_OPEN_READONLY, NULL) != SQLITE_OK)
+        goto fail;
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(h, "SELECT x FROM t", -1, &stmt, NULL) != SQLITE_OK) {
+        sqlite3_close(h);
+        goto fail;
+    }
+    int seen = 0, bad = 0;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        seen++;
+        if (sqlite3_column_int(stmt, 0) != 1)
+            bad = 1;
+    }
+    sqlite3_finalize(stmt);
+    sqlite3_close(h);
+    int fail = (seen != 1 || bad);
+
+    char wal[280];
+    snprintf(wal, sizeof(wal), "%s-wal", g_tmpdb_path);
+    unlink(wal);
+    snprintf(wal, sizeof(wal), "%s-shm", g_tmpdb_path);
+    unlink(wal);
+    unlink(g_tmpdb_path);
+    return fail;
+
+fail:;
+    char wal2[280];
+    snprintf(wal2, sizeof(wal2), "%s-wal", g_tmpdb_path);
+    unlink(wal2);
+    snprintf(wal2, sizeof(wal2), "%s-shm", g_tmpdb_path);
+    unlink(wal2);
+    unlink(g_tmpdb_path);
+    return 1;
+}
+
+static int test_exec_empty_script(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+    db_close(&db);
+
+    char out[1024], err[1024];
+    int  rc = capture_exec(g_tmpdb_path, "   \n\t  ", out, sizeof(out), err, sizeof(err));
+    int  fail = rc != 0 || out[0] != '\0' || err[0] != '\0';
+    char wal[280];
+    snprintf(wal, sizeof(wal), "%s-wal", g_tmpdb_path);
+    unlink(wal);
+    snprintf(wal, sizeof(wal), "%s-shm", g_tmpdb_path);
+    unlink(wal);
+    unlink(g_tmpdb_path);
+    return fail;
+}
+
 /* --- Runner ------------------------------------------------------------ */
 
 struct test {
@@ -911,6 +1152,15 @@ static const struct test ALL_TESTS[] = {
     T(consolidate_straddles_t1_t2),
     T(consolidate_straddles_t3_t4),
     T(consolidate_straddles_t4_t5),
+    /* db exec */
+    T(exec_select),
+    T(exec_null_rendering),
+    T(exec_blob_rendering),
+    T(exec_multi_stmt_script),
+    T(exec_sql_error_returns_1),
+    T(exec_open_error_returns_2),
+    T(exec_transaction_rollback),
+    T(exec_empty_script),
 };
 
 #define NUM_TESTS (sizeof(ALL_TESTS) / sizeof(ALL_TESTS[0]))

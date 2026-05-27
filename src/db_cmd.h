@@ -35,4 +35,39 @@
  */
 int db_cmd_info(const char *db_path);
 
+/*
+ * Execute a SQL script against the database (read-write).
+ *
+ * Stable API consumed by `minimoni-migrate`. Intentionally minimal:
+ * the only consumer ships hand-audited SQL constants and reads just
+ * the row data + exit code. There is no allowlist, no sanitizer,
+ * no flags. For interactive SQL exploration, use `sqlite3` instead.
+ *
+ * Accepts a multi-statement script (statements separated by `;`),
+ * executed in order, aborted at the first error.
+ *
+ * Output:
+ *  - stdout: tab-separated values, one row per line. No header line.
+ *    Multiple statements that return rows are concatenated with no
+ *    separator. `NULL` literal in uppercase for NULL values. BLOB
+ *    columns rendered as X'<hex>' to avoid terminal corruption from
+ *    opaque bytes.
+ *  - stderr: SQL errors as `db exec: error at statement <N>: <msg>`.
+ *
+ * The DB is opened with SQLITE_OPEN_READWRITE — the file must
+ * already exist and be writable. Loadable extensions are NOT
+ * enabled (sqlite3_enable_load_extension is never called).
+ *
+ * Caveat: TEXT values are emitted raw. Embedded tab/newline/control
+ * bytes break TSV parsing and may corrupt the terminal. The minimoni
+ * schema only stores ISO-8601 strings and config-provided alert names
+ * here, both controlled inputs.
+ *
+ * Returns:
+ *   0 on full script success
+ *   1 on SQL error (prepare/step/finalize)
+ *   2 on argument/DB-open error
+ */
+int db_cmd_exec(const char *db_path, const char *sql);
+
 #endif /* MINIMONI_DB_CMD_H */

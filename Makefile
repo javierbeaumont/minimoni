@@ -24,7 +24,12 @@ BEARSSL_INC = -Ivendor/bearssl/inc
 SRC = src/main.c src/metrics.c src/db.c src/config.c src/http.c src/alerts.c src/db_cmd.c
 VENDOR = vendor/sqlite3.c vendor/civetweb.c vendor/tomlc17.c
 
-all: embed minimoni
+# minimoni-migrate is a small standalone binary that calls `minimoni db exec`
+# for every SQL statement, so it does not link sqlite, civetweb, or bearssl.
+MIGRATE_SRC = src/migrate/main.c src/migrate/exec.c src/migrate/preflight.c \
+  src/migrate/snapshot.c src/migrate/migrations.c
+
+all: embed minimoni minimoni-migrate
 
 # embed.h: dashboard bundled (CSS + JS inlined) and serialised as a C byte array.
 # tools/bundle.sh inlines dashboard/style.css and dashboard/app.js into index.html,
@@ -40,10 +45,16 @@ minimoni: $(SRC) $(VENDOR) $(BEARSSL_LIB)
 	$(CC) $(CFLAGS) -O2 $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
 	  -Ivendor -Isrc -o $@ $(SRC) $(VENDOR) $(BEARSSL_LIB) $(LDFLAGS)
 
+minimoni-migrate: $(MIGRATE_SRC)
+	$(CC) $(CFLAGS) -O2 -Isrc/migrate -o $@ $(MIGRATE_SRC) -static
+
 release: embed $(BEARSSL_LIB)
 	$(CC) $(CFLAGS) -Os -flto $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
 	  -Ivendor -Isrc -o minimoni $(SRC) $(VENDOR) $(BEARSSL_LIB) $(LDFLAGS) -Wl,--gc-sections
 	$(STRIP) minimoni
+	$(CC) $(CFLAGS) -Os -flto -Isrc/migrate -o minimoni-migrate $(MIGRATE_SRC) \
+	  -static -Wl,--gc-sections
+	$(STRIP) minimoni-migrate
 
 release-linux:
 	docker run --rm -v "$(PWD)":/work -w /work alpine:latest \
@@ -68,6 +79,15 @@ test: tests/unit.c
 	  tests/unit.c vendor/tomlc17.c vendor/sqlite3.c -o tests/unit -lpthread
 	./tests/unit
 
+# Integration tests for minimoni-migrate. Treats the binary as a black box:
+# builds test DBs with the sqlite3 CLI, runs minimoni-migrate, verifies
+# observable post-state. Requires sqlite3 in PATH and both binaries built.
+test-migrate: minimoni minimoni-migrate
+	./tests/migrate.sh
+
+# Run every test suite the project has.
+test-all: test test-migrate
+
 fmt:
 	find src tests -name '*.[ch]' | xargs $(CLANG_FORMAT) -i
 
@@ -77,5 +97,5 @@ hooks:
 	@echo "pre-commit hook installed"
 
 clean:
-	rm -f minimoni minimoni-debug src/embed.h tests/unit
+	rm -f minimoni minimoni-debug minimoni-migrate src/embed.h tests/unit
 	-$(MAKE) -C vendor/bearssl clean 2>/dev/null
