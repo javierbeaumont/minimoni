@@ -384,8 +384,8 @@ period has elapsed. Accepts `30s`, `1m`, `1h`, `1d`. Cooldown state is stored in
 
 minimoni has no built-in authentication or TLS. **Do not expose it directly to the internet.**
 
-The recommended setup is to bind minimoni to localhost and front it with a reverse proxy that
-handles TLS and authentication:
+The recommended setup is to bind minimoni to localhost and front it with a reverse proxy
+that handles TLS and authentication:
 
 ```toml
 # config.toml
@@ -393,40 +393,9 @@ handles TLS and authentication:
 listen = "127.0.0.1:8080"
 ```
 
-**Caddy** (automatic HTTPS + basic auth):
-
-```
-monitor.example.com {
-    basicauth {
-        admin JDJhJDE0JHh4eHh4eHh4eHh4eHh4eHh4eHh4eA==
-    }
-    reverse_proxy localhost:8080
-}
-```
-
-Caddy's `reverse_proxy` streams SSE without buffering by default — no additional
-configuration needed.
-
-**nginx**:
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name monitor.example.com;
-
-    auth_basic "minimoni";
-    auth_basic_user_file /etc/nginx/.htpasswd;
-
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_set_header Connection "";   # required for SSE
-        proxy_buffering off;
-    }
-}
-```
-
-The `proxy_buffering off` directive is required for the SSE live-update stream to reach
-the browser without being held in nginx's buffer.
+Working configurations for **Caddy, nginx, Tailscale, Traefik, and Apache** are in
+[`docs/reverse-proxy.md`](docs/reverse-proxy.md), including the per-proxy gotcha for
+streaming the SSE live-update endpoint without buffering.
 
 ### Example configurations
 
