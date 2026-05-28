@@ -21,11 +21,17 @@ jobs:
         include:
           - arch: linux-amd64
           - arch: linux-arm64
+          - arch: linux-armv7
+          - arch: linux-armv6
 
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+
+      - name: Set up QEMU
+        if: matrix.arch == 'linux-armv7' || matrix.arch == 'linux-armv6'
+        uses: docker/setup-qemu-action@v3
 
       - name: Build (amd64, Alpine musl)
         if: matrix.arch == 'linux-amd64'
@@ -47,13 +53,45 @@ jobs:
           sudo apt-get install -qq -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu xxd
           make release CC=aarch64-linux-gnu-gcc STRIP=aarch64-linux-gnu-strip
 
-      - name: Rename binary
-        run: mv minimoni minimoni-${{ matrix.arch }}
+      - name: Build (armv7, Alpine musl in QEMU)
+        if: matrix.arch == 'linux-armv7'
+        run: |
+          docker run --rm --platform linux/arm/v7 \
+            -v "$PWD":/work \
+            -w /work \
+            arm32v7/alpine:latest \
+            sh -c '
+              set -e
+              apk add --quiet --no-cache gcc musl-dev make xxd git
+              git config --global --add safe.directory /work
+              make release
+            '
+
+      - name: Build (armv6, Alpine musl in QEMU)
+        if: matrix.arch == 'linux-armv6'
+        run: |
+          docker run --rm --platform linux/arm/v6 \
+            -v "$PWD":/work \
+            -w /work \
+            arm32v6/alpine:latest \
+            sh -c '
+              set -e
+              apk add --quiet --no-cache gcc musl-dev make xxd git
+              git config --global --add safe.directory /work
+              make release
+            '
+
+      - name: Rename binaries
+        run: |
+          mv minimoni         minimoni-${{ matrix.arch }}
+          mv minimoni-migrate minimoni-migrate-${{ matrix.arch }}
 
       - uses: actions/upload-artifact@v5
         with:
-          name: minimoni-${{ matrix.arch }}
-          path: minimoni-${{ matrix.arch }}
+          name: ${{ matrix.arch }}
+          path: |
+            minimoni-${{ matrix.arch }}
+            minimoni-migrate-${{ matrix.arch }}
 
   release:
     needs: build
@@ -76,6 +114,12 @@ jobs:
           subject-path: |
             minimoni-linux-amd64
             minimoni-linux-arm64
+            minimoni-linux-armv7
+            minimoni-linux-armv6
+            minimoni-migrate-linux-amd64
+            minimoni-migrate-linux-arm64
+            minimoni-migrate-linux-armv7
+            minimoni-migrate-linux-armv6
 
       - name: Create GitHub Release
         env:
@@ -88,4 +132,13 @@ jobs:
             --notes-file /tmp/release-body.md \
             minimoni-linux-amd64 \
             minimoni-linux-arm64 \
-            config.example.toml
+            minimoni-linux-armv7 \
+            minimoni-linux-armv6 \
+            minimoni-migrate-linux-amd64 \
+            minimoni-migrate-linux-arm64 \
+            minimoni-migrate-linux-armv7 \
+            minimoni-migrate-linux-armv6 \
+            config.example.toml \
+            contrib/systemd/minimoni.service \
+            contrib/systemd/minimoni-collect.service \
+            contrib/systemd/minimoni-collect.timer
