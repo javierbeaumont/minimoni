@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Generate src/embed.h (c-cpp prerequisite)
+      - name: Generate build/embed.h (c-cpp prerequisite)
         if: matrix.language == 'c-cpp'
         run: |
           sudo apt-get update -qq && sudo apt-get install -qq -y xxd

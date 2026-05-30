@@ -1,10 +1,16 @@
+# User-facing binaries (built at repo root for distribution)
 minimoni
-minimoni-debug
-minimoni-test
+minimoni-migrate
 minimoni-linux-*
-tests/unit
+minimoni-migrate-linux-*
+
+# Generated build outputs — everything `make`/`make debug`/`make test` emits
+# (embed.h, minimoni-debug, unit-test, etc.) goes into build/.
+build/
+
+# Vendored library build tree (sub-make's output)
 vendor/bearssl/build/
-src/embed.h
-*.db
-*.db-wal
-*.db-shm
+
+# Local dev scratchpad — preview configs, test DBs, anything ephemeral.
+# Convention: anything not for distribution and not a build artefact lives here.
+.dev/

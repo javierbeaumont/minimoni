@@ -8,6 +8,11 @@ LDFLAGS_DEBUG = -lpthread
 CLANG_FORMAT ?= $(shell command -v clang-format \
   || echo /Library/Developer/CommandLineTools/usr/bin/clang-format)
 
+# Generated artefacts go here — keeps the repo root limited to source +
+# user-facing release binaries (minimoni, minimoni-migrate). `make clean`
+# is just `rm -rf $(BUILD_DIR)`.
+BUILD_DIR = build
+
 # SQLite: minimal tuning (dead code removed by LTO, not OMIT flags)
 SQLITE_FLAGS = -DSQLITE_THREADSAFE=1 -DSQLITE_DEFAULT_MEMSTATUS=0 \
   -DSQLITE_DEFAULT_WAL_SYNCHRONOUS=1 -DSQLITE_LIKE_DOESNT_MATCH_BLOBS
@@ -31,26 +36,30 @@ MIGRATE_SRC = src/migrate/main.c src/migrate/exec.c src/migrate/preflight.c \
 
 all: embed minimoni minimoni-migrate
 
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
 # embed.h: dashboard bundled (CSS + JS inlined) and serialised as a C byte array.
 # tools/bundle.sh inlines dashboard/style.css and dashboard/app.js into index.html,
 # then xxd converts the result to a C byte array included by the HTTP handler.
-# Not tracked in git — run "make embed" before the first build or after editing the dashboard.
-embed:
-	sh tools/bundle.sh | xxd -i -n dashboard_index_html - > src/embed.h
+# Lives in $(BUILD_DIR)/ — found at compile time via `-I$(BUILD_DIR)`.
+embed: | $(BUILD_DIR)
+	sh tools/bundle.sh | xxd -i -n dashboard_index_html - > $(BUILD_DIR)/embed.h
 
 $(BEARSSL_LIB):
 	$(MAKE) -C vendor/bearssl lib CC="$(CC)"
 
 minimoni: $(SRC) $(VENDOR) $(BEARSSL_LIB)
 	$(CC) $(CFLAGS) -O2 $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
-	  -Ivendor -Isrc -o $@ $(SRC) $(VENDOR) $(BEARSSL_LIB) $(LDFLAGS)
+	  -Ivendor -Isrc -I$(BUILD_DIR) -o $@ $(SRC) $(VENDOR) $(BEARSSL_LIB) $(LDFLAGS)
 
 minimoni-migrate: $(MIGRATE_SRC)
 	$(CC) $(CFLAGS) -O2 -Isrc/migrate -o $@ $(MIGRATE_SRC) -static
 
 release: embed $(BEARSSL_LIB)
 	$(CC) $(CFLAGS) -Os -flto $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
-	  -Ivendor -Isrc -o minimoni $(SRC) $(VENDOR) $(BEARSSL_LIB) $(LDFLAGS) -Wl,--gc-sections
+	  -Ivendor -Isrc -I$(BUILD_DIR) \
+	  -o minimoni $(SRC) $(VENDOR) $(BEARSSL_LIB) $(LDFLAGS) -Wl,--gc-sections
 	$(STRIP) minimoni
 	$(CC) $(CFLAGS) -Os -flto -Isrc/migrate -o minimoni-migrate $(MIGRATE_SRC) \
 	  -static -Wl,--gc-sections
@@ -60,10 +69,10 @@ release-linux:
 	docker run --rm -v "$(PWD)":/work -w /work alpine:latest \
 	  sh -c "apk add --quiet gcc musl-dev make xxd git && make release"
 
-debug: embed $(BEARSSL_LIB)
+debug: embed $(BEARSSL_LIB) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -O0 -g -fsanitize=address,undefined \
-	  $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) -Ivendor -Isrc \
-	  -o minimoni-debug $(SRC) $(VENDOR) $(BEARSSL_LIB) $(LDFLAGS_DEBUG)
+	  $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) -Ivendor -Isrc -I$(BUILD_DIR) \
+	  -o $(BUILD_DIR)/minimoni-debug $(SRC) $(VENDOR) $(BEARSSL_LIB) $(LDFLAGS_DEBUG)
 
 lint:
 	docker run --rm -v "$(PWD)":/work -w /work alpine:latest \
@@ -74,10 +83,10 @@ lint:
 # linked alongside. Runs on any POSIX host with gcc. Each test is a function
 # that returns 0/1; the runner reports pass/fail and exits non-zero on any
 # failure.
-test: tests/unit.c
+test: tests/unit.c | $(BUILD_DIR)
 	$(CC) -Wall -Wextra -std=c11 -Isrc -Ivendor $(SQLITE_FLAGS) \
-	  tests/unit.c vendor/tomlc17.c vendor/sqlite3.c -o tests/unit -lpthread
-	./tests/unit
+	  tests/unit.c vendor/tomlc17.c vendor/sqlite3.c -o $(BUILD_DIR)/unit-test -lpthread
+	$(BUILD_DIR)/unit-test
 
 # Integration tests for minimoni-migrate. Treats the binary as a black box:
 # builds test DBs with the sqlite3 CLI, runs minimoni-migrate, verifies
@@ -97,5 +106,6 @@ hooks:
 	@echo "pre-commit hook installed"
 
 clean:
-	rm -f minimoni minimoni-debug minimoni-migrate src/embed.h tests/unit
+	rm -f minimoni minimoni-migrate
+	rm -rf $(BUILD_DIR)
 	-$(MAKE) -C vendor/bearssl clean 2>/dev/null

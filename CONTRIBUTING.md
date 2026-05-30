@@ -33,7 +33,7 @@ For security-sensitive issues, see [SECURITY.md](SECURITY.md).
 ## Building and testing
 
 ```sh
-make embed     # bundle dashboard into src/embed.h
+make embed     # bundle dashboard into build/embed.h
 make           # development build (-O2)
 make release   # release build (-Os -flto, stripped)
 ```
@@ -44,3 +44,13 @@ Alpine Docker target:
 ```sh
 make release-linux
 ```
+
+### Repo layout for generated and local files
+
+- `build/` — everything `make` generates (embed.h, debug binary, unit-test
+  binary). Auto-created by the Makefile, gitignored. `make clean` wipes it.
+- `.dev/` — your personal scratchpad for local-only stuff (test SQLite
+  DBs, preview configs, anything you don't want to commit). Create it
+  yourself when you need it; gitignored.
+- `minimoni`, `minimoni-migrate` — release binaries stay at repo root
+  where users expect to find them after `make release` / a CI download.
