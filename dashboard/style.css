@@ -113,7 +113,14 @@ h1 {
   font-weight: 600;
 }
 
-/* Uptime subtitle below the title */
+/* Uptime + connection-dot row, sits below the title */
+.sub-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Uptime text */
 .sub {
   color: var(--mut);
   font-size: 12px;
@@ -358,6 +365,62 @@ canvas {
   canvas {
     height: 220px;
   }
+}
+
+/* ── Connection status indicator ─────────────────────────────────── */
+
+/* Small dot in the header — always visible so the layout never shifts.
+   The visible dot lives in ::before so the pulse animation doesn't
+   cascade into the ::after tooltip (opacity on the parent would dim both).
+   Green when the SSE stream delivers data; amber + pulse when reconnecting. */
+.conn {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  cursor: help;
+  flex-shrink: 0;
+  position: relative;
+}
+.conn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+}
+.conn.live::before { background: var(--grn); }
+.conn.down::before { background: var(--ylw); animation: conn-pulse 1.2s ease-in-out infinite; }
+
+@keyframes conn-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+/* Immediate tooltip on hover — the browser's native title attribute has a
+   ~1s delay, which made users wonder if the dot was interactive at all.
+   Content comes from aria-label so screen readers and sighted users share
+   the same source of truth. */
+.conn::after {
+  content: attr(aria-label);
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 8px);
+  transform: translateY(-50%);
+  background: var(--surf);
+  border: 1px solid var(--brd);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--txt);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 10;
+  box-shadow: 0 2px 6px rgba(0,0,0,.10);
+}
+.conn:hover::after,
+.conn:focus-visible::after {
+  opacity: 1;
 }
 
 /* ── Canvas tooltip ──────────────────────────────────────────────── */

@@ -1112,19 +1112,56 @@ function buildTabs() {
 
 /* ── SSE live stream ─────────────────────────────────────────────── */
 
+/* Exponential reconnect backoff: 1s → 2s → 4s → 8s → 16s → 32s → 64s,
+   then stays at 64s. Resets to 1s as soon as a message lands on the
+   newly opened connection — so a quick server hiccup recovers fast, but
+   a permanently down server doesn't get hammered. */
+var sseBackoffMs = 1000;
+var SSE_BACKOFF_MAX = 64000;
+var sseCountdownTimer = null;
+
+/* Live-tick the aria-label on the `.conn` dot so the hover tooltip
+   (rendered via `content: attr(aria-label)`) shows a per-second countdown
+   to the next reconnect attempt. Without this the user sees "in 32s" for
+   32 seconds without any feedback that progress is happening. */
+function startReconnectCountdown(targetMs) {
+  clearInterval(sseCountdownTimer);
+  var c = document.getElementById('conn');
+  var tick = function() {
+    var remaining = Math.max(0, Math.ceil((targetMs - Date.now()) / 1000));
+    c.setAttribute('aria-label',
+      'Connection lost — reconnecting in ' + remaining + 's');
+    if (remaining <= 0) clearInterval(sseCountdownTimer);
+  };
+  tick();
+  sseCountdownTimer = setInterval(tick, 1000);
+}
+
 function connectSSE() {
+  var c = document.getElementById('conn');
+  /* (Re)connect attempt in progress — stop the countdown and switch to a
+     generic Connecting label until the first message lands (or we error). */
+  clearInterval(sseCountdownTimer);
+  c.setAttribute('aria-label', 'Connecting…');
+
   var es = new EventSource('/stream');
   es.onmessage = function(e) {
+    /* Stop any in-flight countdown tick the moment data lands again. */
+    clearInterval(sseCountdownTimer);
+    sseBackoffMs = 1000;  /* successful message — reset for next failure */
+    c.className = 'conn live';
+    c.setAttribute('aria-label', 'Live — receiving updates');
     try {
       updateCards(JSON.parse(e.data));
       loadMetrics();
     } catch (ex) {}
   };
-  /* On any error (network drop, server restart) close and reconnect
-     after 5 seconds to avoid hammering the server */
   es.onerror = function() {
     es.close();
-    setTimeout(connectSSE, 5000);
+    c.className = 'conn down';
+    startReconnectCountdown(Date.now() + sseBackoffMs);
+    setTimeout(connectSSE, sseBackoffMs);
+    sseBackoffMs = Math.min(sseBackoffMs * 2, SSE_BACKOFF_MAX);
   };
 }
 

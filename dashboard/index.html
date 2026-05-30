@@ -17,7 +17,12 @@
   <header>
     <div>
       <h1 id="ttl">minimoni</h1>
-      <div class="sub" id="upt"></div>
+      <div class="sub-row">
+        <span class="sub" id="upt"></span>
+        <!-- SSE connection status dot — sits next to uptime (both are
+             "system state" info). Tooltip text comes from aria-label. -->
+        <span id="conn" class="conn down" role="status" aria-label="Connecting&#8230;"></span>
+      </div>
     </div>
     <div class="hdr-right">
       <div class="ranges" id="rngs"></div>
