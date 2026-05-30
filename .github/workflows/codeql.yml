@@ -31,7 +31,7 @@ jobs:
           - language: python
             build-mode: none
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Generate build/embed.h (c-cpp prerequisite)
         if: matrix.language == 'c-cpp'
