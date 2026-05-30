@@ -25,9 +25,12 @@
     </div>
   </header>
 
-  <!-- ── Metric cards (visibility and order driven by server config) ── -->
+  <!-- ── Metric cards (visibility and order driven by server config) ──
+       All cards start hidden — the JS reveals each one only when its
+       corresponding field arrives in the payload AND it's not excluded
+       by cfgVisCards. -->
   <div class="cards">
-    <div class="card" id="c-load">
+    <div class="card" id="c-load" style="display:none">
       <div class="clabel">CPU Load
         <span class="card-unit" data-series="0" style="color:var(--clr-load1)">1m</span>
         <span class="card-unit hide" data-series="1" style="color:var(--clr-load5)">5m</span>
@@ -40,7 +43,7 @@
         <span class="card-sub" data-card="load" data-idx="2"><span class="card-sub-lbl" style="color:var(--clr-load15)">15m</span> <span class="card-sub-val"></span></span>
       </div>
     </div>
-    <div class="card" id="c-cpu">
+    <div class="card" id="c-cpu" style="display:none">
       <div class="clabel">CPU Usage
         <span class="card-unit" data-series="0" style="color:var(--clr-cpu-user)">user</span>
         <span class="card-unit hide" data-series="1" style="color:var(--clr-cpu-sys)">sys</span>
@@ -51,7 +54,7 @@
         <span class="card-sub" data-card="cpu" data-idx="1"><span class="card-sub-lbl" style="color:var(--clr-cpu-sys)">sys</span> <span class="card-sub-val"></span></span>
       </div>
     </div>
-    <div class="card" id="c-mem">
+    <div class="card" id="c-mem" style="display:none">
       <div class="clabel">Memory
         <span class="card-unit" data-series="0" style="color:var(--clr-mem-used)">used</span>
         <span class="card-unit hide" data-series="1" style="color:var(--clr-mem-avail)">avail</span>
@@ -62,7 +65,7 @@
         <span class="card-sub" data-card="mem" data-idx="1"><span class="card-sub-lbl" style="color:var(--clr-mem-avail)">avail</span> <span class="card-sub-val"></span></span>
       </div>
     </div>
-    <div class="card" id="c-disk">
+    <div class="card" id="c-disk" style="display:none">
       <div class="clabel">Disk
         <span class="card-unit" data-series="0" style="color:var(--clr-disk-used)">used</span>
         <span class="card-unit hide" data-series="1" style="color:var(--clr-disk-free)">free</span>
@@ -73,12 +76,15 @@
         <span class="card-sub" data-card="disk" data-idx="1"><span class="card-sub-lbl" style="color:var(--clr-disk-free)">free</span> <span class="card-sub-val"></span></span>
       </div>
     </div>
-    <!-- Temperature card: hidden until the server confirms a valid sensor -->
+    <!-- Temperature card: hidden until the server confirms a valid sensor.
+         Empty .csub keeps the row structure identical to other cards so the
+         centred value lines up vertically with neighbours. -->
     <div class="card" id="c-temp" style="display:none">
       <div class="clabel">Temp</div>
       <div class="cval">&#8212;</div>
+      <div class="csub"></div>
     </div>
-    <div class="card" id="c-net">
+    <div class="card" id="c-net" style="display:none">
       <div class="clabel">Network
         <span class="card-unit" data-series="0" style="color:var(--clr-net-tx)">↑</span>
         <span class="card-unit hide" data-series="1" style="color:var(--clr-net-rx)">↓</span>

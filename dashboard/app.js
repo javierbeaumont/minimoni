@@ -308,12 +308,66 @@ function swapCard(id, idx) {
   if (lastCurrent) updateCards(lastCurrent);
 }
 
-/* Wire click handlers onto the pre-declared .card-sub elements in HTML */
+/* Wire click + Enter/Space keyboard handlers as a single "activation" — used
+   by both card sub-values and legend items. Keeps the two wiring sites
+   (wireCards, buildLegends) identical and free of repeated event plumbing. */
+function activate(el, handler) {
+  el.addEventListener('click', handler);
+  el.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handler();
+    }
+  });
+}
+
+/* Wire click + keyboard handlers onto the pre-declared .card-sub elements in HTML.
+   tabindex="-1" on the primary (hidden) sub keeps it out of the tab order. */
 function wireCards() {
   document.querySelectorAll('.card-sub[data-card]').forEach(function(el) {
     var cardId = el.dataset.card;
     var idx    = parseInt(el.dataset.idx, 10);
-    el.addEventListener('click', function() { swapCard(cardId, idx); });
+    el.setAttribute('role', 'button');
+    el.setAttribute('tabindex', el.classList.contains('hide') ? '-1' : '0');
+    activate(el, function() { swapCard(cardId, idx); });
+  });
+}
+
+/* Render a numeric card from N values. Used by Load / CPU / Memory /
+   Disk / Network — all of which share the same DOM shape:
+     .card > .clabel (with .card-unit per series)
+           > .cval
+           > .csub > .card-sub[data-idx] > .card-sub-val
+   Differences between cards are captured in the args:
+     cardId     — DOM id of the .card element ('c-load', 'c-cpu', …)
+     primaryKey — key into cardPrimary ('load', 'cpu', 'mem', 'disk', 'net')
+     values     — array of numeric values, one per data-idx in the HTML.
+                  null entries render as '—'.
+     fmt        — formatter; only called with non-null values. Helper
+                  substitutes '—' for nulls before calling.
+     cardLvl    — 'g' | 'y' | 'r' | '' for the overall .card class.
+     subLvl     — optional: '' (no per-sub colour), a string applied to
+                  every sub-value, or a function(value) → level for
+                  per-value colouring. */
+function updateNumericCard(cardId, primaryKey, values, fmt, cardLvl, subLvl) {
+  var card = document.getElementById(cardId);
+  if (!card) return;
+  var pi = cardPrimary[primaryKey];
+  card.className = 'card' + (cardLvl ? ' ' + cardLvl : '');
+  card.querySelectorAll('.card-unit').forEach(function(u, i) {
+    u.classList.toggle('hide', i !== pi);
+  });
+  var pv = values[pi];
+  card.querySelector('.cval').textContent = pv != null ? fmt(pv) : '—';
+  values.forEach(function(v, i) {
+    var sub = card.querySelector('.card-sub[data-idx="' + i + '"]');
+    if (!sub) return;
+    var valEl = sub.querySelector('.card-sub-val');
+    sub.classList.toggle('hide', i === pi);
+    sub.setAttribute('tabindex', i === pi ? '-1' : '0');
+    valEl.textContent = v != null ? fmt(v) : '—';
+    var lvl = typeof subLvl === 'function' ? subLvl(v) : (subLvl || '');
+    valEl.className = 'card-sub-val' + (lvl ? ' ' + lvl : '');
   });
 }
 
@@ -334,6 +388,13 @@ function updateCards(d) {
   if (d.net_chart_unit)      cfgChartUnits.net  = d.net_chart_unit;
   if (d.cpu_load_card_unit)  cfgCardUnits.load  = d.cpu_load_card_unit;
   if (d.cpu_load_chart_unit) cfgChartUnits.load = d.cpu_load_chart_unit;
+
+  /* Thresholds — server computes these from core count, trip point, and units */
+  if (d.thresh_load) THRESH.load = d.thresh_load;
+  if (d.thresh_cpu)  THRESH.cpu  = d.thresh_cpu;
+  if (d.thresh_mem)  THRESH.mem  = d.thresh_mem;
+  if (d.thresh_disk) THRESH.disk = d.thresh_disk;
+  if (d.thresh_temp) THRESH.temp = d.thresh_temp;
 
   /* Title, footer, theme */
   if (d.title) {
@@ -381,10 +442,12 @@ function updateCards(d) {
     });
   }
 
-  /* Card visibility & ordering */
+  /* Card ordering — visibility is handled below per field-presence pass.
+     This block runs only when the payload includes `d.cards` (i.e. on every
+     /current and /stream tick) and just sets each card's flex `order`. */
   if (d.cards !== undefined) {
     cfgVisCards = d.cards === null ? null : d.cards;
-    var CARD_EL = {
+    var CARD_ORDER = {
       cpu_load:  'c-load',
       cpu_usage: 'c-cpu',
       memory:    'c-mem',
@@ -393,139 +456,113 @@ function updateCards(d) {
       net:       'c-net',
       uptime:    'upt',
     };
-    Object.keys(CARD_EL).forEach(function(nm) {
-      var el       = document.getElementById(CARD_EL[nm]);
+    Object.keys(CARD_ORDER).forEach(function(nm) {
+      var el  = document.getElementById(CARD_ORDER[nm]);
       if (!el) return;
-      var idx      = cfgVisCards !== null ? cfgVisCards.indexOf(nm) : -1;
-      var excluded = cfgVisCards !== null && idx === -1;
-      if (excluded)           el.style.display = 'none';
-      /* Temperature visibility is driven by data (null sensor → hidden),
-         not by the cards config, so we never force it to display:'' here */
-      else if (nm !== 'temp') el.style.display = '';
-      el.style.order = (!excluded && idx !== -1) ? idx : '';
+      var idx = cfgVisCards !== null ? cfgVisCards.indexOf(nm) : -1;
+      el.style.order = (idx !== -1) ? idx : '';
     });
   }
 
-  /* CPU Load */
-  var loadFmt = cfgCardUnits.load === '%'
-    ? function(v) { return v.toFixed(1) + '%'; }
-    : function(v) { return v.toFixed(2); };
-  var loadV  = [d.load_1m, d.load_5m, d.load_15m];
-  var lp     = cardPrimary.load;
-  var lc     = document.getElementById('c-load');
-  var lcLvl  = cardLevel(d.load_1m, THRESH.load);
-  lc.className = 'card' + (lcLvl ? ' ' + lcLvl : '');
-  lc.querySelectorAll('.card-unit').forEach(function(u, i) { u.classList.toggle('hide', i !== lp); });
-  lc.querySelector('.cval').textContent = loadV[lp] != null ? loadFmt(loadV[lp]) : '—';
-  loadV.forEach(function(v, i) {
-    var sub   = lc.querySelector('.card-sub[data-idx="' + i + '"]');
-    var valEl = sub.querySelector('.card-sub-val');
-    sub.classList.toggle('hide', i === lp);
-    valEl.textContent = v != null ? loadFmt(v) : '—';
-    valEl.className   = 'card-sub-val' + (v != null ? ' ' + cardLevel(v, THRESH.load) : '');
+  /* Per-card visibility pass — runs every update.
+     A card is shown when BOTH:
+       (a) it's not excluded by cfgVisCards, AND
+       (b) its primary field is present in the payload (null counts as present).
+     If either condition fails, the card stays hidden. The HTML initial state
+     is `display:none` for every card, so first paint shows nothing until the
+     first payload arrives and confirms which cards have data. */
+  [
+    ['c-load', 'cpu_load',  'load_1m'],
+    ['c-cpu',  'cpu_usage', 'cpu_user_percent'],
+    ['c-mem',  'memory',    'mem_percent'],
+    ['c-disk', 'disk',      'disk_percent'],
+    ['c-temp', 'temp',      'temp'],
+    ['c-net',  'net',       'net_rx'],
+  ].forEach(function(c) {
+    var el = document.getElementById(c[0]);
+    if (!el) return;
+    var excluded = cfgVisCards !== null && cfgVisCards.indexOf(c[1]) === -1;
+    var present  = c[2] in d;
+    el.style.display = (excluded || !present) ? 'none' : '';
   });
 
-  /* CPU Usage (absent on the first collect before a delta is available) */
-  if (d.cpu_user_percent != null) {
-    var pctFmt = function(v) { return v.toFixed(1) + '%'; };
-    var cpuV   = [d.cpu_user_percent, d.cpu_system_percent];
-    var cp     = cardPrimary.cpu;
-    var cc     = document.getElementById('c-cpu');
-    var ccLvl  = cardLevel(d.cpu_user_percent, THRESH.cpu);
-    cc.className = 'card' + (ccLvl ? ' ' + ccLvl : '');
-    cc.querySelectorAll('.card-unit').forEach(function(u, i) { u.classList.toggle('hide', i !== cp); });
-    cc.querySelector('.cval').textContent = cpuV[cp] != null ? pctFmt(cpuV[cp]) : '—';
-    cpuV.forEach(function(v, i) {
-      var sub   = cc.querySelector('.card-sub[data-idx="' + i + '"]');
-      var valEl = sub.querySelector('.card-sub-val');
-      sub.classList.toggle('hide', i === cp);
-      valEl.textContent = v != null ? pctFmt(v) : '—';
-      valEl.className   = 'card-sub-val';  /* cpu has no threshold-based sub colouring */
-    });
+  /* CPU Load — per-sub colour: each load value gets its own threshold level */
+  if ('load_1m' in d) {
+    var loadFmt = cfgCardUnits.load === '%'
+      ? function(v) { return v.toFixed(1) + '%'; }
+      : function(v) { return v.toFixed(2); };
+    updateNumericCard('c-load', 'load',
+      [d.load_1m, d.load_5m, d.load_15m],
+      loadFmt,
+      cardLevel(d.load_1m, THRESH.load),
+      function(v) { return cardLevel(v, THRESH.load); });
   }
 
-  /* Memory */
-  if (d.mem_percent != null) {
-    /* When unit is absolute (MB/GB), show raw bytes; otherwise show % */
+  /* CPU Usage — overall card colour only; sub-values stay neutral */
+  if ('cpu_user_percent' in d) {
+    var pctFmt = function(v) { return v.toFixed(1) + '%'; };
+    updateNumericCard('c-cpu', 'cpu',
+      [d.cpu_user_percent, d.cpu_system_percent],
+      pctFmt,
+      cardLevel(d.cpu_user_percent, THRESH.cpu));
+  }
+
+  /* Memory — sub-colour shared (every sub takes the overall mem level) */
+  if ('mem_percent' in d) {
     var memIsAbs = cfgCardUnits.mem !== '%';
     var memFmt = memIsAbs
       ? function(v) {
-          if (v == null) return '—';
           if (cfgCardUnits.mem === 'gb') return (v / 1024).toFixed(2) + ' GB';
           return v.toFixed(0) + ' MB';
         }
       : function(v) { return v.toFixed(1) + '%'; };
     var memV = memIsAbs
       ? [d.mem_used, d.mem_available]
-      : [d.mem_percent, 100 - d.mem_percent];
-    var mp    = cardPrimary.mem;
-    var mc    = document.getElementById('c-mem');
-    var mcLvl = cardLevel(d.mem_percent, THRESH.mem);
-    mc.className = 'card' + (mcLvl ? ' ' + mcLvl : '');
-    mc.querySelectorAll('.card-unit').forEach(function(u, i) { u.classList.toggle('hide', i !== mp); });
-    mc.querySelector('.cval').textContent = memFmt(memV[mp]);
-    memV.forEach(function(v, i) {
-      var sub   = mc.querySelector('.card-sub[data-idx="' + i + '"]');
-      var valEl = sub.querySelector('.card-sub-val');
-      sub.classList.toggle('hide', i === mp);
-      valEl.textContent = memFmt(v);
-      valEl.className   = 'card-sub-val ' + cardLevel(d.mem_percent, THRESH.mem);
-    });
+      : [d.mem_percent, d.mem_percent != null ? 100 - d.mem_percent : null];
+    var memLvl = cardLevel(d.mem_percent, THRESH.mem);
+    updateNumericCard('c-mem', 'mem', memV, memFmt, memLvl, memLvl);
   }
 
-  /* Disk */
-  if (d.disk_percent != null) {
+  /* Disk — same shape as memory */
+  if ('disk_percent' in d) {
     var diskIsAbs = cfgCardUnits.disk !== '%';
     var diskFmt = diskIsAbs
       ? function(v) {
-          if (v == null) return '—';
           if (cfgCardUnits.disk === 'tb') return (v / 1000).toFixed(2) + ' TB';
           return v.toFixed(1) + ' GB';
         }
       : function(v) { return v.toFixed(1) + '%'; };
-    var diskV   = diskIsAbs
+    var diskV = diskIsAbs
       ? [d.disk_used, d.disk_free]
-      : [d.disk_percent, 100 - d.disk_percent];
-    var dkp     = cardPrimary.disk;
-    var dcel    = document.getElementById('c-disk');
-    var dcelLvl = cardLevel(d.disk_percent, THRESH.disk);
-    dcel.className = 'card' + (dcelLvl ? ' ' + dcelLvl : '');
-    dcel.querySelectorAll('.card-unit').forEach(function(u, i) { u.classList.toggle('hide', i !== dkp); });
-    dcel.querySelector('.cval').textContent = diskFmt(diskV[dkp]);
-    diskV.forEach(function(v, i) {
-      var sub   = dcel.querySelector('.card-sub[data-idx="' + i + '"]');
-      var valEl = sub.querySelector('.card-sub-val');
-      sub.classList.toggle('hide', i === dkp);
-      valEl.textContent = diskFmt(v);
-      valEl.className   = 'card-sub-val ' + cardLevel(d.disk_percent, THRESH.disk);
-    });
+      : [d.disk_percent, d.disk_percent != null ? 100 - d.disk_percent : null];
+    var diskLvl = cardLevel(d.disk_percent, THRESH.disk);
+    updateNumericCard('c-disk', 'disk', diskV, diskFmt, diskLvl, diskLvl);
   }
 
-  /* Temperature — card is shown only when the server sends a non-null
-     value, meaning a real sensor was found at collection time */
-  if (d.temp != null && (cfgVisCards === null || cfgVisCards.indexOf('temp') !== -1)) {
-    document.getElementById('c-temp').style.display = '';
+  /* Temperature — show the card whenever the server includes the temp field
+     in the payload (the C side only emits it when "temp" is in the cards
+     config). A null value (transient sensor read failure) still shows the
+     card with "—" rather than hiding it. */
+  if ('temp' in d && (cfgVisCards === null || cfgVisCards.indexOf('temp') !== -1)) {
+    var tc      = document.getElementById('c-temp');
     var tempLvl = cardLevel(d.temp, THRESH.temp);
-    setCard('c-temp', fmtTempVal(d.temp, cfgCardUnits.temp), null, tempLvl);
+    /* Visibility is handled by the per-card pass above. */
+    tc.querySelector('.cval').textContent = fmtTempVal(d.temp, cfgCardUnits.temp);
+    tc.className = 'card' + (tempLvl ? ' ' + tempLvl : '');
   }
-  /* Store the critical trip-point for the chart reference line */
-  if (d.temp_critical != null) tempCritical = d.temp_critical;
+  /* Store the critical trip-point for the chart reference line. Use
+     `!== undefined` so an explicit `null` (sensor went offline after a
+     prior valid read) clears the stale reference; only an absent field
+     preserves the last known value. */
+  if (d.temp_critical !== undefined) tempCritical = d.temp_critical;
 
-  /* Network — netV[0]=tx(↑), netV[1]=rx(↓), matching the HTML card-sub order */
-  if (d.net_rx != null) {
-    var netV = [d.net_tx, d.net_rx];
-    var np   = cardPrimary.net;
-    var nc   = document.getElementById('c-net');
-    nc.className = 'card';
-    nc.querySelectorAll('.card-unit').forEach(function(u, i) { u.classList.toggle('hide', i !== np); });
-    nc.querySelector('.cval').textContent = fmtNet(netV[np], cfgCardUnits.net);
-    netV.forEach(function(v, i) {
-      var sub   = nc.querySelector('.card-sub[data-idx="' + i + '"]');
-      var valEl = sub.querySelector('.card-sub-val');
-      sub.classList.toggle('hide', i === np);
-      valEl.textContent = fmtNet(v, cfgCardUnits.net);
-      valEl.className   = 'card-sub-val';  /* network has no threshold-based sub colouring */
-    });
+  /* Network — netV[0]=tx(↑), netV[1]=rx(↓), matching the HTML card-sub
+     order. Both values may be null on the very first collect before a
+     delta is available — the helper renders '—' for those. No threshold
+     levels (network has no semaphore concept). */
+  if ('net_rx' in d) {
+    var netFmt = function(v) { return fmtNet(v, cfgCardUnits.net); };
+    updateNumericCard('c-net', 'net', [d.net_tx, d.net_rx], netFmt, '');
   }
 
   /* Uptime subtitle */

@@ -122,6 +122,15 @@ static void jbuf_null(jbuf_t *j, const char *key)
     jbuf_raw(j, tmp);
 }
 
+/* Write a JSON key:[warn, crit] threshold pair */
+static void jbuf_arr2(jbuf_t *j, const char *key, double warn, double crit)
+{
+    jbuf_sep(j);
+    char tmp[128];
+    snprintf(tmp, sizeof(tmp), "\"%s\":[%.6g,%.6g]", key, warn, crit);
+    jbuf_raw(j, tmp);
+}
+
 /* =========================================================================
  * Unit conversions  (raw → configured unit)
  * ======================================================================= */
@@ -283,33 +292,46 @@ static void serialize_current(jbuf_t *j, const db_row_t *r, const http_ctx_t *ct
 
     jbuf_str(j, "timestamp", r->timestamp);
 
-    jbuf_real(j, "load_1m", load_convert(r->load_1m, ctx->num_cores, lu));
-    jbuf_real(j, "load_5m", load_convert(r->load_5m, ctx->num_cores, lu));
-    jbuf_real(j, "load_15m", load_convert(r->load_15m, ctx->num_cores, lu));
-
-    if (r->cpu_valid) {
-        jbuf_real(j, "cpu_user_percent", r->cpu_user_percent);
-        jbuf_real(j, "cpu_system_percent", r->cpu_system_percent);
-        jbuf_real(j, "cpu_idle_percent", r->cpu_idle_percent);
-    } else {
-        jbuf_null(j, "cpu_user_percent");
-        jbuf_null(j, "cpu_system_percent");
-        jbuf_null(j, "cpu_idle_percent");
+    /* Each metric group is emitted only when its card is in the cards config
+     * (or the config is the default show-all). Absent fields tell the
+     * dashboard "this card isn't supported / not configured"; null values
+     * tell it "configured but no data yet" (e.g. first collect, sensor
+     * failure). */
+    if (cfg_has(cfg->cards, cfg->card_count, "cpu_load")) {
+        jbuf_real(j, "load_1m", load_convert(r->load_1m, ctx->num_cores, lu));
+        jbuf_real(j, "load_5m", load_convert(r->load_5m, ctx->num_cores, lu));
+        jbuf_real(j, "load_15m", load_convert(r->load_15m, ctx->num_cores, lu));
     }
 
-    if (mu[0] != '%') {
-        jbuf_real(j, "mem_used", mem_convert(r->mem_used_mb, mu));
-        jbuf_real(j, "mem_available", mem_convert(r->mem_available_mb, mu));
-        jbuf_real(j, "mem_total", mem_convert(r->mem_total_mb, mu));
+    if (cfg_has(cfg->cards, cfg->card_count, "cpu_usage")) {
+        if (r->cpu_valid) {
+            jbuf_real(j, "cpu_user_percent", r->cpu_user_percent);
+            jbuf_real(j, "cpu_system_percent", r->cpu_system_percent);
+            jbuf_real(j, "cpu_idle_percent", r->cpu_idle_percent);
+        } else {
+            jbuf_null(j, "cpu_user_percent");
+            jbuf_null(j, "cpu_system_percent");
+            jbuf_null(j, "cpu_idle_percent");
+        }
     }
-    jbuf_real(j, "mem_percent", r->mem_percent);
 
-    if (du[0] != '%') {
-        jbuf_real(j, "disk_used", disk_convert(r->disk_used_gb, du));
-        jbuf_real(j, "disk_total", disk_convert(r->disk_total_gb, du));
-        jbuf_real(j, "disk_free", disk_convert(r->disk_free_gb, du));
+    if (cfg_has(cfg->cards, cfg->card_count, "memory")) {
+        if (mu[0] != '%') {
+            jbuf_real(j, "mem_used", mem_convert(r->mem_used_mb, mu));
+            jbuf_real(j, "mem_available", mem_convert(r->mem_available_mb, mu));
+            jbuf_real(j, "mem_total", mem_convert(r->mem_total_mb, mu));
+        }
+        jbuf_real(j, "mem_percent", r->mem_percent);
     }
-    jbuf_real(j, "disk_percent", r->disk_percent);
+
+    if (cfg_has(cfg->cards, cfg->card_count, "disk")) {
+        if (du[0] != '%') {
+            jbuf_real(j, "disk_used", disk_convert(r->disk_used_gb, du));
+            jbuf_real(j, "disk_total", disk_convert(r->disk_total_gb, du));
+            jbuf_real(j, "disk_free", disk_convert(r->disk_free_gb, du));
+        }
+        jbuf_real(j, "disk_percent", r->disk_percent);
+    }
 
     if (cfg_has(cfg->cards, cfg->card_count, "temp")) {
         if (r->temp_valid)
@@ -323,15 +345,19 @@ static void serialize_current(jbuf_t *j, const db_row_t *r, const http_ctx_t *ct
             jbuf_null(j, "temp_critical");
     }
 
-    if (r->net_valid) {
-        jbuf_real(j, "net_rx", net_convert(r->net_rx_bps, nu));
-        jbuf_real(j, "net_tx", net_convert(r->net_tx_bps, nu));
-    } else {
-        jbuf_null(j, "net_rx");
-        jbuf_null(j, "net_tx");
+    if (cfg_has(cfg->cards, cfg->card_count, "net")) {
+        if (r->net_valid) {
+            jbuf_real(j, "net_rx", net_convert(r->net_rx_bps, nu));
+            jbuf_real(j, "net_tx", net_convert(r->net_tx_bps, nu));
+        } else {
+            jbuf_null(j, "net_rx");
+            jbuf_null(j, "net_tx");
+        }
     }
 
-    jbuf_real(j, "uptime_seconds", r->uptime_seconds);
+    if (cfg_has(cfg->cards, cfg->card_count, "uptime")) {
+        jbuf_real(j, "uptime_seconds", r->uptime_seconds);
+    }
 
     jbuf_str(j, "mem_card_unit", cfg->memory_card_unit);
     jbuf_str(j, "mem_chart_unit", cfg->memory_chart_unit);
@@ -392,6 +418,50 @@ static void serialize_current(jbuf_t *j, const db_row_t *r, const http_ctx_t *ct
             jbuf_raw(j, ks);
         }
         jbuf_raw(j, "]");
+    }
+
+    /* ── Thresholds ────────────────────────────────────────────────────────
+     * Computed server-side so the dashboard JS requires no unit-conversion
+     * logic and adapts automatically to the machine's hardware (core count,
+     * thermal trip point) and configured display units.
+     *
+     * load  : [0.75×cores, 1.0×cores] for abs; [70, 90] for %
+     * cpu   : [70, 90]  (always %)
+     * mem   : [70, 90]  (JS always compares against mem_percent)
+     * disk  : [80, 90]  (JS always compares against disk_percent; Nagios std)
+     * temp  : [trip−20, trip−10] °C converted to the card unit; fallback
+     *         [70, 80] when no trip point is available from sysfs
+     * ------------------------------------------------------------------- */
+    {
+        if (cfg_has(cfg->cards, cfg->card_count, "cpu_load")) {
+            double lw, lc;
+            if (lu[0] == '%') {
+                lw = 70.0;
+                lc = 90.0;
+            } else {
+                lw = ctx->num_cores > 0 ? 0.75 * ctx->num_cores : 2.0;
+                lc = ctx->num_cores > 0 ? 1.0 * ctx->num_cores : 3.5;
+            }
+            jbuf_arr2(j, "thresh_load", lw, lc);
+        }
+        if (cfg_has(cfg->cards, cfg->card_count, "cpu_usage"))
+            jbuf_arr2(j, "thresh_cpu", 70.0, 90.0);
+        if (cfg_has(cfg->cards, cfg->card_count, "memory"))
+            jbuf_arr2(j, "thresh_mem", 70.0, 90.0);
+        if (cfg_has(cfg->cards, cfg->card_count, "disk"))
+            jbuf_arr2(j, "thresh_disk", 80.0, 90.0);
+
+        if (cfg_has(cfg->cards, cfg->card_count, "temp")) {
+            double tw, tc;
+            if (ctx->temp_critical_valid) {
+                tw = temp_convert(ctx->temp_critical - 20.0, cfg->temp_card_unit, cfg->temp_max);
+                tc = temp_convert(ctx->temp_critical - 10.0, cfg->temp_card_unit, cfg->temp_max);
+            } else {
+                tw = temp_convert(70.0, cfg->temp_card_unit, cfg->temp_max);
+                tc = temp_convert(80.0, cfg->temp_card_unit, cfg->temp_max);
+            }
+            jbuf_arr2(j, "thresh_temp", tw, tc);
+        }
     }
 }
 
