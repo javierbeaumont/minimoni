@@ -28,8 +28,8 @@ disk_path = "/"
 # temp_card_unit      = "c"    # "%" | "c" | "f"
 # temp_chart_unit     = "c"    # "%" | "c" | "f"
 # temp_max            = 85     # 100% reference when temp_*_unit="%"
-# net_card_unit       = "mb"   # "mb" | "gb" | "mbps" | "gbps"
-# net_chart_unit      = "mb"   # "mb" | "gb" | "mbps" | "gbps"
+# net_card_unit       = "kb"   # "kb" | "mb" | "gb" | "kbps" | "mbps" | "gbps"
+# net_chart_unit      = "kb"   # "kb" | "mb" | "gb" | "kbps" | "mbps" | "gbps"
 # uptime_unit         = "auto" # "auto" | "h" | "d"
 
 [[alert]]

@@ -106,8 +106,8 @@ void config_defaults(config_t *cfg)
     cfg->temp_max = 100.0f;
     snprintf(cfg->cpu_load_card_unit, sizeof(cfg->cpu_load_card_unit), "%s", "abs");
     snprintf(cfg->cpu_load_chart_unit, sizeof(cfg->cpu_load_chart_unit), "%s", "abs");
-    snprintf(cfg->net_card_unit, sizeof(cfg->net_card_unit), "%s", "mb");
-    snprintf(cfg->net_chart_unit, sizeof(cfg->net_chart_unit), "%s", "mb");
+    snprintf(cfg->net_card_unit, sizeof(cfg->net_card_unit), "%s", "kb");
+    snprintf(cfg->net_chart_unit, sizeof(cfg->net_chart_unit), "%s", "kb");
     snprintf(cfg->uptime_unit, sizeof(cfg->uptime_unit), "%s", "auto");
     cfg->chart_count = 0; /* 0 = show all in default order */
     cfg->card_count = 0;

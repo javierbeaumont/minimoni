@@ -138,6 +138,11 @@ static double net_convert(double bps, const char *unit)
             return bps * 8.0 / 1e9;
         return bps / 1073741824.0; /* gb */
     }
+    if (unit[0] == 'k') {
+        if (unit[1] == 'b' && unit[2] == 'p') /* kbps */
+            return bps * 8.0 / 1000.0;
+        return bps / 1024.0; /* kb */
+    }
     return bps / 1048576.0;
 }
 

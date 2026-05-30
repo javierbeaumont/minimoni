@@ -38,8 +38,8 @@ var cardPrimary  = { load: 0, cpu: 0, mem: 0, disk: 0, net: 0 };
 var lastCurrent  = null;    /* last /current snapshot; replayed on swapCard */
 
 /* Units read from server config; sensible defaults until first /current */
-var cfgCardUnits  = { mem: '%',  disk: '%',  temp: 'c', net: 'mb', load: 'abs' };
-var cfgChartUnits = { mem: 'mb', disk: 'gb', temp: 'c', net: 'mb', load: 'abs' };
+var cfgCardUnits  = { mem: '%',  disk: '%',  temp: 'c', net: 'kb', load: 'abs' };
+var cfgChartUnits = { mem: 'mb', disk: 'gb', temp: 'c', net: 'kb', load: 'abs' };
 var cfgUptimeUnit = 'auto';
 var cfgRanges     = ['1d', '7d', '30d', '90d'];
 /* Three-state visibility: null = show all, [] = hide all, [...] = listed only */
@@ -254,27 +254,28 @@ function fmtUptime(s) {
   return 'up ' + m + 'm';
 }
 
-/* Format a network throughput value (MB/s internally) into the
-   configured display unit, automatically scaling to KB when small */
+/* Format a network throughput value into the configured display unit.
+   The display unit NEVER changes — if the user picked Mbps they always see
+   Mbps, whether the value is 0.001 or 99999. Precision adapts to keep
+   4 significant digits at every magnitude:
+       0     – 9.999  → 3 decimals  ("0.001 Mbps" / "9.999 Mbps")
+      10.00  – 99.99  → 2 decimals  ("10.00 Mbps" / "99.99 Mbps")
+     100.0   – 999.9  → 1 decimal   ("100.0 Mbps" / "999.9 Mbps")
+    1000     – 99999  → 0 decimals  ("1000 Mbps"  / "99999 Mbps") */
 function fmtNet(v, unit) {
   if (v == null) return '—';
-  if (!unit || unit === 'mb') {
-    return v < 1 ? (v * 1024).toFixed(0) + ' KB/s' : v.toFixed(2) + ' MB/s';
-  }
-  if (unit === 'gb') {
-    if (v < 0.001) return (v * 1048576).toFixed(0) + ' KB/s';
-    if (v < 1)     return (v * 1024).toFixed(2)    + ' MB/s';
-    return v.toFixed(3) + ' GB/s';
-  }
-  if (unit === 'mbps') {
-    return v < 1 ? (v * 1000).toFixed(0) + ' Kbps' : v.toFixed(2) + ' Mbps';
-  }
-  if (unit === 'gbps') {
-    if (v < 0.001) return (v * 1000000).toFixed(0) + ' Kbps';
-    if (v < 1)     return (v * 1000).toFixed(2)    + ' Mbps';
-    return v.toFixed(3) + ' Gbps';
-  }
-  return v.toFixed(2);
+  var s;
+  if      (v >= 1000) s = v.toFixed(0);
+  else if (v >= 100)  s = v.toFixed(1);
+  else if (v >= 10)   s = v.toFixed(2);
+  else                s = v.toFixed(3);
+  if (!unit || unit === 'mb') return s + ' MB/s';
+  if (unit === 'kb')          return s + ' KB/s';
+  if (unit === 'gb')          return s + ' GB/s';
+  if (unit === 'kbps')        return s + ' Kbps';
+  if (unit === 'mbps')        return s + ' Mbps';
+  if (unit === 'gbps')        return s + ' Gbps';
+  return s;
 }
 
 /* Format a temperature value in the configured unit (°C, °F, or %) */
@@ -545,8 +546,9 @@ function renderAll() {
   var tmpSym = cfgChartUnits.temp[0] === 'f' ? '°F'
              : cfgChartUnits.temp[0] === '%' ? '%' : '°C';
   var netUL  = {
-    'mb': 'MB/s', 'gb': 'GB/s', 'mbps': 'Mbps', 'gbps': 'Gbps',
-  }[cfgChartUnits.net] || 'MB/s';
+    'kb': 'KB/s', 'mb': 'MB/s', 'gb': 'GB/s',
+    'kbps': 'Kbps', 'mbps': 'Mbps', 'gbps': 'Gbps',
+  }[cfgChartUnits.net] || 'KB/s';
 
   var loadOpts = cfgChartUnits.load === '%'
     ? { yMin: 0, yMax: 100, unit: '%', ts: ts }

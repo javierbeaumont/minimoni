@@ -59,8 +59,8 @@ typedef struct {
     float temp_max;               /* 100% reference when temp_*_unit="%", default: 100.0 */
     char  cpu_load_card_unit[4];  /* "abs" | "%", default: "abs" */
     char  cpu_load_chart_unit[4]; /* "abs" | "%", default: "abs" */
-    char  net_card_unit[8];       /* "mb"|"gb"|"mbps"|"gbps", default: "mb" */
-    char  net_chart_unit[8];      /* "mb"|"gb"|"mbps"|"gbps", default: "mb" */
+    char  net_card_unit[8];       /* "kb"|"mb"|"gb"|"kbps"|"mbps"|"gbps", default: "kb" */
+    char  net_chart_unit[8];      /* "kb"|"mb"|"gb"|"kbps"|"mbps"|"gbps", default: "kb" */
     char  uptime_unit[8];         /* "h"|"d"|"auto", default: "auto" */
     /* charts/cards: count=0 means show all in default order */
     char charts[MAX_CHARTS][16]; /* "cpu_load"|"cpu_usage"|"memory"|"disk"|"temp"|"net" */
