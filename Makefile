@@ -43,8 +43,12 @@ $(BUILD_DIR):
 # tools/bundle.sh inlines dashboard/style.css and dashboard/app.js into index.html,
 # then xxd converts the result to a C byte array included by the HTTP handler.
 # Lives in $(BUILD_DIR)/ — found at compile time via `-I$(BUILD_DIR)`.
+# MINIFY: opt-in HTML minification (no-op when `minify` isn't on PATH).
+# The release/release-linux targets set MINIFY=1; plain `make` leaves it
+# unset so dev builds keep readable source for browser DevTools.
+MINIFY ?=
 embed: | $(BUILD_DIR)
-	sh tools/bundle.sh | xxd -i -n dashboard_index_html - > $(BUILD_DIR)/embed.h
+	MINIFY=$(MINIFY) sh tools/bundle.sh | xxd -i -n dashboard_index_html - > $(BUILD_DIR)/embed.h
 
 $(BEARSSL_LIB):
 	$(MAKE) -C vendor/bearssl lib CC="$(CC)"
@@ -56,6 +60,7 @@ minimoni: $(SRC) $(VENDOR) $(BEARSSL_LIB)
 minimoni-migrate: $(MIGRATE_SRC)
 	$(CC) $(CFLAGS) -O2 -Isrc/migrate -o $@ $(MIGRATE_SRC) -static
 
+release: MINIFY = 1
 release: embed $(BEARSSL_LIB)
 	$(CC) $(CFLAGS) -Os -flto $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
 	  -Ivendor -Isrc -I$(BUILD_DIR) \
@@ -65,9 +70,11 @@ release: embed $(BEARSSL_LIB)
 	  -static -Wl,--gc-sections
 	$(STRIP) minimoni-migrate
 
+# Alpine release also installs `minify` (tdewolff) so MINIFY=1 actually
+# shrinks the embedded HTML. See ADR-0007.
 release-linux:
 	docker run --rm -v "$(PWD)":/work -w /work alpine:latest \
-	  sh -c "apk add --quiet gcc musl-dev make xxd git && make release"
+	  sh -c "apk add --quiet gcc musl-dev make xxd git minify && make release"
 
 debug: embed $(BEARSSL_LIB) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -O0 -g -fsanitize=address,undefined \

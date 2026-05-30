@@ -469,6 +469,8 @@ consequences — so future contributors understand not just what was chosen but 
 | [0003](docs/adr/0003-tomlc17.md) | tomlc17 as the TOML parser |
 | [0004](docs/adr/0004-bearssl.md) | BearSSL for HTTPS webhook delivery |
 | [0005](docs/adr/0005-tiered-consolidation.md) | Tiered write-time consolidation |
+| [0006](docs/adr/0006-minimoni-migrate.md) | `minimoni-migrate` as a separate binary that shells to `minimoni db exec` |
+| [0007](docs/adr/0007-html-minification.md) | tdewolff/minify for optional dashboard HTML minification |
 
 ## Roadmap
 

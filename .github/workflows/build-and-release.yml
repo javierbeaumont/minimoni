@@ -42,7 +42,7 @@ jobs:
             alpine:latest \
             sh -c '
               set -e
-              apk add --quiet --no-cache gcc musl-dev make xxd git
+              apk add --quiet --no-cache gcc musl-dev make xxd git minify
               git config --global --add safe.directory /work
               make release
             '
@@ -51,6 +51,11 @@ jobs:
         if: matrix.arch == 'linux-arm64'
         run: |
           sudo apt-get install -qq -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu xxd
+          # tdewolff/minify isn't packaged for Ubuntu LTS — grab the
+          # prebuilt amd64 binary (the runner is amd64; we cross-compile
+          # to arm64, the minify step runs on the host).
+          curl -sL https://github.com/tdewolff/minify/releases/download/v2.21.0/minify_linux_amd64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin/ minify
           make release CC=aarch64-linux-gnu-gcc STRIP=aarch64-linux-gnu-strip
 
       - name: Build (armv7, Alpine musl in QEMU)
@@ -62,7 +67,7 @@ jobs:
             arm32v7/alpine:latest \
             sh -c '
               set -e
-              apk add --quiet --no-cache gcc musl-dev make xxd git
+              apk add --quiet --no-cache gcc musl-dev make xxd git minify
               git config --global --add safe.directory /work
               make release
             '
@@ -76,7 +81,7 @@ jobs:
             arm32v6/alpine:latest \
             sh -c '
               set -e
-              apk add --quiet --no-cache gcc musl-dev make xxd git
+              apk add --quiet --no-cache gcc musl-dev make xxd git minify
               git config --global --add safe.directory /work
               make release
             '
