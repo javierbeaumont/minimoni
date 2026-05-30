@@ -624,33 +624,43 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
 
         jbuf_long(&j, "t", r->unix_time);
 
-        jbuf_real(&j, "l1", load_convert(r->load_1m, ctx->num_cores, lu));
-        jbuf_real(&j, "l5", load_convert(r->load_5m, ctx->num_cores, lu));
-        jbuf_real(&j, "l15", load_convert(r->load_15m, ctx->num_cores, lu));
-
-        if (r->cpu_valid) {
-            jbuf_real(&j, "cu", r->cpu_user_percent);
-            jbuf_real(&j, "cs", r->cpu_system_percent);
-            jbuf_real(&j, "ci", r->cpu_idle_percent);
-        } else {
-            jbuf_null(&j, "cu");
-            jbuf_null(&j, "cs");
-            jbuf_null(&j, "ci");
+        /* Each metric group is emitted only when its chart is in the charts
+         * config (same gating pattern as cards in serialize_current). */
+        if (cfg_has(cfg->charts, cfg->chart_count, "cpu_load")) {
+            jbuf_real(&j, "l1", load_convert(r->load_1m, ctx->num_cores, lu));
+            jbuf_real(&j, "l5", load_convert(r->load_5m, ctx->num_cores, lu));
+            jbuf_real(&j, "l15", load_convert(r->load_15m, ctx->num_cores, lu));
         }
 
-        if (!pct_mu) {
-            jbuf_real(&j, "mu", mem_convert(r->mem_used_mb, mu));
-            jbuf_real(&j, "ma", mem_convert(r->mem_available_mb, mu));
-            jbuf_real(&j, "mt", mem_convert(r->mem_total_mb, mu));
+        if (cfg_has(cfg->charts, cfg->chart_count, "cpu_usage")) {
+            if (r->cpu_valid) {
+                jbuf_real(&j, "cu", r->cpu_user_percent);
+                jbuf_real(&j, "cs", r->cpu_system_percent);
+                jbuf_real(&j, "ci", r->cpu_idle_percent);
+            } else {
+                jbuf_null(&j, "cu");
+                jbuf_null(&j, "cs");
+                jbuf_null(&j, "ci");
+            }
         }
-        jbuf_real(&j, "mp", r->mem_percent);
 
-        if (!pct_du) {
-            jbuf_real(&j, "du", disk_convert(r->disk_used_gb, du));
-            jbuf_real(&j, "dt", disk_convert(r->disk_total_gb, du));
-            jbuf_real(&j, "df", disk_convert(r->disk_free_gb, du));
+        if (cfg_has(cfg->charts, cfg->chart_count, "memory")) {
+            if (!pct_mu) {
+                jbuf_real(&j, "mu", mem_convert(r->mem_used_mb, mu));
+                jbuf_real(&j, "ma", mem_convert(r->mem_available_mb, mu));
+                jbuf_real(&j, "mt", mem_convert(r->mem_total_mb, mu));
+            }
+            jbuf_real(&j, "mp", r->mem_percent);
         }
-        jbuf_real(&j, "dp", r->disk_percent);
+
+        if (cfg_has(cfg->charts, cfg->chart_count, "disk")) {
+            if (!pct_du) {
+                jbuf_real(&j, "du", disk_convert(r->disk_used_gb, du));
+                jbuf_real(&j, "dt", disk_convert(r->disk_total_gb, du));
+                jbuf_real(&j, "df", disk_convert(r->disk_free_gb, du));
+            }
+            jbuf_real(&j, "dp", r->disk_percent);
+        }
 
         if (cfg_has(cfg->charts, cfg->chart_count, "temp")) {
             if (r->temp_valid)
@@ -660,12 +670,14 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
                 jbuf_null(&j, "tp");
         }
 
-        if (r->net_valid) {
-            jbuf_real(&j, "nr", net_convert(r->net_rx_bps, nu));
-            jbuf_real(&j, "nt", net_convert(r->net_tx_bps, nu));
-        } else {
-            jbuf_null(&j, "nr");
-            jbuf_null(&j, "nt");
+        if (cfg_has(cfg->charts, cfg->chart_count, "net")) {
+            if (r->net_valid) {
+                jbuf_real(&j, "nr", net_convert(r->net_rx_bps, nu));
+                jbuf_real(&j, "nt", net_convert(r->net_tx_bps, nu));
+            } else {
+                jbuf_null(&j, "nr");
+                jbuf_null(&j, "nt");
+            }
         }
 
         jbuf_real(&j, "up", r->uptime_seconds);

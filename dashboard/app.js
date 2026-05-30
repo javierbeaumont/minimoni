@@ -9,6 +9,11 @@ var THRESH = {
   temp: [70, 80],
 };
 
+/* CSS custom-property lookup helper (cached — see "CSS variable helper"
+ * section below). Declared here, ABOVE CLR, because CLR's initialiser
+ * calls cssv() and `var` initialisers run in source order. */
+var cssCache = {};
+
 /* Chart series colours — sourced from CSS custom properties so a
  * customiser only needs to change style.css (or override the vars).
  * cssv() is a function declaration and is therefore hoisted. */
@@ -46,6 +51,9 @@ var cfgRanges     = ['1d', '7d', '30d', '90d'];
 var cfgVisCharts  = null;
 var cfgVisCards   = null;
 
+/* Per-chart cache: { series, opts } as last drawn — used for hover redraws */
+var chartCache = {};
+
 /* Per-chart, per-series hidden state; toggled by clicking a legend item */
 var seriesHidden = {
   'g-load': [false, false, false],
@@ -57,14 +65,23 @@ var seriesHidden = {
 
 /* ── CSS variable helper ─────────────────────────────────────────── */
 
+/* Cached so we don't hit getComputedStyle several times per chart per
+   frame (6 charts × ~5 lookups × 60fps = 1800 calls/s otherwise).
+   `cssCache` is declared above CLR (so the CLR initialiser can use cssv).
+   Theme changes invalidate the cache in toggleTheme(). */
 function cssv(v) {
-  return getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  if (cssCache[v] === undefined)
+    cssCache[v] = getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  return cssCache[v];
 }
+function invalidateCssCache() { cssCache = {}; }
 
 /* ── Canvas chart ────────────────────────────────────────────────── */
 
 function drawChart(id, series, opts) {
   opts = opts || {};
+  /* Cache the clean args for hover redraws (skip when this IS a hover redraw) */
+  if (opts.hoverIdx == null) chartCache[id] = { series: series, opts: opts };
   var cv = document.getElementById(id);
   if (!cv) return;
 
@@ -106,8 +123,11 @@ function drawChart(id, series, opts) {
 
   var ts      = opts.ts || [];
   var span    = ts.length > 1 ? ts[ts.length - 1] - ts[0] : 0;
-  /* How many X-axis labels fit (~50 px/label, 7 max to avoid clutter) */
+  /* How many X-axis labels fit (~50 px/label, 7 max to avoid clutter).
+     Capped to ts.length so few-point charts don't stack duplicate labels
+     at the same pixel. */
   var maxLbls = Math.min(7, Math.max(2, Math.floor(cw / 50)));
+  var lblCount = Math.min(maxLbls, ts.length);
 
   /* Grid lines — horizontal */
   ctx.strokeStyle = cssv('--brd');
@@ -120,101 +140,127 @@ function drawChart(id, series, opts) {
     ctx.stroke();
   }
 
-  /* Grid lines — vertical, aligned with X-axis label positions */
-  if (ts.length > 1) {
-    for (var vi = 0; vi < maxLbls; vi++) {
-      var vti = vi === maxLbls - 1
-        ? ts.length - 1
-        : Math.round(vi * (ts.length - 1) / (maxLbls - 1));
-      ctx.beginPath();
-      ctx.moveTo(tx(vti), Pt);
-      ctx.lineTo(tx(vti), Pt + ch);
-      ctx.stroke();
-    }
-  }
-
   /* Y-axis labels at bottom, middle, top */
   ctx.fillStyle = cssv('--mut');
   ctx.font      = '10px system-ui';
-  [[0, yMn], [0.5, (yMn + yMx) / 2], [1, yMx]].forEach(function(pair) {
-    var f = pair[0];
-    var v = pair[1];
-    ctx.textAlign = 'right';
-    ctx.fillText(fmtY(v, opts.unit), Pl - 3, Pt + (1 - f) * ch + 3);
-  });
+  ctx.textAlign = 'right';
+  for (var yi = 0; yi <= 2; yi++) {
+    var yf = yi / 2;
+    ctx.fillText(fmtY(yMn + (yMx - yMn) * yf, opts.unit), Pl - 3, Pt + (1 - yf) * ch + 3);
+  }
 
-  /* X-axis labels: evenly distributed across the chart width */
-  if (ts.length > 1) {
-    for (var li = 0; li < maxLbls; li++) {
-      var lti = li === maxLbls - 1
+  /* Vertical grid lines + X-axis labels — share the same index ladder,
+     so we walk it once and emit both. */
+  if (lblCount > 1) {
+    for (var xi = 0; xi < lblCount; xi++) {
+      var xti = xi === lblCount - 1
         ? ts.length - 1
-        : Math.round(li * (ts.length - 1) / (maxLbls - 1));
-      ctx.textAlign = li === 0 ? 'left' : li === maxLbls - 1 ? 'right' : 'center';
-      ctx.fillText(fmtX(ts[lti], span), tx(lti), h - 4);
+        : Math.round(xi * (ts.length - 1) / (lblCount - 1));
+      var px = tx(xti);
+      ctx.strokeStyle = cssv('--brd');
+      ctx.beginPath();
+      ctx.moveTo(px, Pt);
+      ctx.lineTo(px, Pt + ch);
+      ctx.stroke();
+      ctx.textAlign = xi === 0 ? 'left' : xi === lblCount - 1 ? 'right' : 'center';
+      ctx.fillText(fmtX(ts[xti], span), px, h - 4);
     }
   }
 
-  /* Series */
+  /* Series — stroke only (no fill underneath). `ok` resets on null entries
+     so gaps in the data render as breaks instead of straight lines. */
   series.forEach(function(s) {
     if (!s.v.length) return;
-
-    /* Fill area under the line */
-    if (s.fill !== false) {
-      ctx.beginPath();
-      var ok = false;
-      s.v.forEach(function(v, i) {
-        if (v == null) { ok = false; return; }  /* null = gap in data */
-        if (!ok) { ctx.moveTo(tx(i), ty(v)); ok = true; }
-        else     { ctx.lineTo(tx(i), ty(v)); }
-      });
-      ctx.lineTo(tx(n - 1), Pt + ch);
-      ctx.lineTo(Pl, Pt + ch);
-      ctx.closePath();
-      ctx.globalAlpha = 0.12;
-      ctx.fillStyle   = s.c;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    }
-
-    /* Stroke the line; ok2 resets on null so gaps are drawn correctly */
     ctx.strokeStyle = s.c;
     ctx.lineWidth   = 1.5;
     ctx.beginPath();
-    var ok2 = false;
+    var ok = false;
     s.v.forEach(function(v, i) {
-      if (v == null) { ok2 = false; return; }
-      if (!ok2) { ctx.moveTo(tx(i), ty(v)); ok2 = true; }
-      else      { ctx.lineTo(tx(i), ty(v)); }
+      if (v == null) { ok = false; return; }
+      if (!ok) { ctx.moveTo(tx(i), ty(v)); ok = true; }
+      else     { ctx.lineTo(tx(i), ty(v)); }
     });
     ctx.stroke();
   });
 
-  /* Reference lines — used to draw the critical temperature threshold */
-  if (opts.refLines) {
-    opts.refLines.forEach(function(rl) {
-      var ry = ty(rl.v);
-      if (ry < Pt || ry > Pt + ch) return;  /* out of visible range */
-      ctx.save();
-      ctx.strokeStyle = rl.c || cssv('--red');
-      ctx.lineWidth   = 1;
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(Pl, ry);
-      ctx.lineTo(Pl + cw, ry);
-      ctx.stroke();
-      ctx.restore();
+  /* Reference lines — combines explicit opts.refLines (e.g. sysfs temp trip
+     point, dashed thick) with opts.thresh-derived thin solid lines for the
+     warn/crit semaphore thresholds, drawn only when the data actually crossed
+     them at some point. */
+  var refLines = (opts.refLines || []).slice();
+  if (opts.thresh) {
+    var thMax = -Infinity;
+    series.forEach(function(s) {
+      s.v.forEach(function(v) {
+        if (v != null && v > thMax) thMax = v;
+      });
     });
+    if (thMax >= opts.thresh[0])
+      refLines.push({ v: opts.thresh[0], c: cssv('--ylw'), dashed: false });
+    if (thMax >= opts.thresh[1])
+      refLines.push({ v: opts.thresh[1], c: cssv('--red'), dashed: false });
+  }
+  refLines.forEach(function(rl) {
+    var ry = ty(rl.v);
+    if (ry < Pt || ry > Pt + ch) return;  /* out of visible range */
+    ctx.save();
+    ctx.strokeStyle = rl.c || cssv('--red');
+    if (rl.dashed === false) {
+      ctx.lineWidth = 0.5;
+    } else {
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+    }
+    ctx.beginPath();
+    ctx.moveTo(Pl, ry);
+    ctx.lineTo(Pl + cw, ry);
+    ctx.stroke();
+    ctx.restore();
+  });
+
+  /* Hover crosshair + series dots — drawn on top of everything.
+     Single visual difference between hover and locked: hover is dashed,
+     locked is solid. Same color and weight in both states. */
+  if (opts.hoverIdx != null && opts.hoverIdx >= 0 && opts.hoverIdx < n) {
+    var hi = opts.hoverIdx;
+    var hx = tx(hi);
+    ctx.save();
+    ctx.strokeStyle = cssv('--mut');
+    ctx.lineWidth   = 0.5;
+    if (!opts.hoverLocked) ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(hx, Pt);
+    ctx.lineTo(hx, Pt + ch);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    series.forEach(function(s) {
+      var v = s.v[hi];
+      if (v == null) return;
+      ctx.beginPath();
+      ctx.arc(hx, ty(v), 3, 0, Math.PI * 2);
+      ctx.fillStyle = s.c;
+      ctx.fill();
+    });
+    ctx.restore();
   }
 }
 
 /* ── Format helpers ──────────────────────────────────────────────── */
 
-/* Format a Y-axis tick label according to the chart unit */
+/* Format a Y-axis tick label according to the chart unit. Anything not
+   explicitly handled (or u==null) falls through to a generic numeric. */
 function fmtY(v, u) {
-  if (!u)                     return v < 10 ? v.toFixed(1) : v.toFixed(0);
   if (u === '%')              return v.toFixed(0) + '%';
   if (u === 'C' || u === 'F') return v.toFixed(0) + '°';
   return v < 10 ? v.toFixed(1) : v.toFixed(0);
+}
+
+/* Tooltip formatter — one decimal finer than fmtY for crosshair reads
+   (axis labels stay readable at low precision, tooltips give the detail). */
+function fmtTip(v, u) {
+  if (u === '%')              return v.toFixed(1) + '%';
+  if (u === 'C' || u === 'F') return v.toFixed(1) + '°';
+  return v < 10 ? v.toFixed(2) : v.toFixed(1);
 }
 
 /* Format an X-axis label driven by the actual data span (seconds):
@@ -239,6 +285,21 @@ function fmtX(t, span) {
   if (span < 86400 * 730)
     return mo[d.getMonth()] + " '" + String(d.getFullYear()).slice(2);
   return String(d.getFullYear());
+}
+
+/* Format a timestamp for the hover tooltip — fuller than fmtX axis labels:
+ *   ≤ 1 h  → HH:MM:SS    ≤ 2 d  → Mon DD  HH:MM    else → Mon DD, YYYY */
+function fmtXFull(t, span) {
+  if (!t) return '';
+  var d  = new Date(t * 1000);
+  var mo = ['Jan','Feb','Mar','Apr','May','Jun',
+            'Jul','Aug','Sep','Oct','Nov','Dec'];
+  var hh = d.getHours().toString().padStart(2, '0');
+  var mm = d.getMinutes().toString().padStart(2, '0');
+  var ss = d.getSeconds().toString().padStart(2, '0');
+  if (span <= 3600)      return hh + ':' + mm + ':' + ss;
+  if (span <= 86400 * 2) return mo[d.getMonth()] + ' ' + d.getDate() + ' ' + hh + ':' + mm;
+  return mo[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();
 }
 
 /* Format uptime according to the configured unit (auto picks the
@@ -278,8 +339,10 @@ function fmtNet(v, unit) {
   return s;
 }
 
-/* Format a temperature value in the configured unit (°C, °F, or %) */
+/* Format a temperature value in the configured unit (°C, °F, or %).
+   Returns '—' when v is null (e.g. transient sensor read failure). */
 function fmtTempVal(v, unit) {
+  if (v == null) return '—';
   if (!unit || unit[0] === 'c') return v.toFixed(1) + '°C';
   if (unit[0] === 'f')          return v.toFixed(1) + '°F';
   return v.toFixed(1) + '%';
@@ -291,14 +354,6 @@ function fmtTempVal(v, unit) {
 function cardLevel(v, thresh) {
   if (v == null) return '';
   return v >= thresh[1] ? 'r' : v >= thresh[0] ? 'y' : 'g';
-}
-
-function setCard(id, val, sub, cls) {
-  var el = document.getElementById(id);
-  el.querySelector('.cval').textContent = val != null ? val : '—';
-  var s = el.querySelector('.csub');
-  if (s) s.textContent = sub || '';
-  el.className = 'card' + (cls ? ' ' + cls : '');
 }
 
 /* Swap which sub-metric (0 or 1) is shown as primary in a card.
@@ -377,24 +432,23 @@ function updateCards(d) {
   if (!d) return;
   lastCurrent = d;
 
-  /* Overwrite default units with the values from the server config */
-  if (d.mem_card_unit)       cfgCardUnits.mem   = d.mem_card_unit;
-  if (d.mem_chart_unit)      cfgChartUnits.mem  = d.mem_chart_unit;
-  if (d.disk_card_unit)      cfgCardUnits.disk  = d.disk_card_unit;
-  if (d.disk_chart_unit)     cfgChartUnits.disk = d.disk_chart_unit;
-  if (d.temp_card_unit)      cfgCardUnits.temp  = d.temp_card_unit;
-  if (d.temp_chart_unit)     cfgChartUnits.temp = d.temp_chart_unit;
-  if (d.net_card_unit)       cfgCardUnits.net   = d.net_card_unit;
-  if (d.net_chart_unit)      cfgChartUnits.net  = d.net_chart_unit;
-  if (d.cpu_load_card_unit)  cfgCardUnits.load  = d.cpu_load_card_unit;
-  if (d.cpu_load_chart_unit) cfgChartUnits.load = d.cpu_load_chart_unit;
+  /* Overwrite default units with the values from the server config.
+     Each row: [internal key, card-unit JSON field, chart-unit JSON field]. */
+  [
+    ['mem',  'mem_card_unit',      'mem_chart_unit'],
+    ['disk', 'disk_card_unit',     'disk_chart_unit'],
+    ['temp', 'temp_card_unit',     'temp_chart_unit'],
+    ['net',  'net_card_unit',      'net_chart_unit'],
+    ['load', 'cpu_load_card_unit', 'cpu_load_chart_unit'],
+  ].forEach(function(u) {
+    if (d[u[1]]) cfgCardUnits[u[0]]  = d[u[1]];
+    if (d[u[2]]) cfgChartUnits[u[0]] = d[u[2]];
+  });
 
   /* Thresholds — server computes these from core count, trip point, and units */
-  if (d.thresh_load) THRESH.load = d.thresh_load;
-  if (d.thresh_cpu)  THRESH.cpu  = d.thresh_cpu;
-  if (d.thresh_mem)  THRESH.mem  = d.thresh_mem;
-  if (d.thresh_disk) THRESH.disk = d.thresh_disk;
-  if (d.thresh_temp) THRESH.temp = d.thresh_temp;
+  Object.keys(THRESH).forEach(function(k) {
+    if (d['thresh_' + k]) THRESH[k] = d['thresh_' + k];
+  });
 
   /* Title, footer, theme */
   if (d.title) {
@@ -421,10 +475,11 @@ function updateCards(d) {
     buildTabs();
   }
 
-  /* Chart visibility & ordering */
+  /* Chart ordering — visibility is handled in renderAll() based on pts
+     field presence + cfgVisCharts (same field-presence pattern as cards). */
   if (d.charts !== undefined) {
     cfgVisCharts = d.charts === null ? null : d.charts;
-    var CHART_BOX = {
+    var CHART_ORDER = {
       cpu_load:  'b-load',
       cpu_usage: 'b-cpu',
       memory:    'b-mem',
@@ -432,13 +487,11 @@ function updateCards(d) {
       temp:      'b-temp',
       net:       'b-net',
     };
-    Object.keys(CHART_BOX).forEach(function(nm) {
-      var el  = document.getElementById(CHART_BOX[nm]);
+    Object.keys(CHART_ORDER).forEach(function(nm) {
+      var el  = document.getElementById(CHART_ORDER[nm]);
       if (!el) return;
       var idx = cfgVisCharts !== null ? cfgVisCharts.indexOf(nm) : -1;
-      /* Hide when excluded; CSS order drives the configured sequence */
-      el.classList.toggle('hide', cfgVisCharts !== null && idx === -1);
-      el.style.order = (cfgVisCharts !== null && idx !== -1) ? idx : '';
+      el.style.order = (idx !== -1) ? idx : '';
     });
   }
 
@@ -576,6 +629,39 @@ function updateCards(d) {
 function renderAll() {
   var ts = pts.map(function(p) { return p.t; });
 
+  /* If the user pinned a moment (click-to-lock), re-derive the lockedIdx
+     against the new pts window so the marker tracks the timestamp, not
+     a fixed array position. */
+  refreshLockedIdx();
+
+  /* Per-chart visibility — a chart is shown when it's not excluded by the
+     cfgVisCharts config AND its primary field is present in the point data
+     (the C server omits the field entirely when the chart isn't configured).
+     When pts is empty we don't yet know which fields will arrive, so we
+     leave the HTML's initial .hide state untouched (b-temp starts hidden,
+     others start visible) — that avoids a brief "all charts flash visible"
+     at first paint, particularly the temp chart showing empty before the
+     first /metrics confirms it should be hidden. */
+  function chartVisible(name, fieldKey, boxId) {
+    var excluded = cfgVisCharts !== null && cfgVisCharts.indexOf(name) === -1;
+    var el = document.getElementById(boxId);
+    if (pts.length === 0) {
+      /* Without data, only the config can definitively exclude — and only
+         then do we override the HTML default. */
+      if (excluded) {
+        if (el) el.classList.add('hide');
+        delete chartCache[boxId.replace('b-', 'g-')];
+        return false;
+      }
+      return !(el && el.classList.contains('hide'));
+    }
+    var present = fieldKey in pts[0];
+    var visible = !excluded && present;
+    if (el) el.classList.toggle('hide', !visible);
+    if (!visible) delete chartCache[boxId.replace('b-', 'g-')];
+    return visible;
+  }
+
   /* Derive display labels and axis unit keys from the configured units */
   var memUL  = { 'mb': 'MB', 'gb': 'GB', '%': '%' }[cfgChartUnits.mem]  || 'MB';
   var dskUL  = { 'gb': 'GB', 'tb': 'TB', '%': '%' }[cfgChartUnits.disk] || 'GB';
@@ -588,96 +674,122 @@ function renderAll() {
   }[cfgChartUnits.net] || 'KB/s';
 
   var loadOpts = cfgChartUnits.load === '%'
-    ? { yMin: 0, yMax: 100, unit: '%', ts: ts }
+    ? { yMin: 0, unit: '%', ts: ts }
     : { yMin: 0, ts: ts };
+  /* Threshold lines only when chart and card units match — otherwise the
+     server-computed threshold (in card unit) wouldn't line up with chart values. */
+  if (cfgChartUnits.load === cfgCardUnits.load) loadOpts.thresh = THRESH.load;
 
-  /* Update chart titles with the active unit */
-  document.getElementById('b-mem').querySelector('.ctitle').textContent =
-    'Memory (' + memUL + ')';
-  document.getElementById('b-disk').querySelector('.ctitle').textContent =
-    'Disk (' + dskUL + ')';
-  document.getElementById('b-temp').querySelector('.ctitle').textContent =
-    'Temperature (' + tmpSym + ')';
-  document.getElementById('b-net').querySelector('.ctitle').textContent =
-    'Network (' + netUL + ')';
-
-  drawChart('g-load', [
-    { c: CLR.load1,  v: pts.map(function(p) { return p.l1;  }), fill: false },
-    { c: CLR.load5,  v: pts.map(function(p) { return p.l5;  }), fill: false },
-    { c: CLR.load15, v: pts.map(function(p) { return p.l15; }), fill: false },
-  ].filter(function(_, i) { return !seriesHidden['g-load'][i]; }), loadOpts);
-
-  drawChart('g-cpu', [
-    { c: CLR.user, v: pts.map(function(p) { return p.cu; }), fill: false },
-    { c: CLR.sys,  v: pts.map(function(p) { return p.cs; }), fill: false },
-  ].filter(function(_, i) { return !seriesHidden['g-cpu'][i]; }),
-    { yMin: 0, yMax: 100, unit: '%', ts: ts });
-
-  drawChart('g-mem', [
-    {
-      c: CLR.mem,
-      v: pts.map(function(p) {
-        if (cfgChartUnits.mem === '%')  return p.mp;
-        if (cfgChartUnits.mem === 'gb') return p.mu / 1024;
-        return p.mu;
-      }),
-      fill: false,
-    },
-    {
-      c: CLR.memAvail,
-      v: pts.map(function(p) {
-        if (cfgChartUnits.mem === '%')  return 100 - p.mp;
-        if (cfgChartUnits.mem === 'gb') return p.ma / 1024;
-        return p.ma;
-      }),
-      fill: false,
-    },
-  ].filter(function(_, i) { return !seriesHidden['g-mem'][i]; }),
-    { yMin: 0, ts: ts, unit: cfgChartUnits.mem === '%' ? '%' : null });
-
-  drawChart('g-disk', [
-    {
-      c: CLR.disk,
-      v: pts.map(function(p) {
-        if (cfgChartUnits.disk === '%')  return p.dp;
-        if (cfgChartUnits.disk === 'tb') return p.du / 1000;
-        return p.du;
-      }),
-      fill: false,
-    },
-    {
-      c: CLR.diskFree,
-      v: pts.map(function(p) {
-        if (cfgChartUnits.disk === '%')  return 100 - p.dp;
-        if (cfgChartUnits.disk === 'tb') return p.df / 1000;
-        return p.df;
-      }),
-      fill: false,
-    },
-  ].filter(function(_, i) { return !seriesHidden['g-disk'][i]; }),
-    { yMin: 0, ts: ts, unit: cfgChartUnits.disk === '%' ? '%' : null });
-
-  /* Temperature chart: only show when at least one point has a real value */
-  if (pts.some(function(p) { return p.tp != null; }) &&
-      (cfgVisCharts === null || cfgVisCharts.indexOf('temp') !== -1)) {
-    document.getElementById('b-temp').classList.remove('hide');
-    drawChart('g-temp',
-      [{ c: CLR.temp, v: pts.map(function(p) { return p.tp; }), fill: false }],
-      {
-        yMin: 0,
-        unit: tmpUK,
-        ts:   ts,
-        /* Draw a dashed red line at the sysfs critical trip-point */
-        refLines: tempCritical != null ? [{ v: tempCritical, c: cssv('--red') }] : [],
-      }
-    );
+  if (chartVisible('cpu_load', 'l1', 'b-load')) {
+    drawChart('g-load', [
+      { c: CLR.load1,  v: pts.map(function(p) { return p.l1;  }), label: '1m'  },
+      { c: CLR.load5,  v: pts.map(function(p) { return p.l5;  }), label: '5m'  },
+      { c: CLR.load15, v: pts.map(function(p) { return p.l15; }), label: '15m' },
+    ].filter(function(_, i) { return !seriesHidden['g-load'][i]; }), loadOpts);
   }
 
-  drawChart('g-net', [
-    { c: CLR.rx, v: pts.map(function(p) { return p.nr; }), fill: false },
-    { c: CLR.tx, v: pts.map(function(p) { return p.nt; }), fill: false },
-  ].filter(function(_, i) { return !seriesHidden['g-net'][i]; }),
-    { yMin: 0, ts: ts });
+  if (chartVisible('cpu_usage', 'cu', 'b-cpu')) {
+    drawChart('g-cpu', [
+      { c: CLR.user, v: pts.map(function(p) { return p.cu; }), label: 'user' },
+      { c: CLR.sys,  v: pts.map(function(p) { return p.cs; }), label: 'sys'  },
+    ].filter(function(_, i) { return !seriesHidden['g-cpu'][i]; }),
+      { yMin: 0, unit: '%', ts: ts, thresh: THRESH.cpu });
+  }
+
+  if (chartVisible('memory', 'mp', 'b-mem')) {
+    document.getElementById('b-mem').querySelector('.ctitle').textContent =
+      'Memory (' + memUL + ')';
+    var memIsPct  = cfgChartUnits.mem === '%';
+    var memOpts   = { yMin: 0, ts: ts, unit: memIsPct ? '%' : null };
+    if (memIsPct) memOpts.thresh = THRESH.mem;
+    /* Tooltip suffix so a "512" reading doesn't strand the user wondering
+       MB vs GB — the chart title shows the unit but the crosshair shouldn't
+       force a glance back at it. */
+    if (!memIsPct) memOpts.fmtFn = function(v) { return fmtTip(v, null) + ' ' + memUL; };
+    drawChart('g-mem', [
+      {
+        c: CLR.mem, label: 'used',
+        v: pts.map(function(p) {
+          if (cfgChartUnits.mem === '%')  return p.mp;
+          if (cfgChartUnits.mem === 'gb') return p.mu / 1024;
+          return p.mu;
+        }),
+      },
+      {
+        c: CLR.memAvail, label: 'avail',
+        v: pts.map(function(p) {
+          if (cfgChartUnits.mem === '%')  return 100 - p.mp;
+          if (cfgChartUnits.mem === 'gb') return p.ma / 1024;
+          return p.ma;
+        }),
+      },
+    ].filter(function(_, i) { return !seriesHidden['g-mem'][i]; }), memOpts);
+  }
+
+  if (chartVisible('disk', 'dp', 'b-disk')) {
+    document.getElementById('b-disk').querySelector('.ctitle').textContent =
+      'Disk (' + dskUL + ')';
+    var diskIsPct = cfgChartUnits.disk === '%';
+    var diskOpts  = { yMin: 0, ts: ts, unit: diskIsPct ? '%' : null };
+    if (diskIsPct) diskOpts.thresh = THRESH.disk;
+    if (!diskIsPct) diskOpts.fmtFn = function(v) { return fmtTip(v, null) + ' ' + dskUL; };
+    drawChart('g-disk', [
+      {
+        c: CLR.disk, label: 'used',
+        v: pts.map(function(p) {
+          if (cfgChartUnits.disk === '%')  return p.dp;
+          if (cfgChartUnits.disk === 'tb') return p.du / 1000;
+          return p.du;
+        }),
+      },
+      {
+        c: CLR.diskFree, label: 'free',
+        v: pts.map(function(p) {
+          if (cfgChartUnits.disk === '%')  return 100 - p.dp;
+          if (cfgChartUnits.disk === 'tb') return p.df / 1000;
+          return p.df;
+        }),
+      },
+    ].filter(function(_, i) { return !seriesHidden['g-disk'][i]; }), diskOpts);
+  }
+
+  if (chartVisible('temp', 'tp', 'b-temp')) {
+    document.getElementById('b-temp').querySelector('.ctitle').textContent =
+      'Temperature (' + tmpSym + ')';
+    var tempUnitsMatch = (cfgChartUnits.temp || 'c')[0] === (cfgCardUnits.temp || 'c')[0];
+    var tempOpts = {
+      yMin: 0,
+      unit: tmpUK,
+      ts:   ts,
+      /* Dashed red line at the sysfs critical trip-point (hardware limit) */
+      refLines: (tempUnitsMatch && tempCritical != null)
+        ? [{ v: tempCritical, c: cssv('--red') }]
+        : [],
+      /* Tooltip shows the actual unit symbol (°C / °F / %) — fmtTip on its
+         own collapses both 'C' and 'F' to a bare degree sign, ambiguous
+         when the user picked Fahrenheit. */
+      fmtFn: function(v) { return v.toFixed(1) + tmpSym; },
+    };
+    if (tempUnitsMatch) tempOpts.thresh = THRESH.temp;
+    drawChart('g-temp',
+      [{ c: CLR.temp, v: pts.map(function(p) { return p.tp; }), label: 'temp' }],
+      tempOpts);
+  }
+
+  if (chartVisible('net', 'nr', 'b-net')) {
+    document.getElementById('b-net').querySelector('.ctitle').textContent =
+      'Network (' + netUL + ')';
+    drawChart('g-net', [
+      { c: CLR.rx, v: pts.map(function(p) { return p.nr; }), label: '↓' },
+      { c: CLR.tx, v: pts.map(function(p) { return p.nt; }), label: '↑' },
+    ].filter(function(_, i) { return !seriesHidden['g-net'][i]; }),
+      { yMin: 0, ts: ts, fmtFn: function(v) { return fmtNet(v, cfgChartUnits.net); } });
+  }
+
+  /* Fresh drawChart calls above wrote clean opts to the cache; without
+     this the locked crosshair line vanishes after each SSE refresh while
+     the lock is still active. */
+  if (lockedIdx != null) scheduleHoverDraw();
 }
 
 /* ── Legend build & toggle ───────────────────────────────────────── */
@@ -687,20 +799,12 @@ function buildLegends() {
   document.querySelectorAll('.legend[data-chart] .leg-item').forEach(function(s) {
     var id  = s.closest('.legend').dataset.chart;
     var idx = parseInt(s.dataset.series, 10);
-    /* IIFE captures idx so each closure refers to its own series index */
-    s.onclick = (function(i) { return function() { toggleSeries(id, i); }; })(idx);
-    s.addEventListener('keydown', (function(i) {
-      return function(e) {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          toggleSeries(id, i);
-        }
-      };
-    })(idx));
+    activate(s, function() { toggleSeries(id, idx); });
   });
 }
 
 function toggleSeries(id, idx) {
+  if (!seriesHidden[id]) return;  /* unknown chart id (e.g. legend-less temp) */
   seriesHidden[id][idx] = !seriesHidden[id][idx];
   var items = document.getElementById('leg-' + id).querySelectorAll('.leg-item');
   var item  = items[idx];
@@ -716,32 +820,262 @@ function toggleTheme() {
   var goLight = html.dataset.theme !== 'light';
   html.dataset.theme = goLight ? 'light' : 'dark';
   document.getElementById('thm').textContent = goLight ? '🌙 Dark' : '☀ Light';
+  /* Theme variables changed — drop the cached values so the next cssv()
+     call re-reads from the (new) computed style. */
+  invalidateCssCache();
   /* Redraw charts so canvas colors update to the new theme variables */
   renderAll();
 }
 
-/* ── Data fetchers ───────────────────────────────────────────────── */
+/* ── Canvas tooltip & crosshair ─────────────────────────────────── */
 
-function loadCurrent() {
-  fetch('/api/current').then(function(r) {
-    if (r.ok) r.json().then(updateCards);
-  }).catch(function() {});
+/* Render the floating tooltip at the given viewport coords (mx, my). It
+   reads the values at `idx` from the cached chart's series. Flips to the
+   opposite side of the cursor if it would clip the viewport edge. */
+function showTooltip(idx, mx, my, cached) {
+  var tt   = document.getElementById('tt');
+  var ts   = (cached.opts.ts || [])[idx];
+  var span = cached.opts.ts && cached.opts.ts.length > 1
+    ? cached.opts.ts[cached.opts.ts.length - 1] - cached.opts.ts[0]
+    : 0;
+  var fmt  = cached.opts.fmtFn || function(v) { return fmtTip(v, cached.opts.unit); };
+  var html = ts ? '<div class="tt-time">' + fmtXFull(ts, span) + '</div>' : '';
+  cached.series.forEach(function(s) {
+    var v = s.v[idx];
+    if (v == null) return;
+    html += '<div class="tt-row">'
+      + '<span class="tt-dot" style="background:' + s.c + '"></span>'
+      + (s.label ? '<span class="tt-lbl">' + s.label + '</span>' : '')
+      + '<span class="tt-val">' + fmt(v) + '</span>'
+      + '</div>';
+  });
+  if (!html) { tt.classList.add('hide'); return; }
+  tt.innerHTML = html;
+  /* Measure first so we can flip sides if the tip would clip the viewport */
+  tt.style.visibility = 'hidden';
+  tt.classList.remove('hide');
+  var tw = tt.offsetWidth;
+  var th = tt.offsetHeight;
+  var x  = mx + 14;
+  var y  = my - 14;
+  if (x + tw > window.innerWidth  - 8) x = mx - tw - 14;
+  if (y + th > window.innerHeight - 8) y = my - th - 14;
+  tt.style.left       = x + 'px';
+  tt.style.top        = y + 'px';
+  tt.style.visibility = '';
 }
 
+function hideTooltip() { document.getElementById('tt').classList.add('hide'); }
+
+/* Shared-crosshair state.
+   - hoverIdxPending: ephemeral index from the latest mousemove (null when
+     no chart is being hovered).
+   - lockedTs: when set, the crosshair is "pinned" at that timestamp. The
+     user can move between charts and the tooltip updates without losing
+     the marker. Stored as a timestamp (not an index) so SSE updates that
+     shift the window don't change the locked moment.
+   - lockedIdx: derived from lockedTs on each renderAll — the closest pts
+     index to lockedTs in the current data window. */
+var hoverIdxPending   = null;
+var lockedTs          = null;
+var lockedIdx         = null;
+var hoverRafScheduled = false;
+
+/* Re-derive lockedIdx from lockedTs against the current pts array.
+   Call at the start of renderAll so the lock survives data updates. */
+function refreshLockedIdx() {
+  if (lockedTs == null || pts.length === 0) { lockedIdx = null; return; }
+  /* If the locked moment falls outside the current visible window
+     (typically after the window slid forward in time), auto-unlock so
+     we don't snap the crosshair to the nearest edge point and mislead
+     the user about which timestamp they're inspecting. */
+  if (lockedTs < pts[0].t || lockedTs > pts[pts.length - 1].t) {
+    lockedTs = null; lockedIdx = null;
+    hideTooltip();
+    return;
+  }
+  var bestIdx = 0, bestDiff = Infinity;
+  for (var i = 0; i < pts.length; i++) {
+    var diff = Math.abs(pts[i].t - lockedTs);
+    if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
+  }
+  lockedIdx = bestIdx;
+}
+
+function scheduleHoverDraw() {
+  if (hoverRafScheduled) return;
+  hoverRafScheduled = true;
+  requestAnimationFrame(function() {
+    hoverRafScheduled = false;
+    /* Lock wins over transient hover. */
+    var activeIdx = lockedIdx != null ? lockedIdx : hoverIdxPending;
+    var locked    = lockedIdx != null;
+    Object.keys(chartCache).forEach(function(id) {
+      var c = chartCache[id];
+      if (!c) return;
+      if (activeIdx == null)
+        drawChart(id, c.series, c.opts);            /* clean redraw */
+      else
+        drawChart(id, c.series, Object.assign({}, c.opts,
+          { hoverIdx: activeIdx, hoverLocked: locked }));
+    });
+  });
+}
+
+/* Mark all charts to redraw with the shared crosshair at idx. Coalesces
+   into the next animation frame, so a single mousemove burst at 240Hz
+   still produces only ~60 redraws per second. */
+function drawAllWithHover(idx) {
+  hoverIdxPending = idx;
+  scheduleHoverDraw();
+}
+
+/* Clear the crosshair on every chart and hide the tooltip. */
+function clearAllHovers() {
+  hoverIdxPending = null;
+  scheduleHoverDraw();
+  hideTooltip();
+}
+
+/* Attach mousemove / mouseleave / click handlers to a canvas for the
+   shared crosshair + tooltip.
+
+   States:
+   - default: mousemove tracks cursor; the crosshair lives only while
+     hovering a chart, tooltip follows the cursor.
+   - locked  (via click): the crosshair stays pinned at the click moment.
+     The tooltip horizontally anchors to the crosshair line of the chart
+     you're hovering (so it always sits over the data column you're
+     inspecting), and only its vertical position tracks the cursor. Click
+     again to unlock. */
+function attachHover(id) {
+  var cv = document.getElementById(id);
+  if (!cv) return;
+  var Pl = 38, Pr = 8;
+
+  /* Compute the data index for the cursor's x position, or null if the
+     cursor is over the axis gutter (not the data area). */
+  function idxFromEvent(e) {
+    var cached = chartCache[id];
+    if (!cached) return null;
+    var first = cached.series[0];
+    var n = first ? first.v.length : 0;
+    if (!n) return null;
+    var rect = cv.getBoundingClientRect();
+    var w    = cv.parentElement.clientWidth - 24;
+    var xPx  = e.clientX - rect.left;
+    if (xPx < Pl || xPx > w - Pr) return null;
+    var cw = w - Pl - Pr;
+    return Math.max(0, Math.min(n - 1, Math.round((xPx - Pl) / cw * (n - 1))));
+  }
+
+  /* Screen X (viewport coords) of the crosshair line at lockedIdx for
+     THIS chart — used to anchor the tooltip horizontally while locked,
+     so it sits over the actual data column being inspected even when the
+     layout splits charts across multiple columns. */
+  function lockedScreenX() {
+    var cached = chartCache[id];
+    if (!cached) return null;
+    var first = cached.series[0];
+    var n = first ? first.v.length : 0;
+    if (!n || lockedIdx == null) return null;
+    var rect = cv.getBoundingClientRect();
+    var w    = cv.parentElement.clientWidth - 24;
+    var cw   = w - Pl - Pr;
+    return rect.left + Pl + (lockedIdx / Math.max(n - 1, 1)) * cw;
+  }
+
+  cv.addEventListener('mousemove', function(e) {
+    var idx    = idxFromEvent(e);
+    var cached = chartCache[id];
+    if (idx == null) {
+      /* Cursor is over the axis gutter. Unlocked → clear everything;
+         locked → just hide the tooltip, keep the crosshair line. */
+      if (lockedIdx == null) clearAllHovers();
+      else                   hideTooltip();
+      return;
+    }
+    if (lockedIdx != null) {
+      /* Crosshair stays at lockedIdx; the tooltip reads THIS chart at
+         lockedIdx, anchored horizontally to the crosshair line so it
+         sits over the data column being inspected. Skip when the X
+         resolver can't compute a position (stale cache, lock cleared
+         mid-frame) — better no tooltip than one at NaNpx. */
+      var lx = lockedScreenX();
+      if (lx != null) showTooltip(lockedIdx, lx, e.clientY, cached);
+    } else {
+      drawAllWithHover(idx);
+      showTooltip(idx, e.clientX, e.clientY, cached);
+    }
+  });
+
+  cv.addEventListener('mouseleave', function() {
+    if (lockedIdx != null) hideTooltip();  /* keep the locked crosshair */
+    else                   clearAllHovers();
+  });
+
+  cv.addEventListener('click', function(e) {
+    var idx = idxFromEvent(e);
+    if (idx == null) return;  /* axis gutter clicks are no-ops */
+    var cached = chartCache[id];
+    if (lockedTs != null) {
+      /* Second click — unlock. Smoothly transition back to hover at the
+         current cursor position so the marker doesn't visibly jump. */
+      lockedTs        = null;
+      lockedIdx       = null;
+      hoverIdxPending = idx;
+      scheduleHoverDraw();
+      showTooltip(idx, e.clientX, e.clientY, cached);
+    } else if (pts[idx]) {
+      /* Pin by timestamp so the lock survives window slides from SSE. */
+      lockedTs        = pts[idx].t;
+      lockedIdx       = idx;
+      hoverIdxPending = null;
+      scheduleHoverDraw();
+      var lx = lockedScreenX();
+      if (lx != null) showTooltip(idx, lx, e.clientY, cached);
+    }
+  });
+}
+
+/* ── Data fetchers ───────────────────────────────────────────────── */
+
+/* Returns a promise so the init sequence can wait for /current to land
+   before kicking off /metrics — otherwise the first chart render uses the
+   default cfgChartUnits and we get a brief flicker if metrics resolves
+   first. The promise always resolves (errors swallowed) so the caller
+   doesn't need a catch. */
+function loadCurrent() {
+  return fetch('/api/current')
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(d) { if (d) updateCards(d); })
+    .catch(function() {});
+}
+
+/* Monotonic request token: each loadMetrics() bumps it, and when the
+   response arrives we discard any whose token isn't the most recent one.
+   This prevents stale data from overwriting fresh after rapid range
+   switches (1d → 7d → 30d) without cancelling in-flight SSE-triggered
+   requests, which would otherwise abort one another with sse_keepalive. */
+var metricsRequestId = 0;
+
 function loadMetrics() {
+  var myId = ++metricsRequestId;
   /* Compute how many points the canvas can actually resolve: 1 point per
      4 backing pixels (the threshold where discreteness becomes invisible).
      The server hard-caps at 1440; we clamp to [120, 1440]. */
   var cv     = document.getElementById('g-load');
   var w      = cv ? cv.parentElement.clientWidth - 24 : 800;
   var points = Math.min(1440, Math.max(120, Math.round(w * (devicePixelRatio || 1) / 4)));
-  fetch('/api/metrics?range=' + curRange + '&points=' + points).then(function(r) {
-    if (!r.ok) return;
-    r.json().then(function(d) {
+  fetch('/api/metrics?range=' + curRange + '&points=' + points)
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(d) {
+      /* Drop stale responses — only the most recent request wins. */
+      if (!d || myId !== metricsRequestId) return;
       pts = d.points || [];
       renderAll();
-    });
-  }).catch(function() {});
+    })
+    .catch(function() { /* network errors swallowed */ });
 }
 
 /* ── Range tabs ──────────────────────────────────────────────────── */
@@ -761,6 +1095,15 @@ function buildTabs() {
         x.classList.remove('act');
       });
       b.classList.add('act');
+      /* Range switch redefines the time window — any locked moment from
+         the previous window is unlikely to remain visible, so reset.
+         scheduleHoverDraw forces a clean (no-crosshair) redraw of the
+         existing canvases now; without it the locked crosshair lingers
+         on screen for ~200 ms until /api/metrics returns and renderAll
+         repaints. */
+      lockedTs = null; lockedIdx = null;
+      hideTooltip();
+      scheduleHoverDraw();
       loadMetrics();
     };
     el.appendChild(b);
@@ -797,9 +1140,11 @@ document.getElementById('thm').addEventListener('click', toggleTheme);
 wireCards();
 buildLegends();
 buildTabs();
+['g-load', 'g-cpu', 'g-mem', 'g-disk', 'g-temp', 'g-net'].forEach(attachHover);
 renderAll();
-loadCurrent();
-loadMetrics();
+/* Wait for /current to set units / thresholds before fetching /metrics —
+   otherwise charts could briefly render with default cfgChartUnits. */
+loadCurrent().then(loadMetrics);
 connectSSE();
 
 /* Debounce canvas redraws on window resize to avoid per-pixel storms */
@@ -807,4 +1152,12 @@ var resizeTimer;
 window.addEventListener('resize', function() {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(renderAll, 100);
+});
+
+/* OS-level theme changes (`prefers-color-scheme`) swap the CSS variables
+   when no explicit `data-theme` attribute is set. Invalidate the cached
+   colours and redraw so canvas content picks up the new palette. */
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function() {
+  invalidateCssCache();
+  renderAll();
 });
