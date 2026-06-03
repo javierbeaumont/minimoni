@@ -1,3 +1,11 @@
+# User-facing binaries (built at repo root for distribution)
 minimoni
 minimoni-linux-*
+
+# Generated build outputs — everything `make` and `make debug` emit
+# (embed.h, minimoni-debug) goes into build/.
 build/
+
+# Local dev scratchpad — test DBs, preview configs, anything ephemeral.
+# Convention: anything not for distribution and not a build artefact lives here.
+.dev/
