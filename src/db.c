@@ -33,7 +33,7 @@ static const char SQL_CREATE[] =
     "CREATE TABLE IF NOT EXISTS metrics ("
     "  timestamp        TEXT NOT NULL,"
     "  load_1m          REAL, load_5m REAL, load_15m REAL,"
-    "  cpu_user_pct     REAL, cpu_system_pct REAL, cpu_idle_pct REAL,"
+    "  cpu_user_percent REAL, cpu_system_percent REAL, cpu_idle_percent REAL,"
     "  mem_total_mb     REAL, mem_used_mb REAL,"
     "  mem_available_mb REAL, mem_percent REAL,"
     "  disk_total_gb    REAL, disk_used_gb REAL,"
@@ -51,7 +51,7 @@ static const char SQL_CREATE[] =
 
 static const char SQL_INSERT[] = "INSERT INTO metrics ("
                                  "  timestamp, load_1m, load_5m, load_15m,"
-                                 "  cpu_user_pct, cpu_system_pct, cpu_idle_pct,"
+                                 "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
                                  "  mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
                                  "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
                                  "  temp_celsius, net_rx_bytes, net_tx_bytes, uptime_seconds"
@@ -149,9 +149,9 @@ int db_insert(db_t *db, const metrics_t *m)
     sqlite3_bind_double(s, 4, m->load_15m);
 
     if (m->cpu_valid) {
-        sqlite3_bind_double(s, 5, m->cpu_user_pct);
-        sqlite3_bind_double(s, 6, m->cpu_system_pct);
-        sqlite3_bind_double(s, 7, m->cpu_idle_pct);
+        sqlite3_bind_double(s, 5, m->cpu_user_percent);
+        sqlite3_bind_double(s, 6, m->cpu_system_percent);
+        sqlite3_bind_double(s, 7, m->cpu_idle_percent);
     } else {
         sqlite3_bind_null(s, 5);
         sqlite3_bind_null(s, 6);
