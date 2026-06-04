@@ -19,6 +19,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -206,4 +207,261 @@ int db_prune(db_t *db, int retention_days)
     }
 
     return 0;
+}
+
+/* --- Query helpers -------------------------------------------------------- */
+
+/* Read one db_row_t from the current row of stmt (columns 0-19 as defined
+ * by both SQL_CURRENT and the SELECT list in db_query_range). */
+static void read_row(sqlite3_stmt *s, db_row_t *r)
+{
+    memset(r, 0, sizeof(*r));
+
+    const char *ts = (const char *)sqlite3_column_text(s, 0);
+    if (ts)
+        snprintf(r->timestamp, sizeof(r->timestamp), "%s", ts);
+    r->unix_time = (long)sqlite3_column_int64(s, 1);
+
+    r->load_1m = sqlite3_column_double(s, 2);
+    r->load_5m = sqlite3_column_double(s, 3);
+    r->load_15m = sqlite3_column_double(s, 4);
+
+    r->cpu_valid = (sqlite3_column_type(s, 5) != SQLITE_NULL);
+    if (r->cpu_valid) {
+        r->cpu_user_percent = sqlite3_column_double(s, 5);
+        r->cpu_system_percent = sqlite3_column_double(s, 6);
+        r->cpu_idle_percent = sqlite3_column_double(s, 7);
+    }
+
+    r->mem_total_mb = sqlite3_column_double(s, 8);
+    r->mem_used_mb = sqlite3_column_double(s, 9);
+    r->mem_available_mb = sqlite3_column_double(s, 10);
+    r->mem_percent = sqlite3_column_double(s, 11);
+
+    r->disk_total_gb = sqlite3_column_double(s, 12);
+    r->disk_used_gb = sqlite3_column_double(s, 13);
+    r->disk_free_gb = sqlite3_column_double(s, 14);
+    r->disk_percent = sqlite3_column_double(s, 15);
+
+    r->temp_valid = (sqlite3_column_type(s, 16) != SQLITE_NULL);
+    if (r->temp_valid)
+        r->temp_celsius = sqlite3_column_double(s, 16);
+
+    r->net_valid = (sqlite3_column_type(s, 17) != SQLITE_NULL);
+    if (r->net_valid) {
+        r->net_rx_bps = sqlite3_column_double(s, 17);
+        r->net_tx_bps = sqlite3_column_double(s, 18);
+    }
+
+    r->uptime_seconds = sqlite3_column_double(s, 19);
+}
+
+/* --- db_current ----------------------------------------------------------- */
+
+int db_current(db_t *db, db_row_t *row)
+{
+    /* Two most recent rows ordered newest-first; columns mirror the SELECT
+     * list used by db_query_range so the same read_row() helper applies,
+     * except columns 17/18 here are raw cumulative bytes (not rates). */
+    static const char SQL[] = "SELECT timestamp,"
+                              "  CAST(strftime('%s',timestamp) AS INTEGER),"
+                              "  load_1m, load_5m, load_15m,"
+                              "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
+                              "  mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
+                              "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
+                              "  temp_celsius, net_rx_bytes, net_tx_bytes, uptime_seconds"
+                              " FROM metrics ORDER BY timestamp DESC LIMIT 2";
+
+    sqlite3_stmt *s;
+    if (sqlite3_prepare_v2(db->handle, SQL, -1, &s, NULL) != SQLITE_OK) {
+        fprintf(stderr, "db: current prepare: %s\n", sqlite3_errmsg(db->handle));
+        return -1;
+    }
+
+    memset(row, 0, sizeof(*row));
+
+    if (sqlite3_step(s) != SQLITE_ROW) {
+        sqlite3_finalize(s);
+        return 1; /* no rows yet */
+    }
+
+    /* Latest row — read all scalar fields directly */
+    const char *ts = (const char *)sqlite3_column_text(s, 0);
+    if (ts)
+        snprintf(row->timestamp, sizeof(row->timestamp), "%s", ts);
+    row->unix_time = (long)sqlite3_column_int64(s, 1);
+    row->load_1m = sqlite3_column_double(s, 2);
+    row->load_5m = sqlite3_column_double(s, 3);
+    row->load_15m = sqlite3_column_double(s, 4);
+    row->cpu_valid = (sqlite3_column_type(s, 5) != SQLITE_NULL);
+    if (row->cpu_valid) {
+        row->cpu_user_percent = sqlite3_column_double(s, 5);
+        row->cpu_system_percent = sqlite3_column_double(s, 6);
+        row->cpu_idle_percent = sqlite3_column_double(s, 7);
+    }
+    row->mem_total_mb = sqlite3_column_double(s, 8);
+    row->mem_used_mb = sqlite3_column_double(s, 9);
+    row->mem_available_mb = sqlite3_column_double(s, 10);
+    row->mem_percent = sqlite3_column_double(s, 11);
+    row->disk_total_gb = sqlite3_column_double(s, 12);
+    row->disk_used_gb = sqlite3_column_double(s, 13);
+    row->disk_free_gb = sqlite3_column_double(s, 14);
+    row->disk_percent = sqlite3_column_double(s, 15);
+    row->temp_valid = (sqlite3_column_type(s, 16) != SQLITE_NULL);
+    if (row->temp_valid)
+        row->temp_celsius = sqlite3_column_double(s, 16);
+
+    long long cur_rx = sqlite3_column_int64(s, 17);
+    long long cur_tx = sqlite3_column_int64(s, 18);
+    row->uptime_seconds = sqlite3_column_double(s, 19);
+
+    /* Previous row — only needed for net rate */
+    if (sqlite3_step(s) == SQLITE_ROW) {
+        long      prev_ts = (long)sqlite3_column_int64(s, 1);
+        long long prev_rx = sqlite3_column_int64(s, 17);
+        long long prev_tx = sqlite3_column_int64(s, 18);
+        long      dt = row->unix_time - prev_ts;
+        if (dt > 0) {
+            long long drx = cur_rx - prev_rx;
+            long long dtx = cur_tx - prev_tx;
+            if (drx >= 0 && dtx >= 0) {
+                row->net_valid = 1;
+                row->net_rx_bps = (double)drx / (double)dt;
+                row->net_tx_bps = (double)dtx / (double)dt;
+            }
+        }
+    }
+
+    sqlite3_finalize(s);
+    return 0;
+}
+
+/* --- db_query_range ------------------------------------------------------- */
+
+/* Shared column layout for both raw and bucketed queries:
+ *  0  timestamp (TEXT)
+ *  1  unix_time (INTEGER)
+ *  2  load_1m   3 load_5m   4 load_15m
+ *  5  cpu_user_percent (nullable)  6 cpu_system_percent  7 cpu_idle_percent
+ *  8  mem_total_mb  9 mem_used_mb  10 mem_available_mb  11 mem_percent
+ * 12  disk_total_gb 13 disk_used_gb 14 disk_free_gb 15 disk_percent
+ * 16  temp_celsius (nullable)
+ * 17  net_rx_bps   (nullable, bytes/s)
+ * 18  net_tx_bps   (nullable, bytes/s)
+ * 19  uptime_seconds
+ */
+
+static const char SQL_RAW[] =
+    "WITH d AS ("
+    "  SELECT timestamp,"
+    "    CAST(strftime('%s',timestamp) AS INTEGER) AS ts,"
+    "    load_1m, load_5m, load_15m,"
+    "    cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
+    "    mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
+    "    disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
+    "    temp_celsius,"
+    "    net_rx_bytes - LAG(net_rx_bytes) OVER (ORDER BY timestamp) AS rx_d,"
+    "    net_tx_bytes - LAG(net_tx_bytes) OVER (ORDER BY timestamp) AS tx_d,"
+    "    CAST(strftime('%s',timestamp) AS INTEGER)"
+    "      - CAST(strftime('%s',LAG(timestamp) OVER (ORDER BY timestamp)) AS INTEGER) AS dt,"
+    "    uptime_seconds"
+    "  FROM metrics WHERE timestamp >= datetime('now',?)"
+    ")"
+    "SELECT timestamp, ts,"
+    "  load_1m, load_5m, load_15m,"
+    "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
+    "  mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
+    "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
+    "  temp_celsius,"
+    "  CASE WHEN rx_d>=0 AND dt>0 THEN CAST(rx_d AS REAL)/dt ELSE NULL END,"
+    "  CASE WHEN tx_d>=0 AND dt>0 THEN CAST(tx_d AS REAL)/dt ELSE NULL END,"
+    "  uptime_seconds"
+    " FROM d ORDER BY ts";
+
+int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_rows)
+{
+    char offset[32];
+    snprintf(offset, sizeof(offset), "-%ld seconds", range_seconds);
+
+    sqlite3_stmt *s;
+
+    if (bucket_sec <= 0) {
+        if (sqlite3_prepare_v2(db->handle, SQL_RAW, -1, &s, NULL) != SQLITE_OK) {
+            fprintf(stderr, "db: range prepare: %s\n", sqlite3_errmsg(db->handle));
+            return -1;
+        }
+        sqlite3_bind_text(s, 1, offset, -1, SQLITE_TRANSIENT);
+    } else {
+        /* Build bucketed SQL with the bucket size embedded as a literal so
+         * integer division in SQLite uses the correct type. */
+        char sql[2048];
+        snprintf(sql, sizeof(sql),
+                 "WITH d AS ("
+                 "  SELECT"
+                 "    (CAST(strftime('%%s',timestamp) AS INTEGER)/%d)*%d AS bkt,"
+                 "    load_1m, load_5m, load_15m,"
+                 "    cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
+                 "    mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
+                 "    disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
+                 "    temp_celsius,"
+                 "    net_rx_bytes - LAG(net_rx_bytes) OVER (ORDER BY timestamp) AS rx_d,"
+                 "    net_tx_bytes - LAG(net_tx_bytes) OVER (ORDER BY timestamp) AS tx_d,"
+                 "    CAST(strftime('%%s',timestamp) AS INTEGER)"
+                 "      - CAST(strftime('%%s',LAG(timestamp)"
+                 "          OVER (ORDER BY timestamp)) AS INTEGER) AS dt,"
+                 "    uptime_seconds"
+                 "  FROM metrics WHERE timestamp >= datetime('now',?)"
+                 ")"
+                 "SELECT datetime(bkt,'unixepoch'), bkt,"
+                 "  AVG(load_1m), AVG(load_5m), AVG(load_15m),"
+                 "  AVG(cpu_user_percent), AVG(cpu_system_percent), AVG(cpu_idle_percent),"
+                 "  AVG(mem_total_mb), AVG(mem_used_mb), AVG(mem_available_mb), AVG(mem_percent),"
+                 "  AVG(disk_total_gb), AVG(disk_used_gb), AVG(disk_free_gb), AVG(disk_percent),"
+                 "  AVG(temp_celsius),"
+                 "  AVG(CASE WHEN rx_d>=0 AND dt>0 THEN CAST(rx_d AS REAL)/dt ELSE NULL END),"
+                 "  AVG(CASE WHEN tx_d>=0 AND dt>0 THEN CAST(tx_d AS REAL)/dt ELSE NULL END),"
+                 "  AVG(uptime_seconds)"
+                 " FROM d GROUP BY bkt ORDER BY bkt",
+                 bucket_sec, bucket_sec);
+        if (sqlite3_prepare_v2(db->handle, sql, -1, &s, NULL) != SQLITE_OK) {
+            fprintf(stderr, "db: range bucket prepare: %s\n", sqlite3_errmsg(db->handle));
+            return -1;
+        }
+        sqlite3_bind_text(s, 1, offset, -1, SQLITE_TRANSIENT);
+    }
+
+    /* Collect rows into a growing heap buffer. */
+    size_t    cap = 512;
+    size_t    cnt = 0;
+    db_row_t *rows = malloc(cap * sizeof(db_row_t));
+    if (!rows) {
+        sqlite3_finalize(s);
+        return -1;
+    }
+
+    int rc;
+    while ((rc = sqlite3_step(s)) == SQLITE_ROW) {
+        if (cnt == cap) {
+            cap *= 2;
+            db_row_t *tmp = realloc(rows, cap * sizeof(db_row_t));
+            if (!tmp) {
+                free(rows);
+                sqlite3_finalize(s);
+                return -1;
+            }
+            rows = tmp;
+        }
+        read_row(s, &rows[cnt++]);
+    }
+
+    sqlite3_finalize(s);
+
+    if (rc != SQLITE_DONE) {
+        fprintf(stderr, "db: range query error: %s\n", sqlite3_errmsg(db->handle));
+        free(rows);
+        return -1;
+    }
+
+    *out_rows = rows;
+    return (int)cnt;
 }
