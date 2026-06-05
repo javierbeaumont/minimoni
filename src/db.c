@@ -62,6 +62,11 @@ static const char SQL_PRUNE_METRICS[] = "DELETE FROM metrics WHERE timestamp < d
 
 static const char SQL_PRUNE_ALERTS[] = "DELETE FROM alert_log WHERE fired_at < datetime('now', ?)";
 
+static const char SQL_ALERT_CHECK[] =
+    "SELECT COUNT(*) FROM alert_log WHERE alert_name = ? AND fired_at > ?";
+
+static const char SQL_ALERT_FIRE[] = "INSERT INTO alert_log (alert_name, fired_at) VALUES (?, ?)";
+
 /* --- Helpers ------------------------------------------------------------- */
 
 static int step_with_retry(sqlite3_stmt *stmt)
@@ -112,6 +117,10 @@ int db_open(db_t *db, const char *path)
         sqlite3_prepare_v2(db->handle, SQL_PRUNE_METRICS, -1, &db->stmt_prune_metrics, NULL) !=
             SQLITE_OK ||
         sqlite3_prepare_v2(db->handle, SQL_PRUNE_ALERTS, -1, &db->stmt_prune_alerts, NULL) !=
+            SQLITE_OK ||
+        sqlite3_prepare_v2(db->handle, SQL_ALERT_CHECK, -1, &db->stmt_alert_check, NULL) !=
+            SQLITE_OK ||
+        sqlite3_prepare_v2(db->handle, SQL_ALERT_FIRE, -1, &db->stmt_alert_fire, NULL) !=
             SQLITE_OK) {
         fprintf(stderr, "db: prepare error: %s\n", sqlite3_errmsg(db->handle));
         db_close(db);
@@ -128,6 +137,8 @@ void db_close(db_t *db)
     sqlite3_finalize(db->stmt_insert);
     sqlite3_finalize(db->stmt_prune_metrics);
     sqlite3_finalize(db->stmt_prune_alerts);
+    sqlite3_finalize(db->stmt_alert_check);
+    sqlite3_finalize(db->stmt_alert_fire);
     sqlite3_close(db->handle);
     memset(db, 0, sizeof(*db));
 }
@@ -206,6 +217,52 @@ int db_prune(db_t *db, int retention_days)
         return -1;
     }
 
+    return 0;
+}
+
+/* --- Alert log ------------------------------------------------------------ */
+
+int db_alert_on_cooldown(db_t *db, const char *alert_name, long cooldown_seconds)
+{
+    time_t    cutoff = time(NULL) - cooldown_seconds;
+    struct tm utc;
+    char      cutoff_str[24];
+
+    gmtime_r(&cutoff, &utc);
+    strftime(cutoff_str, sizeof(cutoff_str), "%Y-%m-%dT%H:%M:%SZ", &utc);
+
+    sqlite3_stmt *s = db->stmt_alert_check;
+    sqlite3_reset(s);
+    sqlite3_bind_text(s, 1, alert_name, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(s, 2, cutoff_str, -1, SQLITE_TRANSIENT);
+
+    int rc = step_with_retry(s);
+    if (rc != SQLITE_ROW) {
+        fprintf(stderr, "db: alert check error: %s\n", sqlite3_errmsg(db->handle));
+        return -1;
+    }
+    return sqlite3_column_int(s, 0) > 0 ? 1 : 0;
+}
+
+int db_alert_log_fire(db_t *db, const char *alert_name)
+{
+    time_t    now = time(NULL);
+    struct tm utc;
+    char      fired_at[24];
+
+    gmtime_r(&now, &utc);
+    strftime(fired_at, sizeof(fired_at), "%Y-%m-%dT%H:%M:%SZ", &utc);
+
+    sqlite3_stmt *s = db->stmt_alert_fire;
+    sqlite3_reset(s);
+    sqlite3_bind_text(s, 1, alert_name, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(s, 2, fired_at, -1, SQLITE_TRANSIENT);
+
+    int rc = step_with_retry(s);
+    if (rc != SQLITE_DONE) {
+        fprintf(stderr, "db: alert fire error: %s\n", sqlite3_errmsg(db->handle));
+        return -1;
+    }
     return 0;
 }
 
