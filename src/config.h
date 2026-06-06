@@ -44,15 +44,22 @@ typedef struct {
     char disk_path[256];   /* default: "/" */
 
     /* [dashboard] */
-    char  title[128];       /* default: "minimoni" */
-    int   refresh_seconds;  /* default: 30 */
-    char  memory_unit[16];  /* "mb" | "gb" | "%", default: "mb" */
-    char  disk_unit[16];    /* "gb" | "tb" | "%", default: "gb" */
-    char  temp_unit[4];     /* "c" | "f" | "%", default: "c" */
-    float temp_max;         /* 100% reference when temp_unit="%", default: 100.0 */
-    char  cpu_load_unit[4]; /* "abs" | "%", default: "abs" */
-    char  net_unit[8];      /* "mb"|"gb"|"mbps"|"gbps", default: "mb" */
-    char  uptime_unit[8];   /* "h"|"d"|"auto", default: "auto" */
+    char  title[128];             /* default: "minimoni" */
+    char  theme[8];               /* "auto" | "light" | "dark", default: "auto" */
+    int   show_footer;            /* 1 = show project footer, 0 = hide, default: 1 */
+    int   refresh_seconds;        /* default: 30 */
+    char  memory_card_unit[16];   /* "%" | "mb" | "gb", default: "%" */
+    char  memory_chart_unit[16];  /* "mb" | "gb" | "%", default: "mb" */
+    char  disk_card_unit[16];     /* "%" | "gb" | "tb", default: "%" */
+    char  disk_chart_unit[16];    /* "gb" | "tb" | "%", default: "gb" */
+    char  temp_card_unit[4];      /* "c" | "f" | "%", default: "c" */
+    char  temp_chart_unit[4];     /* "c" | "f" | "%", default: "c" */
+    float temp_max;               /* 100% reference when temp_*_unit="%", default: 100.0 */
+    char  cpu_load_card_unit[4];  /* "abs" | "%", default: "abs" */
+    char  cpu_load_chart_unit[4]; /* "abs" | "%", default: "abs" */
+    char  net_card_unit[8];       /* "mb"|"gb"|"mbps"|"gbps", default: "mb" */
+    char  net_chart_unit[8];      /* "mb"|"gb"|"mbps"|"gbps", default: "mb" */
+    char  uptime_unit[8];         /* "h"|"d"|"auto", default: "auto" */
     /* charts/cards: count=0 means show all in default order */
     char charts[MAX_CHARTS][16]; /* "cpu_load"|"cpu_usage"|"memory"|"disk"|"temp"|"net" */
     int  chart_count;

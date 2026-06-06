@@ -215,10 +215,10 @@ static int read_num_cores(void)
 static void serialize_current(jbuf_t *j, const db_row_t *r, const http_ctx_t *ctx)
 {
     const config_t *cfg = ctx->cfg;
-    const char     *lu = cfg->cpu_load_unit;
-    const char     *mu = cfg->memory_unit;
-    const char     *du = cfg->disk_unit;
-    const char     *nu = cfg->net_unit;
+    const char     *lu = cfg->cpu_load_card_unit;
+    const char     *mu = cfg->memory_card_unit;
+    const char     *du = cfg->disk_card_unit;
+    const char     *nu = cfg->net_card_unit;
 
     jbuf_str(j, "timestamp", r->timestamp);
 
@@ -250,7 +250,7 @@ static void serialize_current(jbuf_t *j, const db_row_t *r, const http_ctx_t *ct
     jbuf_real(j, "disk_percent", r->disk_percent);
 
     if (r->temp_valid)
-        jbuf_real(j, "temp", temp_convert(r->temp_celsius, cfg->temp_unit, cfg->temp_max));
+        jbuf_real(j, "temp", temp_convert(r->temp_celsius, cfg->temp_card_unit, cfg->temp_max));
     else
         jbuf_null(j, "temp");
 
@@ -379,10 +379,10 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
     }
 
     const config_t *cfg = ctx->cfg;
-    const char     *lu = cfg->cpu_load_unit;
-    const char     *mu = cfg->memory_unit;
-    const char     *du = cfg->disk_unit;
-    const char     *nu = cfg->net_unit;
+    const char     *lu = cfg->cpu_load_chart_unit;
+    const char     *mu = cfg->memory_chart_unit;
+    const char     *du = cfg->disk_chart_unit;
+    const char     *nu = cfg->net_chart_unit;
     int             pct_mu = (mu[0] == '%');
     int             pct_du = (du[0] == '%');
 
@@ -431,7 +431,7 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
         jbuf_real(&j, "dp", r->disk_percent);
 
         if (r->temp_valid)
-            jbuf_real(&j, "tp", temp_convert(r->temp_celsius, cfg->temp_unit, cfg->temp_max));
+            jbuf_real(&j, "tp", temp_convert(r->temp_celsius, cfg->temp_chart_unit, cfg->temp_max));
         else
             jbuf_null(&j, "tp");
 

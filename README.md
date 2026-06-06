@@ -19,7 +19,7 @@ at build time.
 ## Building
 
 ```sh
-make embed  # serialise dashboard/index.html into build/embed.h (once, or after editing the dashboard)
+make embed  # generate build/embed.h from the dashboard (run once, or after edits)
 make        # compile the binary
 ```
 
@@ -46,8 +46,8 @@ disk_path = "/"
 **`db`** — path to the SQLite database. Default: `./metrics.db`. For a persistent installation,
 use `/var/lib/minimoni/metrics.db` (create the directory first).
 
-**`interval`** — how often to collect. Format: `<n>s`, `<n>m`, `<n>h`, `<n>d`. Default: `1m`. Lower
-intervals give finer granularity; higher intervals reduce database growth:
+**`interval`** — how often to collect. Format: `<n>s`, `<n>m`, `<n>h`, `<n>d`. Default: `1m`.
+Lower intervals give finer granularity; higher intervals reduce database growth:
 
 | Interval | 90-day database |
 |----------|-----------------|
@@ -72,8 +72,10 @@ listen = "0.0.0.0:8080"
 
 ```toml
 [dashboard]
-title   = "My Server"  # browser tab, header, and alert identifier (default: "minimoni")
-refresh = 30           # SSE push interval in seconds (default: 30)
+title       = "My Server"  # browser tab, header, and alert identifier (default: "minimoni")
+theme       = "auto"       # "auto" | "light" | "dark" — "auto" follows OS preference
+show_footer = true         # show version footer (default: true)
+refresh     = 30           # SSE push interval in seconds (default: 30)
 
 ranges = ["1d", "7d", "30d", "90d"]  # time range tabs; last value = retention
 points = 300                          # target data points per chart (default: 300)
@@ -81,13 +83,18 @@ points = 300                          # target data points per chart (default: 3
 charts = ["cpu_load", "cpu_usage", "memory", "disk", "temp", "net"]
 cards  = ["cpu_load", "memory", "disk", "temp", "net", "uptime"]
 
-cpu_load_unit = "abs"   # CPU load: "abs" | "%" (% = normalized by core count)
-memory_unit   = "mb"    # memory unit: "mb" | "gb" | "%"
-disk_unit     = "gb"    # disk unit: "gb" | "tb" | "%"
-temp_unit     = "c"     # temperature unit: "c" | "f" | "%"
-# temp_max    = 100     # 100% reference when temp_unit="%" (default: 100)
-net_unit      = "mb"    # network throughput: "mb" | "gb" | "mbps" | "gbps"
-uptime_unit   = "auto"  # uptime display: "h" | "d" | "auto"
+cpu_load_card_unit  = "abs"  # status card: "%" | "abs" (% = normalized by core count)
+cpu_load_chart_unit = "abs"  # chart Y-axis: "%" | "abs"
+memory_card_unit    = "mb"   # status card: "%" | "mb" | "gb"
+memory_chart_unit   = "mb"   # chart Y-axis: "%" | "mb" | "gb"
+disk_card_unit      = "gb"   # status card: "%" | "gb" | "tb"
+disk_chart_unit     = "gb"   # chart Y-axis: "%" | "gb" | "tb"
+temp_card_unit      = "c"    # status card: "%" | "c" | "f"
+temp_chart_unit     = "c"    # chart Y-axis: "%" | "c" | "f"
+# temp_max          = 100    # temperature mapped to 100% when temp_*_unit="%" (default: 100)
+net_card_unit       = "mb"   # status card: "mb" | "gb" | "mbps" | "gbps"
+net_chart_unit      = "mb"   # chart Y-axis: "mb" | "gb" | "mbps" | "gbps"
+uptime_unit         = "auto" # uptime display: "auto" | "h" | "d"
 ```
 
 All keys are optional.
@@ -97,8 +104,12 @@ payloads. If omitted, the dashboard shows "minimoni" and webhook payloads use th
 hostname from `gethostname()`. Set this when running multiple instances so alert notifications
 identify the source host.
 
-Unit settings apply consistently to both status cards and charts. `charts` and `cards`
-default to all available metrics if not specified; `count = 0` shows everything.
+**`theme`** — when set to `"light"` or `"dark"`, the theme is fixed and the toggle button is
+hidden. `"auto"` (default) follows the OS preference and shows the toggle.
+
+Each metric has two independent unit settings: `*_card_unit` for the status card and
+`*_chart_unit` for the chart Y-axis. `charts` and `cards` default to all available metrics if
+not specified.
 
 **`ranges`** — time range tabs shown in the dashboard, in the listed order. The **last (largest)
 value sets the retention period**: rows older than that are deleted after each collect cycle.
@@ -134,23 +145,25 @@ cooldown  = "1h"            # minimum time between repeated firings
 | `cpu_user_percent` | % | User-space CPU usage |
 | `cpu_system_percent` | % | Kernel CPU usage |
 | `cpu_idle_percent` | % | Idle CPU |
-| `load_1m` | `cpu_load_unit` | 1-minute load average |
-| `load_5m` | `cpu_load_unit` | 5-minute load average |
-| `load_15m` | `cpu_load_unit` | 15-minute load average |
-| `mem_used` | `memory_unit` | Used memory |
+| `load_1m` | load avg | 1-minute load average |
+| `load_5m` | load avg | 5-minute load average |
+| `load_15m` | load avg | 15-minute load average |
+| `mem_total_mb` | MB | Total memory |
+| `mem_used_mb` | MB | Used memory |
+| `mem_available_mb` | MB | Available memory |
 | `mem_percent` | % | Used memory as percent of total |
-| `disk_used` | `disk_unit` | Used disk space |
+| `disk_total_gb` | GB | Total disk space |
+| `disk_used_gb` | GB | Used disk space |
+| `disk_free_gb` | GB | Free disk space |
 | `disk_percent` | % | Used disk as percent of total |
-| `temp` | `temp_unit` | CPU temperature (skipped if sensor is absent) |
-| `net_rx` | `net_unit` | Receive throughput |
-| `net_tx` | `net_unit` | Transmit throughput |
+| `temp_celsius` | °C | CPU temperature (skipped if sensor is absent) |
+| `net_rx_bps` | bytes/s | Receive throughput |
+| `net_tx_bps` | bytes/s | Transmit throughput |
 | `uptime_seconds` | s | Seconds since boot |
 
-Threshold values are in the same unit shown in your dashboard. If `temp_unit = "f"`,
-write the threshold in °F. If `memory_unit = "gb"`, write it in GB.
-
-All metrics with a `*_unit` column use the configured unit. The rest (`cpu_*_percent`,
-`mem_percent`, `disk_percent`, `uptime_seconds`) are always in the unit shown.
+Each metric is compared in its own **fixed** unit (the one shown above), independent of the
+dashboard's display units. For example `temp_celsius` is always °C and `mem_used_mb` always MB,
+whatever `temp_card_unit` or `memory_card_unit` are set to. Write thresholds in that fixed unit.
 
 When `webhook` is set, minimoni sends a POST request (`Content-Type: application/json`).
 **Requires outbound HTTP connectivity from the server.**
