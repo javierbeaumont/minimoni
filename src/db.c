@@ -393,6 +393,26 @@ int db_current(db_t *db, db_row_t *row)
     return 0;
 }
 
+/* --- db_count_range ------------------------------------------------------- */
+
+int db_count_range(db_t *db, long range_seconds)
+{
+    char offset[32];
+    snprintf(offset, sizeof(offset), "-%ld seconds", range_seconds);
+
+    static const char SQL[] = "SELECT COUNT(*) FROM metrics WHERE timestamp >= datetime('now',?)";
+    sqlite3_stmt     *s;
+    if (sqlite3_prepare_v2(db->handle, SQL, -1, &s, NULL) != SQLITE_OK)
+        return -1;
+    sqlite3_bind_text(s, 1, offset, -1, SQLITE_TRANSIENT);
+
+    int count = -1;
+    if (sqlite3_step(s) == SQLITE_ROW)
+        count = sqlite3_column_int(s, 0);
+    sqlite3_finalize(s);
+    return count;
+}
+
 /* --- db_query_range ------------------------------------------------------- */
 
 /* Shared column layout for both raw and bucketed queries:
