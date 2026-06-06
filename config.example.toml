@@ -1,5 +1,7 @@
 [server]
-listen = "0.0.0.0:8080"
+listen        = "0.0.0.0:8080"
+# threads       = 8    # HTTP worker threads, one per open dashboard tab; 2–256 (default: 8)
+# sse_keepalive = 1    # seconds between SSE keepalives; 1..refresh-1 (default: 1)
 
 [collect]
 db        = "/var/lib/minimoni/metrics.db"

@@ -62,11 +62,23 @@ mounted at `/data`, set `disk_path = "/data"`.
 
 ```toml
 [server]
-listen = "0.0.0.0:8080"
+listen        = "0.0.0.0:8080"
+threads       = 8
+sse_keepalive = 1
 ```
 
 **`listen`** — address and port to bind. Use `0.0.0.0:8080` to accept from any interface, or
 `127.0.0.1:8080` to restrict to localhost (e.g. when running minimoni behind a reverse proxy).
+
+**`threads`** — number of HTTP worker threads. Each open dashboard tab holds one thread for its
+SSE connection. Default `8` handles up to 8 simultaneous users; raise if you have more. Values
+below `2` are rejected (the SSE connection would occupy the only thread); values above `256`
+fall back to the default with a warning. Range: 2–256.
+
+**`sse_keepalive`** — how often (in seconds) a keepalive comment is sent over each SSE connection
+between data pushes, letting the server detect a closed tab and free its thread without waiting
+up to `refresh` seconds. Default: `1`. Valid range: `1` to `refresh - 1`; outside it, keepalive
+is inactive (logged at startup) and thread recovery falls back to the next data push.
 
 ### Dashboard
 

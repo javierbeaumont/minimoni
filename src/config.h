@@ -36,7 +36,9 @@ typedef struct {
 
 typedef struct {
     /* [server] */
-    char listen[64]; /* default: "0.0.0.0:8080" */
+    char listen[64];            /* default: "0.0.0.0:8080" */
+    int  threads;               /* HTTP worker threads, default: 8, min: 2 */
+    int  sse_keepalive_seconds; /* SSE keepalive interval, default: 1; inactive if >= refresh */
 
     /* [collect] */
     long interval_seconds; /* default: 60 */
