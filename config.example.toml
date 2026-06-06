@@ -21,9 +21,9 @@ disk_path = "/"
 
 # cpu_load_card_unit  = "abs"  # status card: "%" | "abs" (% = normalized by core count)
 # cpu_load_chart_unit = "abs"  # chart Y-axis: "%" | "abs"
-# memory_card_unit    = "mb"   # status card: "%" | "mb" | "gb"
+# memory_card_unit    = "%"    # status card: "%" | "mb" | "gb"
 # memory_chart_unit   = "mb"   # chart Y-axis: "%" | "mb" | "gb"
-# disk_card_unit      = "gb"   # status card: "%" | "gb" | "tb"
+# disk_card_unit      = "%"    # status card: "%" | "gb" | "tb"
 # disk_chart_unit     = "gb"   # chart Y-axis: "%" | "gb" | "tb"
 # temp_card_unit      = "c"    # status card: "%" | "c" | "f"
 # temp_chart_unit     = "c"    # chart Y-axis: "%" | "c" | "f"
