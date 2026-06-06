@@ -28,7 +28,9 @@ typedef struct {
     struct mg_context *mg;
     const config_t    *cfg;
     db_t              *db;
-    int                num_cores; /* from /sys/devices/system/cpu/online */
+    int                num_cores;     /* from /sys/devices/system/cpu/online */
+    double             temp_critical; /* critical trip point in °C, 0 if absent */
+    int                temp_critical_valid;
     volatile int       stopping;
 } http_ctx_t;
 

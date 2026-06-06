@@ -123,6 +123,13 @@ Each metric has two independent unit settings: `*_card_unit` for the status card
 `*_chart_unit` for the chart Y-axis. `charts` and `cards` default to all available metrics if
 not specified.
 
+**Temperature visibility** — `temp` depends on hardware, so it is handled specially:
+
+- It appears in API responses only when `temp` is listed in `charts`/`cards` (or the list is
+  unset). Omit `temp` from both and no temperature is sent, so neither card nor chart appears.
+- If `temp` is listed but the host has no sensor, `null` is sent and the card/chart stays
+  hidden — a missing sensor never shows an empty card.
+
 **`ranges`** — time range tabs shown in the dashboard, in the listed order. The **last (largest)
 value sets the retention period**: rows older than that are deleted after each collect cycle.
 Units: `h` (hours) or `d` (days). Values shorter than `collect.interval` are silently ignored.
