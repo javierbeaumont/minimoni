@@ -24,11 +24,12 @@ VENDOR = vendor/sqlite3.c vendor/civetweb.c vendor/tomlc17.c
 
 all: embed minimoni
 
-# embed.h: dashboard/index.html serialised as a C byte array by xxd.
-# Included by the HTTP handler so the dashboard ships inside the binary.
+# embed.h: dashboard bundled (CSS + JS + favicon inlined) and serialised as a C byte array.
+# tools/bundle.sh inlines dashboard/style.css, app.js, and favicon.svg into index.html,
+# then xxd converts the result to a C byte array included by the HTTP handler.
 # Not tracked in git — run "make embed" before the first build or after editing the dashboard.
 embed: | build
-	xxd -i dashboard/index.html > build/embed.h
+	sh tools/bundle.sh | xxd -i -n dashboard_index_html - > build/embed.h
 
 build:
 	mkdir -p build
