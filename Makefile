@@ -22,6 +22,12 @@ BEARSSL_INC = -Ivendor/bearssl/inc
 SRC = src/main.c src/metrics.c src/db.c src/config.c src/http.c src/alerts.c
 VENDOR = vendor/sqlite3.c vendor/civetweb.c vendor/tomlc17.c
 
+# Vendored amalgamations carry upstream warnings we don't own (e.g. civetweb's
+# unused-but-set variables). Compile them as separate objects with that one
+# check disabled so src/ stays strict under -Wall -Wextra. $(OPT) carries each
+# target's optimisation flags — run "make clean" when switching release/debug.
+VENDOR_OBJ = $(patsubst vendor/%.c,build/%.o,$(VENDOR))
+
 all: embed minimoni
 
 # embed.h: dashboard bundled (CSS + JS + favicon inlined) and serialised as a C byte array.
@@ -34,26 +40,33 @@ embed: | build
 build:
 	mkdir -p build
 
+build/%.o: vendor/%.c | build
+	$(CC) $(CFLAGS) -Wno-unused-but-set-variable $(OPT) $(SQLITE_FLAGS) \
+	  $(CIVETWEB_FLAGS) $(BEARSSL_INC) -Ivendor -Isrc -Ibuild -c $< -o $@
+
 $(BEARSSL_LIB):
-	$(MAKE) -C vendor/bearssl CC="$(CC)"
+	$(MAKE) -C vendor/bearssl lib CC="$(CC)"
 
-minimoni: $(SRC) $(VENDOR) $(BEARSSL_LIB)
+minimoni: OPT = -O2
+minimoni: $(SRC) $(VENDOR_OBJ) $(BEARSSL_LIB)
 	$(CC) $(CFLAGS) -O2 $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
-	  -Ivendor -Isrc -Ibuild -o $@ $(SRC) $(VENDOR) $(BEARSSL_LIB) $(LDFLAGS)
+	  -Ivendor -Isrc -Ibuild -o $@ $(SRC) $(VENDOR_OBJ) $(BEARSSL_LIB) $(LDFLAGS)
 
-release: embed $(BEARSSL_LIB)
-	$(CC) $(CFLAGS) -Os -flto $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
-	  -Ivendor -Isrc -Ibuild -o minimoni $(SRC) $(VENDOR) $(BEARSSL_LIB) $(LDFLAGS) -Wl,--gc-sections
+release: OPT = -Os -flto=auto
+release: embed $(VENDOR_OBJ) $(BEARSSL_LIB)
+	$(CC) $(CFLAGS) -Os -flto=auto $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
+	  -Ivendor -Isrc -Ibuild -o minimoni $(SRC) $(VENDOR_OBJ) $(BEARSSL_LIB) $(LDFLAGS) -Wl,--gc-sections
 	strip minimoni
 
 release-linux:
 	docker run --rm -v "$(PWD)":/work -w /work alpine:latest \
 	  sh -c "apk add --quiet gcc musl-dev make xxd git && make release"
 
-debug: embed $(BEARSSL_LIB)
+debug: OPT = -O0 -g -fsanitize=address,undefined
+debug: embed $(VENDOR_OBJ) $(BEARSSL_LIB)
 	$(CC) $(CFLAGS) -O0 -g -fsanitize=address,undefined \
 	  $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) -Ivendor -Isrc -Ibuild \
-	  -o build/minimoni-debug $(SRC) $(VENDOR) $(BEARSSL_LIB) $(LDFLAGS_DEBUG)
+	  -o build/minimoni-debug $(SRC) $(VENDOR_OBJ) $(BEARSSL_LIB) $(LDFLAGS_DEBUG)
 
 lint:
 	docker run --rm -v "$(PWD)":/work -w /work alpine:latest \
