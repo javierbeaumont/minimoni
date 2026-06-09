@@ -1,0 +1,6 @@
+name: minimoni CodeQL config
+
+# Scan only minimoni code. The vendor/ tree holds curated third-party sources;
+# we cannot patch those, only update the vendored version, so alerts there are noise.
+paths-ignore:
+  - vendor/**
