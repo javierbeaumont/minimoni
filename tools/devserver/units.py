@@ -1,0 +1,137 @@
+# minimoni - zero-dependency system monitoring
+# Copyright (C) 2026 Javier Beaumont <javierbeaumont@users.noreply.github.com>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+"""
+Unit conversions for the minimoni dev server, mirroring src/http.c exactly.
+
+Raw base-unit metrics (from mock_data) are converted to the configured display
+units: /api/current uses the *_card_unit values, /api/metrics uses *_chart_unit.
+Memory/disk raw fields are OMITTED when the unit is "%" (as the real server does,
+so the dashboard falls back to the percentage), and the load is normalised by
+core count when its unit is "%".
+"""
+
+from mock_data import JSON
+
+# The real server reads the core count from sysfs; the dashboard assumes 4 when
+# normalising load client-side, so the dev server uses the same assumption.
+CORES = 4
+
+
+def net_convert(bps: float, unit: str) -> float:
+    if not unit or unit[0] == 'm':
+        if len(unit) > 2 and unit[1] == 'b' and unit[2] == 'p':  # mbps
+            return bps * 8.0 / 1e6
+        return bps / 1048576.0  # mb
+    if unit[0] == 'g':
+        if len(unit) > 2 and unit[1] == 'b' and unit[2] == 'p':  # gbps
+            return bps * 8.0 / 1e9
+        return bps / 1073741824.0  # gb
+    return bps / 1048576.0
+
+
+def mem_convert(mb: float, unit: str) -> float:
+    return mb / 1024.0 if unit and unit[0] == 'g' else mb
+
+
+def disk_convert(gb: float, unit: str) -> float:
+    return gb / 1024.0 if unit and unit[0] == 't' else gb
+
+
+def temp_convert(celsius: float, unit: str, temp_max: float) -> float:
+    if not unit:
+        return celsius
+    if unit[0] == 'f':
+        return celsius * 9.0 / 5.0 + 32.0
+    if unit[0] == '%':
+        return celsius * 100.0 / temp_max if temp_max > 0 else celsius
+    return celsius
+
+
+def load_convert(load: float, cores: int, unit: str) -> float:
+    if unit and unit[0] == '%' and cores > 0:
+        return load * 100.0 / cores
+    return load
+
+
+def to_current(raw: JSON, f: JSON, temp_max: float) -> JSON:
+    """Serialize a raw snapshot for /api/current using the CARD units."""
+    lu, mu = str(f['cpu_load_card_unit']), str(f['mem_card_unit'])
+    du, nu, tu = str(f['disk_card_unit']), str(f['net_card_unit']), str(f['temp_card_unit'])
+
+    out: JSON = {
+        'timestamp':          raw['timestamp'],
+        'load_1m':            round(load_convert(raw['load_1m'], CORES, lu), 2),
+        'load_5m':            round(load_convert(raw['load_5m'], CORES, lu), 2),
+        'load_15m':           round(load_convert(raw['load_15m'], CORES, lu), 2),
+        'cpu_user_percent':   round(raw['cpu_user'], 1),
+        'cpu_system_percent': round(raw['cpu_system'], 1),
+        'cpu_idle_percent':   round(raw['cpu_idle'], 1),
+    }
+    if mu[0] != '%':
+        out['mem_used'] = round(mem_convert(raw['mem_used_mb'], mu), 2)
+        out['mem_available'] = round(mem_convert(raw['mem_avail_mb'], mu), 2)
+        out['mem_total'] = round(mem_convert(raw['mem_total_mb'], mu), 2)
+    out['mem_percent'] = round(raw['mem_percent'], 1)
+    if du[0] != '%':
+        out['disk_used'] = round(disk_convert(raw['disk_used_gb'], du), 2)
+        out['disk_total'] = round(disk_convert(raw['disk_total_gb'], du), 2)
+        out['disk_free'] = round(disk_convert(raw['disk_free_gb'], du), 2)
+    out['disk_percent'] = round(raw['disk_percent'], 1)
+
+    tc = raw.get('temp_c')
+    out['temp'] = round(temp_convert(tc, tu, temp_max), 1) if tc is not None else None
+    crit = raw.get('temp_critical_c')
+    out['temp_critical'] = round(temp_convert(crit, tu, temp_max), 1) if crit is not None else None
+
+    out['net_rx'] = round(net_convert(raw['net_rx_bps'], nu), 2)
+    out['net_tx'] = round(net_convert(raw['net_tx_bps'], nu), 2)
+    out['uptime_seconds'] = raw['uptime']
+    return out
+
+
+def to_point(raw: JSON, f: JSON, temp_max: float) -> JSON:
+    """Serialize a raw point for /api/metrics using the CHART units (short keys)."""
+    lu, mu = str(f['cpu_load_chart_unit']), str(f['mem_chart_unit'])
+    du, nu, tu = str(f['disk_chart_unit']), str(f['net_chart_unit']), str(f['temp_chart_unit'])
+
+    out: JSON = {
+        't':   raw['t'],
+        'l1':  round(load_convert(raw['load_1m'], CORES, lu), 2),
+        'l5':  round(load_convert(raw['load_5m'], CORES, lu), 2),
+        'l15': round(load_convert(raw['load_15m'], CORES, lu), 2),
+        'cu':  round(raw['cpu_user'], 1),
+        'cs':  round(raw['cpu_system'], 1),
+        'ci':  round(raw['cpu_idle'], 1),
+    }
+    if mu[0] != '%':
+        out['mu'] = round(mem_convert(raw['mem_used_mb'], mu), 2)
+        out['ma'] = round(mem_convert(raw['mem_avail_mb'], mu), 2)
+        out['mt'] = round(mem_convert(raw['mem_total_mb'], mu), 2)
+    out['mp'] = round(raw['mem_percent'], 1)
+    if du[0] != '%':
+        out['du'] = round(disk_convert(raw['disk_used_gb'], du), 2)
+        out['dt'] = round(disk_convert(raw['disk_total_gb'], du), 2)
+        out['df'] = round(disk_convert(raw['disk_free_gb'], du), 2)
+    out['dp'] = round(raw['disk_percent'], 1)
+
+    tc = raw.get('temp_c')
+    out['tp'] = round(temp_convert(tc, tu, temp_max), 1) if tc is not None else None
+
+    out['nr'] = round(net_convert(raw['net_rx_bps'], nu), 2)
+    out['nt'] = round(net_convert(raw['net_tx_bps'], nu), 2)
+    out['up'] = raw['uptime']
+    return out

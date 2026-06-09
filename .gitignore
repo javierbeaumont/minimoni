@@ -2,14 +2,14 @@
 minimoni
 minimoni-linux-*
 
-# Generated build outputs — everything `make` and `make debug` emit
+# Generated build outputs: everything `make` and `make debug` emit
 # (embed.h, minimoni-debug) goes into build/.
 build/
 
 # Vendored library build tree (BearSSL sub-make's output)
 vendor/bearssl/build/
 
-# Local dev scratchpad — test DBs, preview configs, anything ephemeral.
+# Local dev scratchpad: test DBs, preview configs, anything ephemeral.
 # Convention: anything not for distribution and not a build artefact lives here.
 .dev/
 
@@ -17,3 +17,7 @@ vendor/bearssl/build/
 metrics.db
 metrics.db-wal
 metrics.db-shm
+
+# Python bytecode cache (from the dev-server tooling in tools/)
+__pycache__/
+*.pyc
