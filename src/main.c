@@ -1,5 +1,5 @@
 /*
- * minimoni — zero-dependency system monitoring
+ * minimoni - zero-dependency system monitoring
  * Copyright (C) 2026 Javier Beaumont <javierbeaumont@users.noreply.github.com>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -46,7 +46,7 @@ static void usage(const char *prog)
             "  %s serve    [--config PATH]\n"
             "  %s collect  [--config PATH]\n"
             "  %s --version\n"
-            "  %s --help\n",
+            "  %s --help, -h\n",
             prog, prog, prog, prog);
 }
 
@@ -59,7 +59,7 @@ static const char *parse_config_flag(int argc, char **argv, int start)
     return NULL;
 }
 
-/* Convert a range string ("1d", "24h", …) to days (ceiling for hours). */
+/* Convert a range string ("1d", "24h", ...) to days (ceiling for hours). */
 static int range_to_days(const char *r)
 {
     int  n = (int)strtol(r, NULL, 10);
@@ -85,7 +85,7 @@ static int retention_days(const config_t *cfg)
 }
 
 /* -------------------------------------------------------------------------
- * collect: oneshot — seed CPU snapshot, sleep 250 ms, collect, insert
+ * collect: oneshot - seed CPU snapshot, sleep 250 ms, collect, insert
  * ---------------------------------------------------------------------- */
 
 static int run_collect(const char *config_path)
@@ -132,7 +132,7 @@ static int run_collect(const char *config_path)
 }
 
 /* -------------------------------------------------------------------------
- * serve: daemon — HTTP server + drift-free collect loop
+ * serve: daemon - HTTP server + drift-free collect loop
  * ---------------------------------------------------------------------- */
 
 static int run_serve(const char *config_path)
@@ -165,7 +165,7 @@ static int run_serve(const char *config_path)
         int r = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, NULL);
         if (shutdown_flag)
             break;
-        if (r != 0) /* EINTR — signal arrived; recheck flag */
+        if (r != 0) /* EINTR: signal arrived; recheck flag */
             continue;
 
         next.tv_sec += cfg.interval_seconds;

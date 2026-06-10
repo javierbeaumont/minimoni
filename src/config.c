@@ -1,5 +1,5 @@
 /*
- * minimoni — zero-dependency system monitoring
+ * minimoni - zero-dependency system monitoring
  * Copyright (C) 2026 Javier Beaumont <javierbeaumont@users.noreply.github.com>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -84,7 +84,7 @@ void config_defaults(config_t *cfg)
     snprintf(cfg->disk_chart_unit, sizeof(cfg->disk_chart_unit), "%s", "gb");
     snprintf(cfg->temp_card_unit, sizeof(cfg->temp_card_unit), "%s", "c");
     snprintf(cfg->temp_chart_unit, sizeof(cfg->temp_chart_unit), "%s", "c");
-    cfg->temp_max = 100.0f;
+    cfg->temp_max = 85.0f;
     snprintf(cfg->cpu_load_card_unit, sizeof(cfg->cpu_load_card_unit), "%s", "abs");
     snprintf(cfg->cpu_load_chart_unit, sizeof(cfg->cpu_load_chart_unit), "%s", "abs");
     snprintf(cfg->net_card_unit, sizeof(cfg->net_card_unit), "%s", "mb");
