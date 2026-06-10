@@ -1,3 +1,19 @@
+# minimoni - zero-dependency system monitoring
+# Copyright (C) 2026 Javier Beaumont <javierbeaumont@users.noreply.github.com>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 CC = gcc
 VERSION := $(shell git describe --tags --always 2>/dev/null || echo unknown)
 CFLAGS = -Wall -Wextra -std=c11 -DMINIMONI_VERSION=\"$(VERSION)\"
@@ -25,7 +41,7 @@ VENDOR = vendor/sqlite3.c vendor/civetweb.c vendor/tomlc17.c
 # Vendored amalgamations carry upstream warnings we don't own (e.g. civetweb's
 # unused-but-set variables). Compile them as separate objects with that one
 # check disabled so src/ stays strict under -Wall -Wextra. $(OPT) carries each
-# target's optimisation flags — run "make clean" when switching release/debug.
+# target's optimisation flags - run "make clean" when switching release/debug.
 VENDOR_OBJ = $(patsubst vendor/%.c,build/%.o,$(VENDOR))
 
 all: embed minimoni
@@ -33,7 +49,7 @@ all: embed minimoni
 # embed.h: dashboard bundled (CSS + JS + favicon inlined) and serialised as a C byte array.
 # tools/bundle.sh inlines dashboard/style.css, app.js, and favicon.svg into index.html,
 # then xxd converts the result to a C byte array included by the HTTP handler.
-# Not tracked in git — run "make embed" before the first build or after editing the dashboard.
+# Not tracked in git - run "make embed" before the first build or after editing the dashboard.
 embed: | build
 	sh tools/bundle.sh | xxd -i -n dashboard_index_html - > build/embed.h
 
@@ -71,6 +87,17 @@ debug: embed $(VENDOR_OBJ) $(BEARSSL_LIB)
 lint:
 	docker run --rm -v "$(PWD)":/work -w /work alpine:latest \
 	  sh -c "apk add --quiet cppcheck && cppcheck --error-exitcode=1 --quiet src/"
+
+# Unit tests: pure-logic C, compiled and run inside Docker, using the shared
+# harness in tests/runner.h. Each suite is a standalone binary in build/.
+# tests/unit-config.c includes config.c directly so static helpers are
+# exercisable; only tomlc17 (the one vendor lib config.c needs) is linked.
+test: tests/unit-config.c tests/runner.h
+	docker run --rm -v "$(PWD)":/work -w /work alpine:latest \
+	  sh -c "apk add --quiet gcc musl-dev && mkdir -p build && \
+	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Itests \
+	      tests/unit-config.c vendor/tomlc17.c -o build/unit-config-test && \
+	    ./build/unit-config-test"
 
 fmt:
 	find src -name '*.[ch]' | xargs $(CLANG_FORMAT) -i

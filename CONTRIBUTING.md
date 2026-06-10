@@ -36,6 +36,7 @@ For security-sensitive issues, see [SECURITY.md](SECURITY.md).
 make embed     # bundle dashboard into build/embed.h
 make           # development build (-O2)
 make release   # release build (-Os -flto, stripped)
+make test      # run unit tests in Docker
 ```
 
 For release-equivalent binaries identical to the published ones, use the
