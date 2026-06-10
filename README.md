@@ -10,7 +10,7 @@ and homelab servers) where every MB counts.
 
 ```
 minimoni serve   -->  collect metrics  -->  SQLite  -->  HTTP server  -->  dashboard :8080
-minimoni collect -->  collect metrics  -->  SQLite     (oneshot — for systemd timer / cron)
+minimoni collect -->  collect metrics  -->  SQLite     (oneshot, for systemd timer / cron)
 ```
 
 Metrics are read from `/proc/` and `/sys/`. The dashboard HTML is embedded in the binary
@@ -23,9 +23,9 @@ make embed  # generate build/embed.h from the dashboard (run once, or after edit
 make        # compile the binary
 ```
 
-`build/embed.h` is produced by `tools/bundle.sh` — which inlines `style.css`, `app.js`, and the
-favicon into `index.html` — piped through `xxd -i` into a C byte array. It is not tracked in
-version control — run `make embed` before your first build.
+`build/embed.h` is produced by `tools/bundle.sh`, which inlines `style.css`, `app.js`, and the
+favicon into `index.html`, piped through `xxd -i` into a C byte array. It is not tracked in
+version control; run `make embed` before your first build.
 
 ## Configuration
 
@@ -44,10 +44,10 @@ interval  = "1m"
 disk_path = "/"
 ```
 
-**`db`** — path to the SQLite database. Default: `./metrics.db`. For a persistent installation,
+**`db`**: path to the SQLite database. Default: `./metrics.db`. For a persistent installation,
 use `/var/lib/minimoni/metrics.db` (create the directory first).
 
-**`interval`** — how often to collect. Format: `<n>s`, `<n>m`, `<n>h`, `<n>d`. Default: `1m`.
+**`interval`**: how often to collect. Format: `<n>s`, `<n>m`, `<n>h`, `<n>d`. Default: `1m`.
 Lower intervals give finer granularity; higher intervals reduce database growth:
 
 | Interval | 90-day database |
@@ -56,7 +56,7 @@ Lower intervals give finer granularity; higher intervals reduce database growth:
 | `1m`     | ~25 MB          |
 | `5m`     | ~5 MB           |
 
-**`disk_path`** — filesystem path passed to `statvfs()`. Default: `/`. To monitor a volume
+**`disk_path`**: filesystem path passed to `statvfs()`. Default: `/`. To monitor a volume
 mounted at `/data`, set `disk_path = "/data"`.
 
 ### Server
@@ -68,15 +68,15 @@ threads       = 8
 sse_keepalive = 1
 ```
 
-**`listen`** — address and port to bind. Use `0.0.0.0:8080` to accept from any interface, or
+**`listen`**: address and port to bind. Use `0.0.0.0:8080` to accept from any interface, or
 `127.0.0.1:8080` to restrict to localhost (e.g. when running minimoni behind a reverse proxy).
 
-**`threads`** — number of HTTP worker threads. Each open dashboard tab holds one thread for its
+**`threads`**: number of HTTP worker threads. Each open dashboard tab holds one thread for its
 SSE connection. Default `8` handles up to 8 simultaneous users; raise if you have more. Values
 below `2` are rejected (the SSE connection would occupy the only thread); values above `256`
-fall back to the default with a warning. Range: 2–256.
+fall back to the default with a warning. Range: 2-256.
 
-**`sse_keepalive`** — how often (in seconds) a keepalive comment is sent over each SSE connection
+**`sse_keepalive`**: how often (in seconds) a keepalive comment is sent over each SSE connection
 between data pushes, letting the server detect a closed tab and free its thread without waiting
 up to `refresh` seconds. Default: `1`. Valid range: `1` to `refresh - 1`; outside it, keepalive
 is inactive (logged at startup) and thread recovery falls back to the next data push.
@@ -86,7 +86,7 @@ is inactive (logged at startup) and thread recovery falls back to the next data 
 ```toml
 [dashboard]
 title       = "My Server"  # browser tab, header, and alert identifier (default: "minimoni")
-theme       = "auto"       # "auto" | "light" | "dark" — "auto" follows OS preference
+theme       = "auto"       # "auto" | "light" | "dark"; "auto" follows OS preference
 show_footer = true         # show version footer (default: true)
 refresh     = 30           # SSE push interval in seconds (default: 30)
 
@@ -112,32 +112,32 @@ uptime_unit         = "auto" # uptime display: "auto" | "h" | "d"
 
 All keys are optional.
 
-**`title`** — browser tab text, dashboard header, and the `hostname` field in webhook alert
+**`title`**: browser tab text, dashboard header, and the `hostname` field in webhook alert
 payloads. If omitted, the dashboard shows "minimoni" and webhook payloads use the system
 hostname from `gethostname()`. Set this when running multiple instances so alert notifications
 identify the source host.
 
-**`theme`** — when set to `"light"` or `"dark"`, the theme is fixed and the toggle button is
+**`theme`**: when set to `"light"` or `"dark"`, the theme is fixed and the toggle button is
 hidden. `"auto"` (default) follows the OS preference and shows the toggle.
 
 Each metric has two independent unit settings: `*_card_unit` for the status card and
 `*_chart_unit` for the chart Y-axis. `charts` and `cards` default to all available metrics if
 not specified.
 
-**Temperature visibility** — `temp` depends on hardware, so it is handled specially:
+**Temperature visibility**: `temp` depends on hardware, so it is handled specially:
 
 - It appears in API responses only when `temp` is listed in `charts`/`cards` (or the list is
   unset). Omit `temp` from both and no temperature is sent, so neither card nor chart appears.
 - If `temp` is listed but the host has no sensor, `null` is sent and the card/chart stays
-  hidden — a missing sensor never shows an empty card.
+  hidden; a missing sensor never shows an empty card.
 
-**`ranges`** — time range tabs shown in the dashboard, in the listed order. The **last (largest)
+**`ranges`**: time range tabs shown in the dashboard, in the listed order. The **last (largest)
 value sets the retention period**: rows older than that are deleted after each collect cycle.
 Units: `h` (hours) or `d` (days). Values shorter than `collect.interval` are silently ignored.
 Repeats and custom ordering are valid (e.g. `["4h", "2d", "45d", "2d"]` shows four tabs in that
 order with 45-day retention). Default: `["1d", "7d", "30d", "90d"]`.
 
-**`points`** — target number of data points per chart. The server picks the nearest
+**`points`**: target number of data points per chart. The server picks the nearest
 human-readable bucket size (1m, 2m, 5m, 10m, 15m, 30m, 1h, 2h, 3h, 6h, 12h, 24h) that
 returns approximately this many points. Ranges short enough to fit within `points` raw samples
 are always served at full resolution. Default: `300`.
@@ -176,13 +176,13 @@ cooldown  = "1h"            # minimum time between repeated firings
 | `disk_used_gb` | GB | Used disk space |
 | `disk_free_gb` | GB | Free disk space |
 | `disk_percent` | % | Used disk as percent of total |
-| `temp_celsius` | °C | CPU temperature (skipped if sensor is absent) |
+| `temp_celsius` | C | CPU temperature (skipped if sensor is absent) |
 | `net_rx_bps` | bytes/s | Receive throughput |
 | `net_tx_bps` | bytes/s | Transmit throughput |
 | `uptime_seconds` | s | Seconds since boot |
 
 Each metric is compared in its own **fixed** unit (the one shown above), independent of the
-dashboard's display units. For example `temp_celsius` is always °C and `mem_used_mb` always MB,
+dashboard's display units. For example `temp_celsius` is always C and `mem_used_mb` always MB,
 whatever `temp_card_unit` or `memory_card_unit` are set to. Write thresholds in that fixed unit.
 
 When `webhook` is set, minimoni sends a POST request (`Content-Type: application/json`).
@@ -199,7 +199,7 @@ When `webhook` is set, minimoni sends a POST request (`Content-Type: application
 ```
 
 When `command` is set, it is executed via `system()` with the same user and privileges
-as the minimoni process. Keep commands short and non-blocking — long-running commands
+as the minimoni process. Keep commands short and non-blocking; long-running commands
 delay the next collect cycle.
 
 `cooldown` prevents repeated firings: the alert will not fire again until the cooldown
@@ -208,7 +208,7 @@ period has elapsed. Accepts `30s`, `1m`, `1h`, `1d`. Cooldown state is stored in
 
 ### Example configurations
 
-**Minimal — Raspberry Pi or homelab:**
+**Minimal - Raspberry Pi or homelab:**
 
 ```toml
 [collect]
@@ -224,7 +224,7 @@ Omitting all other keys uses: port 8080, 1-minute interval, `/` filesystem, 90-d
 listen = "127.0.0.1:8080"
 ```
 
-**Multiple alerts — disk, CPU load, and temperature:**
+**Multiple alerts - disk, CPU load, and temperature:**
 
 ```toml
 [[alert]]
@@ -256,7 +256,7 @@ See `config.example.toml` for a fully annotated reference.
 
 ## Vendored dependencies
 
-All four compile directly into the binary — no runtime dependencies, no package manager.
+All four compile directly into the binary; no runtime dependencies, no package manager.
 
 | Library | Version | Purpose | License |
 |---|---|---|---|
@@ -269,7 +269,7 @@ All four compile directly into the binary — no runtime dependencies, no packag
 
 Significant technology choices are documented as ADRs in [`docs/adr/`](docs/adr/). Each
 record captures the context, the alternatives considered, the decision made, and its
-consequences — so future contributors understand not just what was chosen but why.
+consequences, so future contributors understand not just what was chosen but why.
 
 | ADR | Decision |
 |---|---|
@@ -277,3 +277,11 @@ consequences — so future contributors understand not just what was chosen but 
 | [0002](docs/adr/0002-civetweb.md) | civetweb as the HTTP server |
 | [0003](docs/adr/0003-tomlc17.md) | tomlc17 as the TOML parser |
 | [0004](docs/adr/0004-bearssl.md) | BearSSL for HTTPS webhook delivery |
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for build, style,
+and commit conventions, and the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+To report a security issue privately, see [SECURITY.md](SECURITY.md) (please do not
+open a public issue for vulnerabilities).
