@@ -1,5 +1,5 @@
 /*
- * minimoni — zero-dependency system monitoring
+ * minimoni - zero-dependency system monitoring
  * Copyright (C) 2026 Javier Beaumont <javierbeaumont@users.noreply.github.com>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -33,7 +33,8 @@ typedef struct {
 
 /*
  * Open (or create) the database at path. Enables WAL mode, sets cache
- * to 256 KB, creates the schema, and prepares reusable statements.
+ * to 256 KB, creates the schema, stamps the "moni" application_id into the
+ * file header, and prepares reusable statements.
  * Returns 0 on success, -1 on error (message written to stderr).
  */
 int db_open(db_t *db, const char *path);
@@ -66,7 +67,7 @@ typedef struct {
     long unix_time;
     /* load (always valid) */
     double load_1m, load_5m, load_15m;
-    /* cpu (cpu_valid=0 on the first collect cycle — no previous snapshot) */
+    /* cpu (cpu_valid=0 on the first collect cycle; no previous snapshot) */
     int    cpu_valid;
     double cpu_user_percent, cpu_system_percent, cpu_idle_percent;
     /* memory */
@@ -77,7 +78,7 @@ typedef struct {
     int    temp_valid;
     double temp_celsius;
     /* net throughput in bytes/s (net_valid=0 on the first row or after a
-     * counter reset — the dashboard shows a gap instead of a spike) */
+     * counter reset; the dashboard shows a gap instead of a spike) */
     int    net_valid;
     double net_rx_bps;
     double net_tx_bps;
@@ -95,8 +96,8 @@ int db_current(db_t *db, db_row_t *row);
 
 /*
  * Query time-series data for the past range_seconds seconds.
- * bucket_sec=0  → return raw rows (no aggregation).
- * bucket_sec>0  → aggregate into buckets of that size (AVG per bucket).
+ * bucket_sec=0  -> return raw rows (no aggregation).
+ * bucket_sec>0  -> aggregate into buckets of that size (AVG per bucket).
  * Net throughput is computed via LAG() and exposed as bytes/s; negative
  * deltas (counter reset) become net_valid=0 in the returned rows.
  *
@@ -112,6 +113,12 @@ int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_
  * Returns the count (>= 0) on success, -1 on error.
  */
 int db_count_range(db_t *db, long range_seconds);
+
+/*
+ * Release SQLite's internal memory (page cache, temp buffers) back to
+ * the allocator.  Call after heavy range queries to keep RSS in check.
+ */
+void db_release_memory(db_t *db);
 
 /* -------------------------------------------------------------------------
  * Alert log

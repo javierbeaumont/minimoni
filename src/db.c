@@ -1,5 +1,5 @@
 /*
- * minimoni — zero-dependency system monitoring
+ * minimoni - zero-dependency system monitoring
  * Copyright (C) 2026 Javier Beaumont <javierbeaumont@users.noreply.github.com>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -27,6 +27,12 @@
 
 #define RETRY_COUNT 3
 #define RETRY_DELAY_NS (100 * 1000000L) /* 100 ms */
+
+/* SQLite header magic: ASCII "moni". Stamped into every database so future
+ * tooling (e.g. minimoni-migrate) can recognise the file via
+ * PRAGMA application_id. user_version is intentionally left at 0: this is the
+ * v0.1.0 schema, and a migrator must see version 0 to upgrade it correctly. */
+#define MINIMONI_APPLICATION_ID 0x6D6F6E69
 
 /* --- SQL statements ------------------------------------------------------ */
 
@@ -58,9 +64,9 @@ static const char SQL_INSERT[] = "INSERT INTO metrics ("
                                  "  temp_celsius, net_rx_bytes, net_tx_bytes, uptime_seconds"
                                  ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
-static const char SQL_PRUNE_METRICS[] = "DELETE FROM metrics WHERE timestamp < datetime('now', ?)";
+static const char SQL_PRUNE_METRICS[] = "DELETE FROM metrics WHERE timestamp < ?";
 
-static const char SQL_PRUNE_ALERTS[] = "DELETE FROM alert_log WHERE fired_at < datetime('now', ?)";
+static const char SQL_PRUNE_ALERTS[] = "DELETE FROM alert_log WHERE fired_at < ?";
 
 static const char SQL_ALERT_CHECK[] =
     "SELECT COUNT(*) FROM alert_log WHERE alert_name = ? AND fired_at > ?";
@@ -112,6 +118,10 @@ int db_open(db_t *db, const char *path)
         db->handle = NULL;
         return -1;
     }
+
+    char pragma[48];
+    snprintf(pragma, sizeof(pragma), "PRAGMA application_id = %d", MINIMONI_APPLICATION_ID);
+    sqlite3_exec(db->handle, pragma, NULL, NULL, NULL);
 
     if (sqlite3_prepare_v2(db->handle, SQL_INSERT, -1, &db->stmt_insert, NULL) != SQLITE_OK ||
         sqlite3_prepare_v2(db->handle, SQL_PRUNE_METRICS, -1, &db->stmt_prune_metrics, NULL) !=
@@ -196,13 +206,27 @@ int db_insert(db_t *db, const metrics_t *m)
     return 0;
 }
 
+/* Format the instant `seconds_ago` before now as the canonical ISO-8601 UTC
+ * string the daemon stores ("YYYY-MM-DDTHH:MM:SSZ"). WHERE clauses comparing
+ * against the `timestamp` column must use this exact format: SQLite's
+ * datetime('now', ?) returns "YYYY-MM-DD HH:MM:SS" (space, no T/Z), which sorts
+ * lexicographically BEFORE the stored T+Z values for the same instant, so the
+ * comparison over-includes rows. */
+static void iso_cutoff(long seconds_ago, char *out, size_t out_size)
+{
+    time_t    t = time(NULL) - seconds_ago;
+    struct tm utc;
+    gmtime_r(&t, &utc);
+    strftime(out, out_size, "%Y-%m-%dT%H:%M:%SZ", &utc);
+}
+
 int db_prune(db_t *db, int retention_days)
 {
-    char offset[32];
-    snprintf(offset, sizeof(offset), "-%d days", retention_days);
+    char cutoff[24];
+    iso_cutoff((long)retention_days * 86400L, cutoff, sizeof(cutoff));
 
     sqlite3_reset(db->stmt_prune_metrics);
-    sqlite3_bind_text(db->stmt_prune_metrics, 1, offset, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(db->stmt_prune_metrics, 1, cutoff, -1, SQLITE_TRANSIENT);
     int rc = step_with_retry(db->stmt_prune_metrics);
     if (rc != SQLITE_DONE) {
         fprintf(stderr, "db: prune metrics error: %s\n", sqlite3_errmsg(db->handle));
@@ -210,7 +234,7 @@ int db_prune(db_t *db, int retention_days)
     }
 
     sqlite3_reset(db->stmt_prune_alerts);
-    sqlite3_bind_text(db->stmt_prune_alerts, 1, offset, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(db->stmt_prune_alerts, 1, cutoff, -1, SQLITE_TRANSIENT);
     rc = step_with_retry(db->stmt_prune_alerts);
     if (rc != SQLITE_DONE) {
         fprintf(stderr, "db: prune alerts error: %s\n", sqlite3_errmsg(db->handle));
@@ -342,7 +366,7 @@ int db_current(db_t *db, db_row_t *row)
         return 1; /* no rows yet */
     }
 
-    /* Latest row — read all scalar fields directly */
+    /* Latest row: read all scalar fields directly */
     const char *ts = (const char *)sqlite3_column_text(s, 0);
     if (ts)
         snprintf(row->timestamp, sizeof(row->timestamp), "%s", ts);
@@ -372,7 +396,7 @@ int db_current(db_t *db, db_row_t *row)
     long long cur_tx = sqlite3_column_int64(s, 18);
     row->uptime_seconds = sqlite3_column_double(s, 19);
 
-    /* Previous row — only needed for net rate */
+    /* Previous row: only needed for net rate */
     if (sqlite3_step(s) == SQLITE_ROW) {
         long      prev_ts = (long)sqlite3_column_int64(s, 1);
         long long prev_rx = sqlite3_column_int64(s, 17);
@@ -397,14 +421,14 @@ int db_current(db_t *db, db_row_t *row)
 
 int db_count_range(db_t *db, long range_seconds)
 {
-    char offset[32];
-    snprintf(offset, sizeof(offset), "-%ld seconds", range_seconds);
+    char cutoff[24];
+    iso_cutoff(range_seconds, cutoff, sizeof(cutoff));
 
-    static const char SQL[] = "SELECT COUNT(*) FROM metrics WHERE timestamp >= datetime('now',?)";
+    static const char SQL[] = "SELECT COUNT(*) FROM metrics WHERE timestamp >= ?";
     sqlite3_stmt     *s;
     if (sqlite3_prepare_v2(db->handle, SQL, -1, &s, NULL) != SQLITE_OK)
         return -1;
-    sqlite3_bind_text(s, 1, offset, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(s, 1, cutoff, -1, SQLITE_TRANSIENT);
 
     int count = -1;
     if (sqlite3_step(s) == SQLITE_ROW)
@@ -442,7 +466,7 @@ static const char SQL_RAW[] =
     "    CAST(strftime('%s',timestamp) AS INTEGER)"
     "      - CAST(strftime('%s',LAG(timestamp) OVER (ORDER BY timestamp)) AS INTEGER) AS dt,"
     "    uptime_seconds"
-    "  FROM metrics WHERE timestamp >= datetime('now',?)"
+    "  FROM metrics WHERE timestamp >= ?"
     ")"
     "SELECT timestamp, ts,"
     "  load_1m, load_5m, load_15m,"
@@ -455,10 +479,12 @@ static const char SQL_RAW[] =
     "  uptime_seconds"
     " FROM d ORDER BY ts";
 
+void db_release_memory(db_t *db) { sqlite3_db_release_memory(db->handle); }
+
 int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_rows)
 {
-    char offset[32];
-    snprintf(offset, sizeof(offset), "-%ld seconds", range_seconds);
+    char cutoff[24];
+    iso_cutoff(range_seconds, cutoff, sizeof(cutoff));
 
     sqlite3_stmt *s;
 
@@ -467,7 +493,7 @@ int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_
             fprintf(stderr, "db: range prepare: %s\n", sqlite3_errmsg(db->handle));
             return -1;
         }
-        sqlite3_bind_text(s, 1, offset, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(s, 1, cutoff, -1, SQLITE_TRANSIENT);
     } else {
         /* Build bucketed SQL with the bucket size embedded as a literal so
          * integer division in SQLite uses the correct type. */
@@ -487,9 +513,9 @@ int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_
                  "      - CAST(strftime('%%s',LAG(timestamp)"
                  "          OVER (ORDER BY timestamp)) AS INTEGER) AS dt,"
                  "    uptime_seconds"
-                 "  FROM metrics WHERE timestamp >= datetime('now',?)"
+                 "  FROM metrics WHERE timestamp >= ?"
                  ")"
-                 "SELECT datetime(bkt,'unixepoch'), bkt,"
+                 "SELECT strftime('%%Y-%%m-%%dT%%H:%%M:%%SZ',bkt,'unixepoch'), bkt,"
                  "  AVG(load_1m), AVG(load_5m), AVG(load_15m),"
                  "  AVG(cpu_user_percent), AVG(cpu_system_percent), AVG(cpu_idle_percent),"
                  "  AVG(mem_total_mb), AVG(mem_used_mb), AVG(mem_available_mb), AVG(mem_percent),"
@@ -504,7 +530,7 @@ int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_
             fprintf(stderr, "db: range bucket prepare: %s\n", sqlite3_errmsg(db->handle));
             return -1;
         }
-        sqlite3_bind_text(s, 1, offset, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(s, 1, cutoff, -1, SQLITE_TRANSIENT);
     }
 
     /* Collect rows into a growing heap buffer. */

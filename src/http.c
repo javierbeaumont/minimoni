@@ -1,5 +1,5 @@
 /*
- * minimoni — zero-dependency system monitoring
+ * minimoni - zero-dependency system monitoring
  * Copyright (C) 2026 Javier Beaumont <javierbeaumont@users.noreply.github.com>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -40,7 +40,7 @@ typedef struct {
     char  *buf;
     size_t pos;
     size_t cap;
-    int    comma; /* 1 after the first field — prepend ',' to next */
+    int    comma; /* 1 after the first field; prepend ',' to next */
 } jbuf_t;
 
 static void jbuf_init(jbuf_t *j, char *buf, size_t cap)
@@ -123,7 +123,7 @@ static void jbuf_null(jbuf_t *j, const char *key)
 }
 
 /* =========================================================================
- * Unit conversions  (raw → configured unit)
+ * Unit conversions  (raw -> configured unit)
  * ======================================================================= */
 
 static double net_convert(double bps, const char *unit)
@@ -145,14 +145,14 @@ static double mem_convert(double mb, const char *unit)
 {
     if (unit && unit[0] == 'g')
         return mb / 1024.0;
-    return mb; /* mb (or % — caller uses mem_percent directly) */
+    return mb; /* mb (or %; caller uses mem_percent directly) */
 }
 
 static double disk_convert(double gb, const char *unit)
 {
     if (unit && unit[0] == 't')
         return gb / 1024.0;
-    return gb; /* gb (or % — caller uses disk_percent directly) */
+    return gb; /* gb (or %; caller uses disk_percent directly) */
 }
 
 static double temp_convert(double celsius, const char *unit, float temp_max)
@@ -174,7 +174,7 @@ static double load_convert(double load, int cores, const char *unit)
 }
 
 /* =========================================================================
- * Bucket-snapping algorithm (DESIGN.md § Downsampling and retention)
+ * Bucket-snapping algorithm (DESIGN.md, Downsampling and retention)
  * ======================================================================= */
 
 static const int BUCKETS[] = {60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400};
@@ -187,7 +187,7 @@ static int pick_bucket(long range_sec, int interval_sec, int points, int actual_
     if (points <= 0)
         points = 300;
     if (actual_count >= 0 && actual_count <= points)
-        return 0; /* fewer rows than target — show raw for progressive resolution */
+        return 0; /* fewer rows than target; show raw for progressive resolution */
     long ideal = range_sec / (long)points;
     if (ideal <= interval_sec)
         return 0; /* raw */
@@ -407,7 +407,7 @@ static int handler_health(struct mg_connection *conn, void *cbdata)
     return 200;
 }
 
-/* /api/current — latest snapshot with unit conversions applied */
+/* /api/current: latest snapshot with unit conversions applied */
 static int handler_current(struct mg_connection *conn, void *cbdata)
 {
     const http_ctx_t *ctx = (const http_ctx_t *)cbdata;
@@ -444,7 +444,7 @@ static int handler_current(struct mg_connection *conn, void *cbdata)
     return 200;
 }
 
-/* /api/metrics?range=<range> — time-series with short keys */
+/* /api/metrics?range=<range>: time-series with short keys */
 static int handler_metrics(struct mg_connection *conn, void *cbdata)
 {
     const http_ctx_t             *ctx = (const http_ctx_t *)cbdata;
@@ -578,11 +578,12 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
     }
 
     free(rows);
+    db_release_memory(ctx->db);
     mg_write(conn, "]}", 2);
     return 200;
 }
 
-/* /stream — SSE endpoint; blocks until the client disconnects or the server
+/* /stream: SSE endpoint; blocks until the client disconnects or the server
  * is stopping.  Pushes a current snapshot every cfg->refresh_seconds. */
 static int handler_stream(struct mg_connection *conn, void *cbdata)
 {
