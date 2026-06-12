@@ -47,10 +47,10 @@ at build time, so there are no files to deploy alongside the binary.
 
 [1] Measured on a Raspberry Pi 3B (Raspberry Pi OS, kernel 6.18, arm64): ~1.6 MB PSS at idle
 and under sustained query load. The static musl build keeps a flat memory profile; it
-self-trims under query pressure rather than accumulating, and never touches swap.  
+self-trims under query pressure rather than accumulating, and never touches swap.
 [2] Netdata agent is GPLv3+; the v2 dashboard is under NCUL1, a proprietary licence.
 
-RAM sources: Beszel - [HowToGeek (2026)][s1], [instapods (2026)][s2].  
+RAM sources: Beszel - [HowToGeek (2026)][s1], [instapods (2026)][s2].
 Netdata - [official docs][s3], [instapods (2026)][s2].
 
 [b]: https://github.com/henrygd/beszel
@@ -156,11 +156,14 @@ minimoni serve --config /etc/minimoni/config.toml
 |---|---|---|
 | `GET /` | Embedded HTML dashboard | Browser |
 | `GET /api/current` | JSON: latest collected values + config | Snapshot |
-| `GET /api/metrics?range=1d` | JSON: metric history grouped into ~`points` time buckets | Charts |
+| `GET /api/metrics?range=1d&points=480` | JSON: history grouped into ~`points` buckets | Charts |
 | `GET /api/health` | `{"status":"ok","version":"..."}` | Liveness probe |
 | `GET /stream` | SSE: live push every `refresh` seconds | Live updates |
 
 `range` accepts values from `[dashboard].ranges` (default `1d`, `7d`, `30d`, `90d`).
+`points` is optional; the server caps it at `1440` (one point per minute over a
+24h window) and defaults to `240` when the parameter is missing. The bundled
+dashboard passes an explicit value.
 
 ## Systemd setup
 
@@ -313,7 +316,6 @@ show_footer  = true        # show version footer (default: true)
 refresh      = 30          # SSE push interval in seconds (default: 30)
 
 ranges = ["1d", "7d", "30d", "90d"] # time range tabs; largest sets retention
-points = 300                        # target data points per chart (default: 300)
 
 charts = ["cpu_load", "cpu_usage", "memory", "disk", "temp", "net"]
 cards  = ["cpu_load", "cpu_usage", "memory", "disk", "temp", "net", "uptime"]
@@ -369,10 +371,11 @@ Repeats and custom ordering are valid (e.g. `["4h", "2d", "45d", "2d"]` shows fo
 that order with 45-day retention). Sub-day ranges round up to 1 day for retention purposes
 (prune granularity is days). Default: `["1d", "7d", "30d", "90d"]`.
 
-**`points`**: target number of data points per chart. The server picks the nearest
-human-readable bucket size (1m, 2m, 5m, 10m, 15m, 30m, 1h, 2h, 3h, 6h, 12h, 24h) that
-returns approximately this many points. Ranges short enough to fit within `points` raw samples
-are always served at full resolution. Default: `300`.
+The number of data points per chart is no longer a per-install setting - the dashboard
+JS asks for what it can render, via the `points` query parameter on `/api/metrics`
+(see [HTTP endpoints](#http-endpoints)). The server caps it at `1440` (one point per
+minute over 24h) and defaults to `240` if the parameter
+is missing.
 
 ### Alerts
 

@@ -1,5 +1,5 @@
 /*
- * minimoni — zero-dependency system monitoring
+ * minimoni - zero-dependency system monitoring
  * Copyright (C) 2026 Javier Beaumont <javierbeaumont@users.noreply.github.com>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -67,10 +67,9 @@ typedef struct {
     int  chart_count;
     char cards[MAX_CARDS][16]; /* same as charts plus "uptime" */
     int  card_count;
-    /* ranges: display tabs + retention (last/max value); count=0 uses defaults */
-    char ranges[MAX_RANGES][8]; /* e.g. "1d", "7d"; units: h or d only */
+    /* ranges: display tabs + retention (largest value); count=0 uses defaults */
+    char ranges[MAX_RANGES][8]; /* e.g. "1d", "7d"; units: m, h, d */
     int  range_count;
-    int  points; /* target data points per chart query, default: 300 */
 
     /* [[alert]] */
     int         alert_count;

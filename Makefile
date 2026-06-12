@@ -35,7 +35,7 @@ BEARSSL_LIB = vendor/bearssl/build/libbearssl.a
 BEARSSL_INC = -Ivendor/bearssl/inc
 
 # SRC expands as modules are implemented
-SRC = src/main.c src/metrics.c src/db.c src/config.c src/http.c src/alerts.c
+SRC = src/main.c src/metrics.c src/db.c src/config.c src/http.c src/downsample.c src/alerts.c
 VENDOR = vendor/sqlite3.c vendor/civetweb.c vendor/tomlc17.c
 
 # Vendored amalgamations carry upstream warnings we don't own (e.g. civetweb's
@@ -88,16 +88,22 @@ lint:
 	docker run --rm -v "$(PWD)":/work -w /work alpine:latest \
 	  sh -c "apk add --quiet cppcheck && cppcheck --error-exitcode=1 --quiet src/"
 
-# Unit tests: pure-logic C, compiled and run inside Docker, using the shared
-# harness in tests/runner.h. Each suite is a standalone binary in build/.
-# tests/unit-config.c includes config.c directly so static helpers are
-# exercisable; only tomlc17 (the one vendor lib config.c needs) is linked.
-test: tests/unit-config.c tests/runner.h
+# Unit tests: pure logic across C, Python and JS, all run inside Docker (never
+# the host). C suites (one per module) use the shared harness in tests/runner.h
+# and include the module under test directly so static helpers are exercisable;
+# unit-config links tomlc17. The devserver (Python) and dashboard (JS) pure
+# helpers each get one suite; app.js guards its browser entry point so node can
+# require it for the pure helpers without a DOM.
+test: tests/unit-config.c tests/unit-downsample.c tests/runner.h \
+      tests/test_devserver.py tests/dashboard.test.js
 	docker run --rm -v "$(PWD)":/work -w /work alpine:latest \
-	  sh -c "apk add --quiet gcc musl-dev && mkdir -p build && \
+	  sh -c "apk add --quiet gcc musl-dev nodejs python3 && mkdir -p build && \
 	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Itests \
 	      tests/unit-config.c vendor/tomlc17.c -o build/unit-config-test && \
-	    ./build/unit-config-test"
+	    gcc -Wall -Wextra -std=c11 -Isrc -Itests \
+	      tests/unit-downsample.c -o build/unit-downsample-test && \
+	    ./build/unit-config-test && ./build/unit-downsample-test && \
+	    python3 tests/test_devserver.py && node tests/dashboard.test.js"
 
 fmt:
 	find src -name '*.[ch]' | xargs $(CLANG_FORMAT) -i

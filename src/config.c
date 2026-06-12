@@ -26,7 +26,7 @@
 #include "config.h"
 #include "tomlc17.h"
 
-/* --- Helpers ---------------------------------------------------------------- */
+/* --- Helpers --- */
 
 static long parse_duration(const char *s)
 {
@@ -86,7 +86,7 @@ static int valid_op(const char *s)
            strcmp(s, "<=") == 0 || strcmp(s, "==") == 0;
 }
 
-/* --- Public API ------------------------------------------------------------ */
+/* --- Public API --- */
 
 void config_defaults(config_t *cfg)
 {
@@ -116,7 +116,6 @@ void config_defaults(config_t *cfg)
     snprintf(cfg->ranges[2], sizeof(cfg->ranges[2]), "%s", "30d");
     snprintf(cfg->ranges[3], sizeof(cfg->ranges[3]), "%s", "90d");
     cfg->range_count = 4;
-    cfg->points = 300;
     cfg->threads = 8;
     cfg->sse_keepalive_seconds = 1;
     cfg->interval_seconds = 60;
@@ -257,11 +256,6 @@ int config_load(config_t *cfg, const char *path)
         cfg->temp_max = (float)v.u.int64;
     else if (v.type == TOML_FP64 || v.type == TOML_INT64)
         fprintf(stderr, "config: temp_max must be > 0; using default\n");
-    v = toml_seek(root, "dashboard.points");
-    if (v.type == TOML_INT64 && v.u.int64 > 0)
-        cfg->points = (int)v.u.int64;
-    else if (v.type == TOML_INT64)
-        fprintf(stderr, "config: points must be > 0 (got %ld); using default\n", (long)v.u.int64);
     v = toml_seek(root, "dashboard.ranges");
     if (v.type == TOML_ARRAY && v.u.arr.size > 0) {
         int count = 0;

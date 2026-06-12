@@ -29,6 +29,7 @@
 #include "civetweb.h"
 #include "config.h"
 #include "db.h"
+#include "downsample.h"
 #include "embed.h"
 #include "http.h"
 
@@ -171,40 +172,6 @@ static double load_convert(double load, int cores, const char *unit)
     if (unit && unit[0] == '%' && cores > 0)
         return load * 100.0 / (double)cores;
     return load;
-}
-
-/* =========================================================================
- * Bucket-snapping algorithm (DESIGN.md, Downsampling and retention)
- * ======================================================================= */
-
-static const int BUCKETS[] = {60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400};
-#define NBUCKETS ((int)(sizeof(BUCKETS) / sizeof(BUCKETS[0])))
-
-/* Return the best bucket size in seconds, or 0 for raw (no aggregation).
- * Iterates ascending so ties naturally resolve to the smaller bucket. */
-static int pick_bucket(long range_sec, int interval_sec, int points, int actual_count)
-{
-    if (points <= 0)
-        points = 300;
-    if (actual_count >= 0 && actual_count <= points)
-        return 0; /* fewer rows than target; show raw for progressive resolution */
-    long ideal = range_sec / (long)points;
-    if (ideal <= interval_sec)
-        return 0; /* raw */
-
-    int  best = -1;
-    long best_diff = LONG_MAX;
-    for (int i = 0; i < NBUCKETS; i++) {
-        int b = BUCKETS[i];
-        if (b % interval_sec != 0)
-            continue;
-        long diff = labs(range_sec / b - (long)points);
-        if (diff < best_diff) {
-            best = i;
-            best_diff = diff;
-        }
-    }
-    return (best >= 0) ? BUCKETS[best] : interval_sec;
 }
 
 /* =========================================================================
@@ -485,8 +452,25 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
     if (rsec <= 0)
         rsec = 86400L;
 
+    /* Optional points hint from the client. The dashboard JS chooses how many
+     * data points it can render and passes it here. The server caps at 1440
+     * (one point per minute over a 24h window) to bound the response size.
+     * Values <=0 or missing fall back to the pick_bucket default. */
+    int  points = 0;
+    char points_str[16] = "";
+    if (ri->query_string)
+        mg_get_var(ri->query_string, strlen(ri->query_string), "points", points_str,
+                   sizeof(points_str));
+    if (points_str[0]) {
+        long p = strtol(points_str, NULL, 10);
+        if (p > 1440)
+            p = 1440;
+        if (p > 0)
+            points = (int)p;
+    }
+
     int actual_count = db_count_range(ctx->db, rsec);
-    int bucket = pick_bucket(rsec, (int)ctx->cfg->interval_seconds, ctx->cfg->points, actual_count);
+    int bucket = pick_bucket(rsec, (int)ctx->cfg->interval_seconds, points, actual_count);
 
     db_row_t *rows = NULL;
     int       cnt = db_query_range(ctx->db, rsec, bucket, &rows);

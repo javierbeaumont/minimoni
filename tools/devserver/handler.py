@@ -31,19 +31,19 @@ from os.path import abspath, basename, dirname, isfile, join, realpath
 from time import sleep
 from urllib.parse import parse_qs, urlparse
 
-from mock_data import JSON, current_snapshot, make_points
+from mock_data import JSON, clamp_points, current_snapshot, make_points
 from units import to_current, to_point
 
-log = getLogger('minimoni-dev')
+log = getLogger("minimoni-dev")
 
-REPO_ROOT = join(dirname(abspath(__file__)), '..', '..')
-DASHBOARD_DIR = join(REPO_ROOT, 'dashboard')
-DASHBOARD = join(DASHBOARD_DIR, 'index.html')
+REPO_ROOT = join(dirname(abspath(__file__)), "..", "..")
+DASHBOARD_DIR = join(REPO_ROOT, "dashboard")
+DASHBOARD = join(DASHBOARD_DIR, "index.html")
 
 STATIC_FILES: dict[str, str] = {
-    'app.js':      'text/javascript',
-    'style.css':   'text/css',
-    'favicon.svg': 'image/svg+xml',
+    "app.js": "text/javascript",
+    "style.css": "text/css",
+    "favicon.svg": "image/svg+xml",
 }
 
 
@@ -61,26 +61,31 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
     def current() -> JSON:
         # converted mocked metrics + version + real config fields
         raw = current_snapshot(state.scenario)
-        return {**to_current(raw, state.config_fields, state.temp_max),
-                'version': state.version, **state.config_fields}
+        return {
+            **to_current(raw, state.config_fields, state.temp_max),
+            "version": state.version,
+            **state.config_fields,
+        }
 
-    def metrics(range_value: str) -> JSON:
-        points = [to_point(p, state.config_fields, state.temp_max)
-                  for p in make_points(range_value, state.scenario)]
-        return {'range': range_value, 'points': points}
+    def metrics(range_value: str, n_points: int) -> JSON:
+        points = [
+            to_point(p, state.config_fields, state.temp_max)
+            for p in make_points(range_value, state.scenario, n_points)
+        ]
+        return {"range": range_value, "points": points}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt: str, *args: object) -> None:
-            log.debug('%s %s', self.address_string(), fmt % args)
+            log.debug("%s %s", self.address_string(), fmt % args)
 
         def _send(self, code: int, ctype: str, body: bytes | str) -> None:
             if isinstance(body, str):
                 body = body.encode()
             try:
                 self.send_response(code)
-                self.send_header('Content-Type', ctype)
-                self.send_header('Content-Length', str(len(body)))
-                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
                 self.wfile.write(body)
             except (BrokenPipeError, ConnectionResetError):
@@ -90,42 +95,44 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             try:
                 self._route()
             except Exception:
-                log.exception('error handling %s', self.path)
-                self._send(500, 'text/plain', 'internal error')
+                log.exception("error handling %s", self.path)
+                self._send(500, "text/plain", "internal error")
 
         def _route(self) -> None:
             parsed = urlparse(self.path)
             path = parsed.path
 
-            if path in ('/', '/index.html'):
+            if path in ("/", "/index.html"):
                 self._serve_dashboard()
-            elif path == '/api/current':
-                self._send(200, 'application/json', dumps(current()))
-            elif path == '/api/metrics':
-                r = parse_qs(parsed.query).get('range', ['1d'])[0]
-                self._send(200, 'application/json', dumps(metrics(r)))
-            elif path == '/stream':
+            elif path == "/api/current":
+                self._send(200, "application/json", dumps(current()))
+            elif path == "/api/metrics":
+                q = parse_qs(parsed.query)
+                r = q.get("range", ["1d"])[0]
+                n_points = clamp_points(q.get("points", [""])[0])
+                self._send(200, "application/json", dumps(metrics(r, n_points)))
+            elif path == "/stream":
                 self._stream()
             else:
                 self._serve_static(path)
 
         def _serve_dashboard(self) -> None:
             try:
-                with open(DASHBOARD, 'rb') as f:
-                    self._send(200, 'text/html; charset=utf-8', f.read())
+                with open(DASHBOARD, "rb") as f:
+                    self._send(200, "text/html; charset=utf-8", f.read())
             except FileNotFoundError:
-                log.error('dashboard not found: %s', DASHBOARD)
-                self._send(404, 'text/plain', 'dashboard not found')
+                log.error("dashboard not found: %s", DASHBOARD)
+                self._send(404, "text/plain", "dashboard not found")
 
         def _stream(self) -> None:
             try:
                 self.send_response(200)
-                self.send_header('Content-Type', 'text/event-stream')
-                self.send_header('Cache-Control', 'no-cache')
-                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
                 for _ in range(3):
-                    self.wfile.write(f'data: {dumps(current())}\n\n'.encode())
+                    self.wfile.write(f"data: {dumps(current())}\n\n".encode())
                     self.wfile.flush()
                     sleep(5)
             except (BrokenPipeError, ConnectionResetError):
@@ -142,9 +149,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 fpath = realpath(join(DASHBOARD_DIR, filename))
                 base = realpath(DASHBOARD_DIR)
                 if fpath.startswith(base + sep) and isfile(fpath):
-                    with open(fpath, 'rb') as f:
+                    with open(fpath, "rb") as f:
                         self._send(200, STATIC_FILES[filename], f.read())
                     return
-            self._send(404, 'text/plain', 'not found')
+            self._send(404, "text/plain", "not found")
 
     return Handler

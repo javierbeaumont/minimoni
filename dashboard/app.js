@@ -1,4 +1,22 @@
-/* ── Thresholds & colors ─────────────────────────────────────────── */
+/*
+ * minimoni - zero-dependency system monitoring
+ * Copyright (C) 2026 Javier Beaumont <javierbeaumont@users.noreply.github.com>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/* --- Thresholds & colors --- */
 
 /* [warn, critical] boundaries used to color-code card values.
  * cpu/mem/disk compare against the percentage, so they are unit-independent.
@@ -14,7 +32,7 @@ var THRESH = {
   temp: [70, 80],  /* degC fallback when no sysfs trip point */
 };
 
-/* Chart series colours — purely for identification, no semantic meaning.
+/* Chart series colours - purely for identification, no semantic meaning.
  * Semantic status (good/warn/critical) uses --grn/--ylw/--red from CSS.
  * C1 sky-400    (#38bdf8): load1, user, mem, disk, tx, temp
  * C2 violet-400 (#a78bfa): load5, sys, memAvail, diskFree, rx
@@ -34,7 +52,7 @@ var CLR = {
   tx:       '#38bdf8',
 };
 
-/* ── State ───────────────────────────────────────────────────────── */
+/* --- State --- */
 
 var curRange     = '1d';    /* currently selected time range */
 var pts          = [];      /* array of data points from /api/metrics */
@@ -53,7 +71,7 @@ var cfgRanges     = ['1d', '7d', '30d', '90d'];
 var cfgVisCharts  = null;
 var cfgVisCards   = null;
 
-/* ── Chart legend definitions ────────────────────────────────────── */
+/* --- Chart legend definitions --- */
 
 /* Entries for each chart's interactive legend (temperature has none) */
 var LEGENDS = {
@@ -89,13 +107,13 @@ var seriesHidden = {
   'g-net':  [false, false],
 };
 
-/* ── CSS variable helper ─────────────────────────────────────────── */
+/* --- CSS variable helper --- */
 
 function cssv(v) {
   return getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 }
 
-/* ── Canvas chart ────────────────────────────────────────────────── */
+/* --- Canvas chart --- */
 
 function drawChart(id, series, opts) {
   opts = opts || {};
@@ -203,7 +221,7 @@ function drawChart(id, series, opts) {
     ctx.stroke();
   });
 
-  /* Reference lines — used to draw the critical temperature threshold */
+  /* Reference lines - used to draw the critical temperature threshold */
   if (opts.refLines) {
     opts.refLines.forEach(function(rl) {
       var ry = ty(rl.v);
@@ -221,7 +239,7 @@ function drawChart(id, series, opts) {
   }
 }
 
-/* ── Format helpers ──────────────────────────────────────────────── */
+/* --- Format helpers --- */
 
 /* Format a Y-axis tick label according to the chart unit */
 function fmtY(v, u) {
@@ -251,7 +269,7 @@ function fmtX(t, span) {
 }
 
 /* Format uptime according to the configured unit (auto picks the
-   most readable granularity: days → hours → minutes) */
+   most readable granularity: days -> hours -> minutes) */
 function fmtUptime(s) {
   if (cfgUptimeUnit === 'd') return 'up ' + (s / 86400).toFixed(1) + 'd';
   if (cfgUptimeUnit === 'h') return 'up ' + Math.floor(s / 3600) + 'h';
@@ -286,14 +304,14 @@ function fmtNet(v, unit) {
   return v.toFixed(2);
 }
 
-/* Format a temperature value in the configured unit (°C, °F, or %) */
+/* Format a temperature value in the configured unit (C, F, or %) */
 function fmtTempVal(v, unit) {
   if (!unit || unit[0] === 'c') return v.toFixed(1) + '°C';
   if (unit[0] === 'f')          return v.toFixed(1) + '°F';
   return v.toFixed(1) + '%';
 }
 
-/* ── Card helpers ────────────────────────────────────────────────── */
+/* --- Card helpers --- */
 
 /* Return 'g', 'y', or 'r' (good / warning / critical) for a value */
 function cardLevel(v, thresh) {
@@ -327,7 +345,7 @@ function subSpan(label, c, valHtml, oc) {
        + valHtml + '</span>';
 }
 
-/* ── Update cards from current snapshot ──────────────────────────── */
+/* --- Update cards from current snapshot --- */
 
 function updateCards(d) {
   if (!d) return;
@@ -409,7 +427,7 @@ function updateCards(d) {
       var idx      = cfgVisCards !== null ? cfgVisCards.indexOf(nm) : -1;
       var excluded = cfgVisCards !== null && idx === -1;
       if (excluded)           el.style.display = 'none';
-      /* Temperature visibility is driven by data (null sensor → hidden),
+      /* Temperature visibility is driven by data (null sensor -> hidden),
          not by the cards config, so we never force it to display:'' here */
       else if (nm !== 'temp') el.style.display = '';
       el.style.order = (!excluded && idx !== -1) ? idx : '';
@@ -543,7 +561,7 @@ function updateCards(d) {
     dcel.querySelector('.csub').innerHTML = diskSub;
   }
 
-  /* Temperature — card is shown only when the server sends a non-null
+  /* Temperature - card is shown only when the server sends a non-null
      value, meaning a real sensor was found at collection time */
   if (d.temp != null && (cfgVisCards === null || cfgVisCards.indexOf('temp') !== -1)) {
     document.getElementById('c-temp').style.display = '';
@@ -586,7 +604,7 @@ function updateCards(d) {
   }
 }
 
-/* ── Render all charts ───────────────────────────────────────────── */
+/* --- Render all charts --- */
 
 function renderAll() {
   var ts = pts.map(function(p) { return p.t; });
@@ -695,7 +713,7 @@ function renderAll() {
     { yMin: 0, ts: ts });
 }
 
-/* ── Legend build & toggle ───────────────────────────────────────── */
+/* --- Legend build & toggle --- */
 
 /* Inject a legend strip into each chart header at startup */
 function buildLegends() {
@@ -724,7 +742,7 @@ function toggleSeries(id, idx) {
   renderAll();
 }
 
-/* ── Theme toggle ────────────────────────────────────────────────── */
+/* --- Theme toggle --- */
 
 function toggleTheme() {
   var html    = document.documentElement;
@@ -735,7 +753,7 @@ function toggleTheme() {
   renderAll();
 }
 
-/* ── Data fetchers ───────────────────────────────────────────────── */
+/* --- Data fetchers --- */
 
 function loadCurrent() {
   fetch('/api/current').then(function(r) {
@@ -743,10 +761,18 @@ function loadCurrent() {
   }).catch(function() {});
 }
 
+/* Build the /api/metrics URL. The default dashboard targets 480 points per
+   chart - 1 point per 4 backing pixels at 1920x1080 fullscreen, the threshold
+   where the eye no longer sees discreteness. A custom dashboard can compute its
+   own value from canvas width and pass it here; the server caps it at 5120. */
+function metricsUrl(range, points) {
+  return '/api/metrics?range=' + range + '&points=' + points;
+}
+
 var metricsRequestId = 0;
 function loadMetrics() {
   var myId = ++metricsRequestId;
-  fetch('/api/metrics?range=' + curRange).then(function(r) {
+  fetch(metricsUrl(curRange, 480)).then(function(r) {
     if (!r.ok) return;
     r.json().then(function(d) {
       if (myId !== metricsRequestId) return;   /* discard stale responses */
@@ -756,7 +782,7 @@ function loadMetrics() {
   }).catch(function() {});
 }
 
-/* ── Range tabs ──────────────────────────────────────────────────── */
+/* --- Range tabs --- */
 
 function buildTabs() {
   var el = document.getElementById('rngs');
@@ -779,7 +805,7 @@ function buildTabs() {
   });
 }
 
-/* ── SSE live stream ─────────────────────────────────────────────── */
+/* --- SSE live stream --- */
 
 function connectSSE() {
   var es = new EventSource('/stream');
@@ -797,23 +823,33 @@ function connectSSE() {
   };
 }
 
-/* ── Init ────────────────────────────────────────────────────────── */
+/* --- Init --- */
 
-/* Set the correct initial button label based on the OS preference */
-if (!window.matchMedia('(prefers-color-scheme: dark)').matches) {
-  document.getElementById('thm').textContent = '🌙 Dark';
+/* Browser entry point: run the dashboard only inside a real document. Guarded
+   so the test harness (node) can require this file for its pure helpers without
+   a DOM present. */
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  /* Set the correct initial button label based on the OS preference */
+  if (!window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    document.getElementById('thm').textContent = '🌙 Dark';
+  }
+
+  buildLegends();
+  buildTabs();
+  renderAll();
+  loadCurrent();
+  loadMetrics();
+  connectSSE();
+
+  /* Debounce canvas redraws on window resize to avoid per-pixel storms */
+  var resizeTimer;
+  window.addEventListener('resize', function() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(renderAll, 100);
+  });
 }
 
-buildLegends();
-buildTabs();
-renderAll();
-loadCurrent();
-loadMetrics();
-connectSSE();
-
-/* Debounce canvas redraws on window resize to avoid per-pixel storms */
-var resizeTimer;
-window.addEventListener('resize', function() {
-  clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(renderAll, 100);
-});
+/* Export pure helpers for the test harness; a no-op in the browser. */
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { metricsUrl: metricsUrl };
+}

@@ -36,7 +36,7 @@
 /* Pull the module under test in directly. */
 #include "../src/config.c"
 
-/* --- Test infrastructure ------------------------------------------------- */
+/* --- Test infrastructure --- */
 
 static char g_tmpcfg_path[256];
 
@@ -57,7 +57,7 @@ static int load_cfg(config_t *cfg, const char *toml)
     return rc;
 }
 
-/* --- Interval: values --------------------------------------------------- */
+/* --- Interval: values --- */
 
 static int test_interval_negative(void)
 {
@@ -119,7 +119,7 @@ static int test_interval_missing(void)
     return cfg.interval_seconds == 60 ? 0 : 1;
 }
 
-/* --- Interval: wrong types ---------------------------------------------- */
+/* --- Interval: wrong types --- */
 
 static int test_interval_legacy_string(void)
 {
@@ -170,7 +170,7 @@ static int test_interval_array(void)
     return cfg.interval_seconds == 60 ? 0 : 1;
 }
 
-/* --- Ranges: valid ------------------------------------------------------ */
+/* --- Ranges: valid --- */
 
 static int test_ranges_valid_natural(void)
 {
@@ -207,7 +207,7 @@ static int test_ranges_missing(void)
     return cfg.range_count == 4 ? 0 : 1;
 }
 
-/* --- Ranges: wrong types ----------------------------------------------- */
+/* --- Ranges: wrong types --- */
 
 static int test_ranges_string_not_array(void)
 {
@@ -237,7 +237,7 @@ static int test_ranges_nested_array(void)
     return load_cfg(&cfg, "[dashboard]\nranges = [[\"1d\"]]\n") == -1 ? 0 : 1;
 }
 
-/* --- Ranges: invented / edge units ------------------------------------- */
+/* --- Ranges: invented / edge units --- */
 
 static int test_ranges_weeks_unit(void)
 {
@@ -299,7 +299,7 @@ static int test_ranges_with_space(void)
     return load_cfg(&cfg, "[dashboard]\nranges = [\"1 d\"]\n") == -1 ? 0 : 1;
 }
 
-/* --- Ranges: per-unit upper bounds (caps) ------------------------------ */
+/* --- Ranges: per-unit upper bounds (caps) --- */
 
 static int test_ranges_minutes_at_cap(void)
 {
@@ -352,7 +352,7 @@ static int test_ranges_days_huge(void)
     return load_cfg(&cfg, "[dashboard]\nranges = [\"36500d\"]\n") == -1 ? 0 : 1;
 }
 
-/* --- Combinations: interval + ranges ------------------------------------ */
+/* --- Combinations: interval + ranges --- */
 
 static int test_combo_interval_eq_range_min(void)
 {
@@ -407,7 +407,7 @@ static int test_combo_clamp_and_range(void)
     return cfg.interval_seconds == 3600 && cfg.range_count == 1 ? 0 : 1;
 }
 
-/* --- Order independence (retention = max regardless of position) ------- */
+/* --- Order independence (retention = max regardless of position) --- */
 
 static int test_order_largest_first(void)
 {
@@ -429,7 +429,7 @@ static int test_order_largest_middle(void)
     return cfg.range_count == 3 && strcmp(cfg.ranges[1], "90d") == 0 ? 0 : 1;
 }
 
-/* --- Mixed valid + invalid --------------------------------------------- */
+/* --- Mixed valid + invalid --- */
 
 static int test_mixed_some_invalid(void)
 {
@@ -452,7 +452,20 @@ static int test_mixed_skip_and_valid(void)
     return cfg.range_count == 1 && strcmp(cfg.ranges[0], "1d") == 0 ? 0 : 1;
 }
 
-/* --- Runner ------------------------------------------------------------ */
+/* --- Points: removed key is ignored --- */
+
+static int test_points_in_config_ignored(void)
+{
+    config_t cfg;
+    /* dashboard.points was moved to a query parameter and removed from config.
+     * A v0.1 config that still sets it must be silently ignored, not aborted. */
+    if (load_cfg(&cfg, "[dashboard]\npoints = 999\n") != 0)
+        return 1;
+    /* ranges untouched -> defaults remain */
+    return cfg.range_count == 4 ? 0 : 1;
+}
+
+/* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
     /* interval: values */
@@ -514,6 +527,8 @@ static const test_t ALL_TESTS[] = {
     /* mixed */
     T(mixed_some_invalid),
     T(mixed_skip_and_valid),
+    /* points: removed key ignored */
+    T(points_in_config_ignored),
 };
 
 int main(void)
