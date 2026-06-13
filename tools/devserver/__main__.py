@@ -32,57 +32,81 @@ from subprocess import DEVNULL, check_output
 from sys import exit, stderr, version_info
 
 if version_info < (3, 11):
-    print('minimoni dev-server requires Python 3.11+ (uses tomllib)', file=stderr)
+    print("minimoni dev-server requires Python 3.11+ (uses tomllib)", file=stderr)
     exit(1)
 
-from config import DEFAULT_CONFIG, config_fields, dashboard_temp_max, load_dashboard_config
+from config import (
+    DEFAULT_CONFIG,
+    config_fields,
+    dashboard_temp_critical_fallback,
+    load_dashboard_config,
+)
 from handler import AppState, make_handler
 
-log = getLogger('minimoni-dev')
+log = getLogger("minimoni-dev")
 
 
 def git_version() -> str:
     try:
-        return check_output(
-            ['git', 'describe', '--tags', '--always'],
-            cwd=dirname(abspath(__file__)), stderr=DEVNULL,
-        ).decode().strip()
+        return (
+            check_output(
+                ["git", "describe", "--tags", "--always"],
+                cwd=dirname(abspath(__file__)),
+                stderr=DEVNULL,
+            )
+            .decode()
+            .strip()
+        )
     except Exception:
-        return 'unknown'
+        return "unknown"
 
 
 def main() -> None:
-    parser = ArgumentParser(description='minimoni dashboard dev server (mock data, real config)')
-    parser.add_argument('port', nargs='?', type=int, default=9090,
-                        help='listen port (default: 9090)')
-    parser.add_argument('config', nargs='?', default=DEFAULT_CONFIG,
-                        help='minimoni TOML config (default: config.example.toml)')
-    parser.add_argument('--scenario', choices=['normal', 'warn', 'critical', 'cycle'],
-                        default='cycle',
-                        help='card stress level (default: cycle, sweeps good->critical over time)')
-    parser.add_argument('-v', '--verbose', action='store_true',
-                        help='log every request')
+    parser = ArgumentParser(
+        description="minimoni dashboard dev server (mock data, real config)"
+    )
+    parser.add_argument(
+        "port", nargs="?", type=int, default=9090, help="listen port (default: 9090)"
+    )
+    parser.add_argument(
+        "config",
+        nargs="?",
+        default=DEFAULT_CONFIG,
+        help="minimoni TOML config (default: config.example.toml)",
+    )
+    parser.add_argument(
+        "--scenario",
+        choices=["normal", "warn", "critical", "cycle"],
+        default="cycle",
+        help="card stress level (default: cycle, sweeps good->critical over time)",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="log every request"
+    )
     args = parser.parse_args()
 
-    basicConfig(level=DEBUG if args.verbose else INFO,
-                format='%(asctime)s %(levelname)s %(message)s', stream=stderr)
+    basicConfig(
+        level=DEBUG if args.verbose else INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        stream=stderr,
+    )
 
     dashboard = load_dashboard_config(args.config)
     state = AppState(
         version=git_version(),
         config_fields=config_fields(dashboard),
-        temp_max=dashboard_temp_max(dashboard),
+        temp_critical_fallback=dashboard_temp_critical_fallback(dashboard),
         scenario=args.scenario,
     )
-    log.info('config loaded from %s (scenario=%s)', args.config, args.scenario)
+    log.info("config loaded from %s (scenario=%s)", args.config, args.scenario)
 
-    server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(state))
-    log.info('minimoni dev server on http://localhost:%d', args.port)
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(state))
+    log.info("minimoni dev server on http://localhost:%d", args.port)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

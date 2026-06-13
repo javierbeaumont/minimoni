@@ -125,5 +125,6 @@ def make_points(
         ripple = sin(2 * pi * (t % _DAY_SECONDS) / _DAY_SECONDS)
         m = _metrics(_series_stress(scenario, i, n), ripple)
         m["t"] = t
+        m["temp_critical_c"] = _TEMP_CRITICAL_C
         points.append(m)
     return points

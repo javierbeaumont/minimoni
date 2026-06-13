@@ -29,50 +29,51 @@ from tomllib import TOMLDecodeError, load as toml_load
 
 from mock_data import JSON
 
-log = getLogger('minimoni-dev')
+log = getLogger("minimoni-dev")
 
-DEFAULT_CONFIG = join(dirname(abspath(__file__)), '..', '..', 'config.example.toml')
+DEFAULT_CONFIG = join(dirname(abspath(__file__)), "..", "..", "config.example.toml")
 
 # Defaults mirror config_defaults() in src/config.c.
 CONFIG_DEFAULTS: JSON = {
-    'title':               'minimoni',
-    'theme':               'auto',
-    'show_footer':         True,
-    'memory_card_unit':    '%',
-    'memory_chart_unit':   'mb',
-    'disk_card_unit':      '%',
-    'disk_chart_unit':     'gb',
-    'temp_card_unit':      'c',
-    'temp_chart_unit':     'c',
-    'cpu_load_card_unit':  'abs',
-    'cpu_load_chart_unit': 'abs',
-    'net_card_unit':       'mb',
-    'net_chart_unit':      'mb',
-    'uptime_unit':         'auto',
-    'ranges':              ['1d', '7d', '30d', '90d'],
+    "title": "minimoni",
+    "theme": "auto",
+    "show_footer": True,
+    "memory_card_unit": "%",
+    "memory_chart_unit": "mb",
+    "disk_card_unit": "%",
+    "disk_chart_unit": "gb",
+    "temp_card_unit": "c",
+    "temp_chart_unit": "c",
+    "cpu_load_card_unit": "abs",
+    "cpu_load_chart_unit": "abs",
+    "net_card_unit": "mb",
+    "net_chart_unit": "mb",
+    "uptime_unit": "auto",
+    "ranges": ["1d", "7d", "30d", "90d"],
 }
 
 
-def dashboard_temp_max(d: JSON) -> float:
-    # Reference temperature that maps to 100% in percent mode (config.c default 100).
+def dashboard_temp_critical_fallback(d: JSON) -> float:
+    # Fallback 100% reference for temp percent mode when sysfs has no critical
+    # trip point (config.c default 85).
     try:
-        v = float(d.get('temp_max', 100.0))
-        return v if v > 0 else 100.0
+        v = float(d.get("temp_critical_fallback", 85.0))
+        return v if v > 0 else 85.0
     except (TypeError, ValueError):
-        return 100.0
+        return 85.0
 
 
 def load_dashboard_config(path: str) -> JSON:
     try:
-        with open(path, 'rb') as f:
+        with open(path, "rb") as f:
             cfg = toml_load(f)
     except FileNotFoundError:
-        log.error('config not found: %s', path)
+        log.error("config not found: %s", path)
         exit(1)
     except TOMLDecodeError as e:
-        log.error('invalid TOML in %s: %s', path, e)
+        log.error("invalid TOML in %s: %s", path, e)
         exit(1)
-    return cfg.get('dashboard', {})
+    return cfg.get("dashboard", {})
 
 
 def config_fields(d: JSON) -> JSON:
@@ -82,21 +83,21 @@ def config_fields(d: JSON) -> JSON:
         return d.get(key, CONFIG_DEFAULTS[key])
 
     return {
-        'mem_card_unit':       g('memory_card_unit'),
-        'mem_chart_unit':      g('memory_chart_unit'),
-        'disk_card_unit':      g('disk_card_unit'),
-        'disk_chart_unit':     g('disk_chart_unit'),
-        'temp_card_unit':      g('temp_card_unit'),
-        'temp_chart_unit':     g('temp_chart_unit'),
-        'net_card_unit':       g('net_card_unit'),
-        'net_chart_unit':      g('net_chart_unit'),
-        'cpu_load_card_unit':  g('cpu_load_card_unit'),
-        'cpu_load_chart_unit': g('cpu_load_chart_unit'),
-        'title':               g('title'),
-        'theme':               g('theme'),
-        'show_footer':         g('show_footer'),
-        'uptime_unit':         g('uptime_unit'),
-        'ranges':              g('ranges'),
-        'charts':              d.get('charts'),
-        'cards':               d.get('cards'),
+        "mem_card_unit": g("memory_card_unit"),
+        "mem_chart_unit": g("memory_chart_unit"),
+        "disk_card_unit": g("disk_card_unit"),
+        "disk_chart_unit": g("disk_chart_unit"),
+        "temp_card_unit": g("temp_card_unit"),
+        "temp_chart_unit": g("temp_chart_unit"),
+        "net_card_unit": g("net_card_unit"),
+        "net_chart_unit": g("net_chart_unit"),
+        "cpu_load_card_unit": g("cpu_load_card_unit"),
+        "cpu_load_chart_unit": g("cpu_load_chart_unit"),
+        "title": g("title"),
+        "theme": g("theme"),
+        "show_footer": g("show_footer"),
+        "uptime_unit": g("uptime_unit"),
+        "ranges": g("ranges"),
+        "charts": d.get("charts"),
+        "cards": d.get("cards"),
     }

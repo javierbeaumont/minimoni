@@ -320,18 +320,18 @@ ranges = ["1d", "7d", "30d", "90d"] # time range tabs; largest sets retention
 charts = ["cpu_load", "cpu_usage", "memory", "disk", "temp", "net"]
 cards  = ["cpu_load", "cpu_usage", "memory", "disk", "temp", "net", "uptime"]
 
-cpu_load_card_unit  = "abs"  # status card: "%" | "abs" (% = normalized by core count)
-cpu_load_chart_unit = "abs"  # chart Y-axis: "%" | "abs"
-memory_card_unit    = "%"    # status card: "%" | "mb" | "gb"
-memory_chart_unit   = "mb"   # chart Y-axis: "%" | "mb" | "gb"
-disk_card_unit      = "%"    # status card: "%" | "gb" | "tb"
-disk_chart_unit     = "gb"   # chart Y-axis: "%" | "gb" | "tb"
-temp_card_unit      = "c"    # status card: "%" | "c" | "f"
-temp_chart_unit     = "c"    # chart Y-axis: "%" | "c" | "f"
-# temp_max          = 95     # temperature mapped to 100% when temp_*_unit="%" (default: 85)
-net_card_unit       = "mb"   # status card: "mb" | "gb" | "mbps" | "gbps"
-net_chart_unit      = "mb"   # chart Y-axis: "mb" | "gb" | "mbps" | "gbps"
-uptime_unit         = "auto" # uptime display: "auto" | "h" | "d"
+cpu_load_card_unit     = "abs"  # status card: "%" | "abs" (% = normalized by core count)
+cpu_load_chart_unit    = "abs"  # chart Y-axis: "%" | "abs"
+memory_card_unit       = "%"    # status card: "%" | "mb" | "gb"
+memory_chart_unit      = "mb"   # chart Y-axis: "%" | "mb" | "gb"
+disk_card_unit         = "%"    # status card: "%" | "gb" | "tb"
+disk_chart_unit        = "gb"   # chart Y-axis: "%" | "gb" | "tb"
+temp_card_unit         = "c"    # status card: "%" | "c" | "f"
+temp_chart_unit        = "c"    # chart Y-axis: "%" | "c" | "f"
+# temp_critical_fallback = 95     # temp % 100% ref when sysfs has no critical trip (default: 85)
+net_card_unit          = "mb"   # status card: "mb" | "gb" | "mbps" | "gbps"
+net_chart_unit         = "mb"   # chart Y-axis: "mb" | "gb" | "mbps" | "gbps"
+uptime_unit            = "auto" # uptime display: "auto" | "h" | "d"
 ```
 
 All keys are optional. The values shown above are the defaults.

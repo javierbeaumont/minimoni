@@ -103,7 +103,7 @@ void config_defaults(config_t *cfg)
     snprintf(cfg->disk_chart_unit, sizeof(cfg->disk_chart_unit), "%s", "gb");
     snprintf(cfg->temp_card_unit, sizeof(cfg->temp_card_unit), "%s", "c");
     snprintf(cfg->temp_chart_unit, sizeof(cfg->temp_chart_unit), "%s", "c");
-    cfg->temp_max = 85.0f;
+    cfg->temp_critical_fallback = 85.0f;
     snprintf(cfg->cpu_load_card_unit, sizeof(cfg->cpu_load_card_unit), "%s", "abs");
     snprintf(cfg->cpu_load_chart_unit, sizeof(cfg->cpu_load_chart_unit), "%s", "abs");
     snprintf(cfg->net_card_unit, sizeof(cfg->net_card_unit), "%s", "mb");
@@ -249,13 +249,13 @@ int config_load(config_t *cfg, const char *path)
     str_copy(cfg->temp_card_unit, sizeof(cfg->temp_card_unit), v);
     v = toml_seek(root, "dashboard.temp_chart_unit");
     str_copy(cfg->temp_chart_unit, sizeof(cfg->temp_chart_unit), v);
-    v = toml_seek(root, "dashboard.temp_max");
+    v = toml_seek(root, "dashboard.temp_critical_fallback");
     if (v.type == TOML_FP64 && v.u.fp64 > 0)
-        cfg->temp_max = (float)v.u.fp64;
+        cfg->temp_critical_fallback = (float)v.u.fp64;
     else if (v.type == TOML_INT64 && v.u.int64 > 0)
-        cfg->temp_max = (float)v.u.int64;
+        cfg->temp_critical_fallback = (float)v.u.int64;
     else if (v.type == TOML_FP64 || v.type == TOML_INT64)
-        fprintf(stderr, "config: temp_max must be > 0; using default\n");
+        fprintf(stderr, "config: temp_critical_fallback must be > 0; using default\n");
     v = toml_seek(root, "dashboard.ranges");
     if (v.type == TOML_ARRAY && v.u.arr.size > 0) {
         int count = 0;

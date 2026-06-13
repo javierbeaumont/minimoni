@@ -35,7 +35,7 @@ BEARSSL_LIB = vendor/bearssl/build/libbearssl.a
 BEARSSL_INC = -Ivendor/bearssl/inc
 
 # SRC expands as modules are implemented
-SRC = src/main.c src/metrics.c src/db.c src/config.c src/http.c src/downsample.c src/alerts.c
+SRC = src/main.c src/metrics.c src/db.c src/config.c src/http.c src/downsample.c src/units.c src/alerts.c
 VENDOR = vendor/sqlite3.c vendor/civetweb.c vendor/tomlc17.c
 
 # Vendored amalgamations carry upstream warnings we don't own (e.g. civetweb's
@@ -94,7 +94,7 @@ lint:
 # unit-config links tomlc17. The devserver (Python) and dashboard (JS) pure
 # helpers each get one suite; app.js guards its browser entry point so node can
 # require it for the pure helpers without a DOM.
-test: tests/unit-config.c tests/unit-downsample.c tests/runner.h \
+test: tests/unit-config.c tests/unit-downsample.c tests/unit-units.c tests/runner.h \
       tests/test_devserver.py tests/dashboard.test.js
 	docker run --rm -v "$(PWD)":/work -w /work alpine:latest \
 	  sh -c "apk add --quiet gcc musl-dev nodejs python3 && mkdir -p build && \
@@ -102,7 +102,10 @@ test: tests/unit-config.c tests/unit-downsample.c tests/runner.h \
 	      tests/unit-config.c vendor/tomlc17.c -o build/unit-config-test && \
 	    gcc -Wall -Wextra -std=c11 -Isrc -Itests \
 	      tests/unit-downsample.c -o build/unit-downsample-test && \
+	    gcc -Wall -Wextra -std=c11 -Isrc -Itests \
+	      tests/unit-units.c -o build/unit-units-test && \
 	    ./build/unit-config-test && ./build/unit-downsample-test && \
+	    ./build/unit-units-test && \
 	    python3 tests/test_devserver.py && node tests/dashboard.test.js"
 
 fmt:

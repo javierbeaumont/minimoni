@@ -32,106 +32,124 @@ CORES = 4
 
 
 def net_convert(bps: float, unit: str) -> float:
-    if not unit or unit[0] == 'm':
-        if len(unit) > 2 and unit[1] == 'b' and unit[2] == 'p':  # mbps
+    if not unit or unit[0] == "m":
+        if len(unit) > 2 and unit[1] == "b" and unit[2] == "p":  # mbps
             return bps * 8.0 / 1e6
         return bps / 1048576.0  # mb
-    if unit[0] == 'g':
-        if len(unit) > 2 and unit[1] == 'b' and unit[2] == 'p':  # gbps
+    if unit[0] == "g":
+        if len(unit) > 2 and unit[1] == "b" and unit[2] == "p":  # gbps
             return bps * 8.0 / 1e9
         return bps / 1073741824.0  # gb
     return bps / 1048576.0
 
 
 def mem_convert(mb: float, unit: str) -> float:
-    return mb / 1024.0 if unit and unit[0] == 'g' else mb
+    return mb / 1024.0 if unit and unit[0] == "g" else mb
 
 
 def disk_convert(gb: float, unit: str) -> float:
-    return gb / 1024.0 if unit and unit[0] == 't' else gb
+    return gb / 1024.0 if unit and unit[0] == "t" else gb
 
 
-def temp_convert(celsius: float, unit: str, temp_max: float) -> float:
+def temp_convert(celsius: float, unit: str, ref: float) -> float:
     if not unit:
         return celsius
-    if unit[0] == 'f':
+    if unit[0] == "f":
         return celsius * 9.0 / 5.0 + 32.0
-    if unit[0] == '%':
-        return celsius * 100.0 / temp_max if temp_max > 0 else celsius
+    if unit[0] == "%":
+        return celsius * 100.0 / ref if ref > 0 else celsius
     return celsius
 
 
+def temp_ref(crit: float | None, fallback: float) -> float:
+    """100% reference for temp percent mode: the sysfs critical trip point when
+    present, else the configured fallback. Mirrors the C server."""
+    return crit if crit is not None else fallback
+
+
 def load_convert(load: float, cores: int, unit: str) -> float:
-    if unit and unit[0] == '%' and cores > 0:
+    if unit and unit[0] == "%" and cores > 0:
         return load * 100.0 / cores
     return load
 
 
-def to_current(raw: JSON, f: JSON, temp_max: float) -> JSON:
+def to_current(raw: JSON, f: JSON, fallback: float) -> JSON:
     """Serialize a raw snapshot for /api/current using the CARD units."""
-    lu, mu = str(f['cpu_load_card_unit']), str(f['mem_card_unit'])
-    du, nu, tu = str(f['disk_card_unit']), str(f['net_card_unit']), str(f['temp_card_unit'])
+    lu, mu = str(f["cpu_load_card_unit"]), str(f["mem_card_unit"])
+    du, nu, tu = (
+        str(f["disk_card_unit"]),
+        str(f["net_card_unit"]),
+        str(f["temp_card_unit"]),
+    )
 
     out: JSON = {
-        'timestamp':          raw['timestamp'],
-        'load_1m':            round(load_convert(raw['load_1m'], CORES, lu), 2),
-        'load_5m':            round(load_convert(raw['load_5m'], CORES, lu), 2),
-        'load_15m':           round(load_convert(raw['load_15m'], CORES, lu), 2),
-        'cpu_user_percent':   round(raw['cpu_user'], 1),
-        'cpu_system_percent': round(raw['cpu_system'], 1),
-        'cpu_idle_percent':   round(raw['cpu_idle'], 1),
+        "timestamp": raw["timestamp"],
+        "load_1m": round(load_convert(raw["load_1m"], CORES, lu), 2),
+        "load_5m": round(load_convert(raw["load_5m"], CORES, lu), 2),
+        "load_15m": round(load_convert(raw["load_15m"], CORES, lu), 2),
+        "cpu_user_percent": round(raw["cpu_user"], 1),
+        "cpu_system_percent": round(raw["cpu_system"], 1),
+        "cpu_idle_percent": round(raw["cpu_idle"], 1),
     }
-    if mu[0] != '%':
-        out['mem_used'] = round(mem_convert(raw['mem_used_mb'], mu), 2)
-        out['mem_available'] = round(mem_convert(raw['mem_avail_mb'], mu), 2)
-        out['mem_total'] = round(mem_convert(raw['mem_total_mb'], mu), 2)
-    out['mem_percent'] = round(raw['mem_percent'], 1)
-    if du[0] != '%':
-        out['disk_used'] = round(disk_convert(raw['disk_used_gb'], du), 2)
-        out['disk_total'] = round(disk_convert(raw['disk_total_gb'], du), 2)
-        out['disk_free'] = round(disk_convert(raw['disk_free_gb'], du), 2)
-    out['disk_percent'] = round(raw['disk_percent'], 1)
+    if mu[0] != "%":
+        out["mem_used"] = round(mem_convert(raw["mem_used_mb"], mu), 2)
+        out["mem_available"] = round(mem_convert(raw["mem_avail_mb"], mu), 2)
+        out["mem_total"] = round(mem_convert(raw["mem_total_mb"], mu), 2)
+    out["mem_percent"] = round(raw["mem_percent"], 1)
+    if du[0] != "%":
+        out["disk_used"] = round(disk_convert(raw["disk_used_gb"], du), 2)
+        out["disk_total"] = round(disk_convert(raw["disk_total_gb"], du), 2)
+        out["disk_free"] = round(disk_convert(raw["disk_free_gb"], du), 2)
+    out["disk_percent"] = round(raw["disk_percent"], 1)
 
-    tc = raw.get('temp_c')
-    out['temp'] = round(temp_convert(tc, tu, temp_max), 1) if tc is not None else None
-    crit = raw.get('temp_critical_c')
-    out['temp_critical'] = round(temp_convert(crit, tu, temp_max), 1) if crit is not None else None
+    tc = raw.get("temp_c")
+    crit = raw.get("temp_critical_c")
+    ref = temp_ref(crit, fallback)
+    out["temp"] = round(temp_convert(tc, tu, ref), 1) if tc is not None else None
+    out["temp_critical"] = (
+        round(temp_convert(crit, tu, ref), 1) if crit is not None else None
+    )
 
-    out['net_rx'] = round(net_convert(raw['net_rx_bps'], nu), 2)
-    out['net_tx'] = round(net_convert(raw['net_tx_bps'], nu), 2)
-    out['uptime_seconds'] = raw['uptime']
+    out["net_rx"] = round(net_convert(raw["net_rx_bps"], nu), 2)
+    out["net_tx"] = round(net_convert(raw["net_tx_bps"], nu), 2)
+    out["uptime_seconds"] = raw["uptime"]
     return out
 
 
-def to_point(raw: JSON, f: JSON, temp_max: float) -> JSON:
+def to_point(raw: JSON, f: JSON, fallback: float) -> JSON:
     """Serialize a raw point for /api/metrics using the CHART units (short keys)."""
-    lu, mu = str(f['cpu_load_chart_unit']), str(f['mem_chart_unit'])
-    du, nu, tu = str(f['disk_chart_unit']), str(f['net_chart_unit']), str(f['temp_chart_unit'])
+    lu, mu = str(f["cpu_load_chart_unit"]), str(f["mem_chart_unit"])
+    du, nu, tu = (
+        str(f["disk_chart_unit"]),
+        str(f["net_chart_unit"]),
+        str(f["temp_chart_unit"]),
+    )
 
     out: JSON = {
-        't':   raw['t'],
-        'l1':  round(load_convert(raw['load_1m'], CORES, lu), 2),
-        'l5':  round(load_convert(raw['load_5m'], CORES, lu), 2),
-        'l15': round(load_convert(raw['load_15m'], CORES, lu), 2),
-        'cu':  round(raw['cpu_user'], 1),
-        'cs':  round(raw['cpu_system'], 1),
-        'ci':  round(raw['cpu_idle'], 1),
+        "t": raw["t"],
+        "l1": round(load_convert(raw["load_1m"], CORES, lu), 2),
+        "l5": round(load_convert(raw["load_5m"], CORES, lu), 2),
+        "l15": round(load_convert(raw["load_15m"], CORES, lu), 2),
+        "cu": round(raw["cpu_user"], 1),
+        "cs": round(raw["cpu_system"], 1),
+        "ci": round(raw["cpu_idle"], 1),
     }
-    if mu[0] != '%':
-        out['mu'] = round(mem_convert(raw['mem_used_mb'], mu), 2)
-        out['ma'] = round(mem_convert(raw['mem_avail_mb'], mu), 2)
-        out['mt'] = round(mem_convert(raw['mem_total_mb'], mu), 2)
-    out['mp'] = round(raw['mem_percent'], 1)
-    if du[0] != '%':
-        out['du'] = round(disk_convert(raw['disk_used_gb'], du), 2)
-        out['dt'] = round(disk_convert(raw['disk_total_gb'], du), 2)
-        out['df'] = round(disk_convert(raw['disk_free_gb'], du), 2)
-    out['dp'] = round(raw['disk_percent'], 1)
+    if mu[0] != "%":
+        out["mu"] = round(mem_convert(raw["mem_used_mb"], mu), 2)
+        out["ma"] = round(mem_convert(raw["mem_avail_mb"], mu), 2)
+        out["mt"] = round(mem_convert(raw["mem_total_mb"], mu), 2)
+    out["mp"] = round(raw["mem_percent"], 1)
+    if du[0] != "%":
+        out["du"] = round(disk_convert(raw["disk_used_gb"], du), 2)
+        out["dt"] = round(disk_convert(raw["disk_total_gb"], du), 2)
+        out["df"] = round(disk_convert(raw["disk_free_gb"], du), 2)
+    out["dp"] = round(raw["disk_percent"], 1)
 
-    tc = raw.get('temp_c')
-    out['tp'] = round(temp_convert(tc, tu, temp_max), 1) if tc is not None else None
+    tc = raw.get("temp_c")
+    ref = temp_ref(raw.get("temp_critical_c"), fallback)
+    out["tp"] = round(temp_convert(tc, tu, ref), 1) if tc is not None else None
 
-    out['nr'] = round(net_convert(raw['net_rx_bps'], nu), 2)
-    out['nt'] = round(net_convert(raw['net_tx_bps'], nu), 2)
-    out['up'] = raw['uptime']
+    out["nr"] = round(net_convert(raw["net_rx_bps"], nu), 2)
+    out["nt"] = round(net_convert(raw["net_tx_bps"], nu), 2)
+    out["up"] = raw["uptime"]
     return out

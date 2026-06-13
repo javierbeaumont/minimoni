@@ -56,7 +56,7 @@ typedef struct {
     char  disk_chart_unit[16];    /* "gb" | "tb" | "%", default: "gb" */
     char  temp_card_unit[4];      /* "c" | "f" | "%", default: "c" */
     char  temp_chart_unit[4];     /* "c" | "f" | "%", default: "c" */
-    float temp_max;               /* 100% reference when temp_*_unit="%", default: 100.0 */
+    float temp_critical_fallback; /* temp percent 100% ref when sysfs critical absent; def: 85 */
     char  cpu_load_card_unit[4];  /* "abs" | "%", default: "abs" */
     char  cpu_load_chart_unit[4]; /* "abs" | "%", default: "abs" */
     char  net_card_unit[8];       /* "mb"|"gb"|"mbps"|"gbps", default: "mb" */

@@ -17,8 +17,9 @@
 """
 HTTP request handler for the minimoni dev server.
 
-A handler is bound to an AppState (version, real config fields, temp_max,
-scenario) via make_handler(), so there is no module-global state. Raw mock
+A handler is bound to an AppState (version, real config fields,
+temp_critical_fallback, scenario) via make_handler(), so there is no
+module-global state. Raw mock
 metrics are converted to the configured units by units.py.
 """
 
@@ -51,7 +52,7 @@ STATIC_FILES: dict[str, str] = {
 class AppState:
     version: str
     config_fields: JSON
-    temp_max: float
+    temp_critical_fallback: float
     scenario: str
 
 
@@ -62,14 +63,14 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
         # converted mocked metrics + version + real config fields
         raw = current_snapshot(state.scenario)
         return {
-            **to_current(raw, state.config_fields, state.temp_max),
+            **to_current(raw, state.config_fields, state.temp_critical_fallback),
             "version": state.version,
             **state.config_fields,
         }
 
     def metrics(range_value: str, n_points: int) -> JSON:
         points = [
-            to_point(p, state.config_fields, state.temp_max)
+            to_point(p, state.config_fields, state.temp_critical_fallback)
             for p in make_points(range_value, state.scenario, n_points)
         ]
         return {"range": range_value, "points": points}

@@ -31,6 +31,7 @@ sys.path.insert(
 )
 
 from mock_data import _range_seconds, clamp_points  # noqa: E402
+from units import temp_convert, temp_ref  # noqa: E402
 
 
 # --- clamp_points: the /api/metrics points hint (mirror of the C server) ---
@@ -77,6 +78,33 @@ def test_range_seconds_hours():
 
 def test_range_seconds_days():
     assert _range_seconds("7d") == 604800
+
+
+# --- temp_ref / temp_convert: percent ref = sysfs critical, else fallback ---
+
+
+def test_temp_ref_uses_critical():
+    assert temp_ref(105.0, 85.0) == 105.0
+
+
+def test_temp_ref_falls_back_when_none():
+    assert temp_ref(None, 85.0) == 85.0
+
+
+def test_temp_convert_percent_at_ref():
+    assert temp_convert(85.0, "%", 85.0) == 100.0
+
+
+def test_temp_convert_percent_half():
+    assert temp_convert(42.5, "%", 85.0) == 50.0
+
+
+def test_temp_convert_fahrenheit():
+    assert temp_convert(100.0, "f", 85.0) == 212.0
+
+
+def test_temp_convert_celsius():
+    assert temp_convert(50.0, "c", 85.0) == 50.0
 
 
 def test_range_seconds_invalid_defaults_one_day():

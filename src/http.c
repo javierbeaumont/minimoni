@@ -32,6 +32,7 @@
 #include "downsample.h"
 #include "embed.h"
 #include "http.h"
+#include "units.h"
 
 /* =========================================================================
  * JSON buffer helpers
@@ -121,57 +122,6 @@ static void jbuf_null(jbuf_t *j, const char *key)
     char tmp[64];
     snprintf(tmp, sizeof(tmp), "\"%s\":null", key);
     jbuf_raw(j, tmp);
-}
-
-/* =========================================================================
- * Unit conversions  (raw -> configured unit)
- * ======================================================================= */
-
-static double net_convert(double bps, const char *unit)
-{
-    if (!unit || unit[0] == 'm') {
-        if (unit && unit[1] == 'b' && unit[2] == 'p') /* mbps */
-            return bps * 8.0 / 1e6;
-        return bps / 1048576.0; /* mb */
-    }
-    if (unit[0] == 'g') {
-        if (unit[1] == 'b' && unit[2] == 'p') /* gbps */
-            return bps * 8.0 / 1e9;
-        return bps / 1073741824.0; /* gb */
-    }
-    return bps / 1048576.0;
-}
-
-static double mem_convert(double mb, const char *unit)
-{
-    if (unit && unit[0] == 'g')
-        return mb / 1024.0;
-    return mb; /* mb (or %; caller uses mem_percent directly) */
-}
-
-static double disk_convert(double gb, const char *unit)
-{
-    if (unit && unit[0] == 't')
-        return gb / 1024.0;
-    return gb; /* gb (or %; caller uses disk_percent directly) */
-}
-
-static double temp_convert(double celsius, const char *unit, float temp_max)
-{
-    if (!unit)
-        return celsius;
-    if (unit[0] == 'f')
-        return celsius * 9.0 / 5.0 + 32.0;
-    if (unit[0] == '%')
-        return (temp_max > 0) ? celsius * 100.0 / temp_max : celsius;
-    return celsius;
-}
-
-static double load_convert(double load, int cores, const char *unit)
-{
-    if (unit && unit[0] == '%' && cores > 0)
-        return load * 100.0 / (double)cores;
-    return load;
 }
 
 /* =========================================================================
@@ -270,13 +220,15 @@ static void serialize_current(jbuf_t *j, const db_row_t *r, const http_ctx_t *ct
     jbuf_real(j, "disk_percent", r->disk_percent);
 
     if (cfg_has(cfg->cards, cfg->card_count, "temp")) {
+        double tref =
+            temp_ref(ctx->temp_critical_valid, ctx->temp_critical, cfg->temp_critical_fallback);
         if (r->temp_valid)
-            jbuf_real(j, "temp", temp_convert(r->temp_celsius, cfg->temp_card_unit, cfg->temp_max));
+            jbuf_real(j, "temp", temp_convert(r->temp_celsius, cfg->temp_card_unit, tref));
         else
             jbuf_null(j, "temp");
         if (ctx->temp_critical_valid)
             jbuf_real(j, "temp_critical",
-                      temp_convert(ctx->temp_critical, cfg->temp_card_unit, cfg->temp_max));
+                      temp_convert(ctx->temp_critical, cfg->temp_card_unit, tref));
         else
             jbuf_null(j, "temp_critical");
     }
@@ -491,6 +443,8 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
     const char     *nu = cfg->net_chart_unit;
     int             pct_mu = (mu[0] == '%');
     int             pct_du = (du[0] == '%');
+    double          tref =
+        temp_ref(ctx->temp_critical_valid, ctx->temp_critical, cfg->temp_critical_fallback);
 
     /* Stream response without buffering the full body. */
     mg_printf(conn,
@@ -539,8 +493,7 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
 
         if (cfg_has(cfg->charts, cfg->chart_count, "temp")) {
             if (r->temp_valid)
-                jbuf_real(&j, "tp",
-                          temp_convert(r->temp_celsius, cfg->temp_chart_unit, cfg->temp_max));
+                jbuf_real(&j, "tp", temp_convert(r->temp_celsius, cfg->temp_chart_unit, tref));
             else
                 jbuf_null(&j, "tp");
         }
