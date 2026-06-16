@@ -320,6 +320,9 @@ static void run_command(const alert_cfg_t *a, double value)
     setenv("MINIMONI_ALERT_THRESHOLD", thr_str, 1);
     setenv("MINIMONI_ALERT_OPERATOR", a->op, 1);
 
+    /* a->command is a static value from the operator's config; the dynamic alert
+     * data is exported via the MINIMONI_ALERT_* env vars above, never the string. */
+    /* NOLINTNEXTLINE(bugprone-command-processor) no untrusted input reaches the command */
     int ret = system(a->command);
     if (ret != 0)
         fprintf(stderr, "alerts: command '%s' exited %d\n", a->command, ret);

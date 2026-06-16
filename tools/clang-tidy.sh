@@ -15,15 +15,14 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# Run clang-tidy over src/ inside Alpine Docker, never the host: clang-tidy is
-# not a dev-host dependency and the release toolchain is musl/Alpine, so static
-# analysis runs in the same environment as the build. Compile flags mirror the
+# Run clang-tidy over src/ inside Docker. Compile flags mirror the
 # Makefile so the translation units match the real build. build/embed.h is
 # generated first because src/http.c includes it.
 set -eu
 
-docker run --rm -v "$PWD":/work -w /work alpine:latest sh -c '
-  apk add --quiet clang-extra-tools clang musl-dev xxd >/dev/null
+docker build -q -t minimoni-toolchain tools >/dev/null
+docker run --rm -v "$PWD":/work -w /work minimoni-toolchain sh -c '
+  apk add --quiet clang clang-extra-tools musl-dev xxd >/dev/null
   mkdir -p build
   sh tools/bundle.sh | xxd -i -n dashboard_index_html - > build/embed.h
   clang-tidy src/*.c -- \

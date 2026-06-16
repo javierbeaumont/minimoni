@@ -18,7 +18,9 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/statvfs.h>
 
@@ -39,10 +41,25 @@ static int read_cpu_raw(cpu_raw_t *c)
     if (!f)
         return -1;
 
-    int ok = (fscanf(f, "cpu %llu %llu %llu %llu %llu %llu %llu", &c->user, &c->nice, &c->system,
-                     &c->idle, &c->iowait, &c->irq, &c->softirq) == 7);
+    char  line[256];
+    char *got = fgets(line, sizeof(line), f);
     fclose(f);
-    return ok ? 0 : -1;
+    if (!got || strncmp(line, "cpu ", 4) != 0)
+        return -1;
+
+    unsigned long long *fields[] = {&c->user,   &c->nice, &c->system, &c->idle,
+                                    &c->iowait, &c->irq,  &c->softirq};
+    char               *p = line + 3; /* past the "cpu" label */
+    for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); i++) {
+        char *end;
+        errno = 0;
+        unsigned long long v = strtoull(p, &end, 10);
+        if (end == p || errno != 0)
+            return -1;
+        *fields[i] = v;
+        p = end;
+    }
+    return 0;
 }
 
 /* --- Load average --- */
@@ -53,9 +70,23 @@ static int collect_load(metrics_t *m)
     if (!f)
         return -1;
 
-    int ok = (fscanf(f, "%lf %lf %lf", &m->load_1m, &m->load_5m, &m->load_15m) == 3);
+    char  line[128];
+    char *got = fgets(line, sizeof(line), f);
     fclose(f);
-    return ok ? 0 : -1;
+    if (!got)
+        return -1;
+
+    double *fields[] = {&m->load_1m, &m->load_5m, &m->load_15m};
+    char   *p = line;
+    for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); i++) {
+        char  *end;
+        double v = strtod(p, &end);
+        if (end == p)
+            return -1;
+        *fields[i] = v;
+        p = end;
+    }
+    return 0;
 }
 
 /* --- CPU usage --- */
@@ -112,12 +143,25 @@ static int collect_mem(metrics_t *m)
     unsigned long long val;
 
     while (fgets(line, sizeof(line), f)) {
-        if (sscanf(line, "%63s %llu", key, &val) == 2) {
-            if (strcmp(key, "MemTotal:") == 0)
-                total_kb = val;
-            if (strcmp(key, "MemAvailable:") == 0)
-                available_kb = val;
-        }
+        char *sep = line;
+        while (*sep != '\0' && *sep != ' ' && *sep != '\t')
+            sep++;
+        size_t klen = (size_t)(sep - line);
+        if (klen == 0 || klen >= sizeof(key))
+            continue;
+        memcpy(key, line, klen);
+        key[klen] = '\0';
+
+        char *end;
+        errno = 0;
+        val = strtoull(sep, &end, 10);
+        if (end == sep || errno != 0)
+            continue;
+
+        if (strcmp(key, "MemTotal:") == 0)
+            total_kb = val;
+        if (strcmp(key, "MemAvailable:") == 0)
+            available_kb = val;
     }
     fclose(f);
 
@@ -189,11 +233,13 @@ static void collect_temp(metrics_t *m)
         return;
     }
 
-    long millidegrees = 0;
-    int  ok = (fscanf(f, "%ld", &millidegrees) == 1);
+    char  buf[32];
+    char *got = fgets(buf, sizeof(buf), f);
     fclose(f);
 
-    if (!ok) {
+    char *end = buf;
+    long  millidegrees = got ? strtol(buf, &end, 10) : 0;
+    if (!got || end == buf) {
         m->temp_valid = 0;
         return;
     }
@@ -225,22 +271,44 @@ static void collect_net(metrics_t *m)
     long long rx_total = 0, tx_total = 0;
 
     while (fgets(line, sizeof(line), f)) {
-        char               iface[64];
-        long long          rx, tx;
-        unsigned long long dummy;
-
-        /* columns: iface rx_bytes rx_pkts rx_errs rx_drop rx_fifo rx_frame
-         *                rx_compressed rx_multicast tx_bytes ... */
-        int n = sscanf(line, " %63[^:]: %lld %llu %llu %llu %llu %llu %llu %llu %lld", iface, &rx,
-                       &dummy, &dummy, &dummy, &dummy, &dummy, &dummy, &dummy, &tx);
-
-        if (n != 10)
+        char *colon = strchr(line, ':');
+        if (!colon)
             continue;
+
+        /* interface name is everything up to ':', minus leading spaces */
+        char *name = line;
+        while (*name == ' ')
+            name++;
+        char   iface[64];
+        size_t nlen = (size_t)(colon - name);
+        if (nlen == 0 || nlen >= sizeof(iface))
+            continue;
+        memcpy(iface, name, nlen);
+        iface[nlen] = '\0';
         if (strcmp(iface, "lo") == 0)
             continue;
 
-        rx_total += rx;
-        tx_total += tx;
+        /* columns after ':' are rx_bytes rx_packets rx_errs rx_drop rx_fifo
+         * rx_frame rx_compressed rx_multicast tx_bytes ...; keep rx_bytes
+         * (column 0) and tx_bytes (column 8). */
+        char     *p = colon + 1;
+        long long cols[9];
+        int       ok = 1;
+        for (size_t i = 0; i < sizeof(cols) / sizeof(cols[0]); i++) {
+            char *end;
+            errno = 0;
+            cols[i] = strtoll(p, &end, 10);
+            if (end == p || errno != 0) {
+                ok = 0;
+                break;
+            }
+            p = end;
+        }
+        if (!ok)
+            continue;
+
+        rx_total += cols[0];
+        tx_total += cols[8];
     }
 
     fclose(f);
@@ -256,9 +324,15 @@ static int collect_uptime(metrics_t *m)
     if (!f)
         return -1;
 
-    int ok = (fscanf(f, "%lf", &m->uptime_seconds) == 1);
+    char  line[64];
+    char *got = fgets(line, sizeof(line), f);
     fclose(f);
-    return ok ? 0 : -1;
+    if (!got)
+        return -1;
+
+    char *end;
+    m->uptime_seconds = strtod(line, &end);
+    return (end == line) ? -1 : 0;
 }
 
 /* --- Public API --- */

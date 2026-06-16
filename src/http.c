@@ -18,6 +18,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <errno.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -133,16 +134,24 @@ static int read_num_cores(void)
     FILE *f = fopen("/sys/devices/system/cpu/online", "r");
     if (!f)
         return 1;
-    char     buf[64];
-    unsigned lo = 0, hi = 0;
-    int      n = 1;
-    if (fgets(buf, sizeof(buf), f)) {
-        if (sscanf(buf, "%u-%u", &lo, &hi) == 2)
-            n = (int)(hi - lo + 1);
-        else if (sscanf(buf, "%u", &lo) == 1)
-            n = 1;
-    }
+    char  buf[64];
+    char *got = fgets(buf, sizeof(buf), f);
     fclose(f);
+    if (!got)
+        return 1;
+
+    char         *end;
+    unsigned long lo = strtoul(buf, &end, 10);
+    if (end == buf)
+        return 1;
+
+    int n = 1;
+    if (*end == '-') {
+        char         *end2;
+        unsigned long hi = strtoul(end + 1, &end2, 10);
+        if (end2 != end + 1 && hi >= lo)
+            n = (int)(hi - lo + 1);
+    }
     return (n > 0) ? n : 1;
 }
 
@@ -166,10 +175,11 @@ static void read_temp_critical(http_ctx_t *ctx)
         f = fopen(path, "r");
         if (!f)
             break;
-        long md = 0;
-        int  ok = (fscanf(f, "%ld", &md) == 1);
+        char  buf[32];
+        char *end = buf;
+        long  md = fgets(buf, sizeof(buf), f) ? strtol(buf, &end, 10) : 0;
         fclose(f);
-        if (ok && md > 0) {
+        if (end != buf && md > 0) {
             ctx->temp_critical = (double)md / 1000.0;
             ctx->temp_critical_valid = 1;
         }

@@ -22,6 +22,9 @@ LDFLAGS_DEBUG = -lpthread
 
 CLANG_FORMAT ?= clang-format
 
+# Pinned toolchain image (tools/Dockerfile) shared.
+CI_IMAGE = minimoni-toolchain
+
 # SQLite: minimal tuning (dead code removed by LTO, not OMIT flags)
 SQLITE_FLAGS = -DSQLITE_THREADSAFE=1 -DSQLITE_DEFAULT_MEMSTATUS=0 \
   -DSQLITE_DEFAULT_WAL_SYNCHRONOUS=1 -DSQLITE_LIKE_DOESNT_MATCH_BLOBS
@@ -45,7 +48,7 @@ VENDOR = vendor/sqlite3.c vendor/civetweb.c vendor/tomlc17.c
 # target's optimisation flags - run "make clean" when switching release/debug.
 VENDOR_OBJ = $(patsubst vendor/%.c,build/%.o,$(VENDOR))
 
-.PHONY: all embed release release-linux debug tidy test fmt clean
+.PHONY: all embed release release-linux ci-image debug tidy test fmt clean
 
 all: embed minimoni
 
@@ -78,8 +81,11 @@ release: embed $(VENDOR_OBJ) $(BEARSSL_LIB)
 	  $(BEARSSL_LIB) $(LDFLAGS) -Wl,--gc-sections
 	strip minimoni
 
-release-linux:
-	docker run --rm -v "$(PWD)":/work -w /work alpine:latest \
+ci-image:
+	docker build -q -t $(CI_IMAGE) tools >/dev/null
+
+release-linux: ci-image
+	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
 	  sh -c "apk add --quiet gcc musl-dev make xxd git && make release"
 
 debug: OPT = -O0 -g -fsanitize=address,undefined
@@ -91,15 +97,15 @@ debug: embed $(VENDOR_OBJ) $(BEARSSL_LIB)
 tidy:
 	pre-commit run clang-tidy --all-files --hook-stage pre-push
 
-# Unit tests: pure logic across C, Python and JS, all run inside Docker (never
-# the host). C suites (one per module) use the shared harness in tests/runner.h
-# and include the module under test directly so static helpers are exercisable;
+# Unit tests: pure logic across C, Python and JS, all run inside Docker.
+# C suites (one per module) use the shared harness in tests/runner.h and
+# include the module under test directly so static helpers are exercisable;
 # unit-config links tomlc17. The devserver (Python) and dashboard (JS) pure
 # helpers each get one suite; app.js guards its browser entry point so node can
 # require it for the pure helpers without a DOM.
-test: tests/unit-config.c tests/unit-downsample.c tests/unit-units.c tests/runner.h \
+test: ci-image tests/unit-config.c tests/unit-downsample.c tests/unit-units.c tests/runner.h \
       tests/test_devserver.py tests/dashboard.test.js
-	docker run --rm -v "$(PWD)":/work -w /work alpine:latest \
+	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
 	  sh -c "apk add --quiet gcc musl-dev nodejs python3 && mkdir -p build && \
 	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Itests \
 	      tests/unit-config.c vendor/tomlc17.c -o build/unit-config-test && \
