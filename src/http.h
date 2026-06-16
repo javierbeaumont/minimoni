@@ -1,5 +1,5 @@
 /*
- * minimoni — zero-dependency system monitoring
+ * minimoni - zero-dependency system monitoring
  * Copyright (C) 2026 Javier Beaumont <javierbeaumont@users.noreply.github.com>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -22,14 +22,14 @@
 #include "config.h"
 #include "db.h"
 
-struct mg_context; /* forward declaration — avoid pulling in civetweb.h here */
+struct mg_context; /* forward declaration to avoid pulling in civetweb.h here */
 
 typedef struct {
     struct mg_context *mg;
     const config_t    *cfg;
     db_t              *db;
     int                num_cores;     /* from /sys/devices/system/cpu/online */
-    double             temp_critical; /* critical trip point in °C, 0 if absent */
+    double             temp_critical; /* critical trip point in Celsius, 0 if absent */
     int                temp_critical_valid;
     volatile int       stopping;
 } http_ctx_t;

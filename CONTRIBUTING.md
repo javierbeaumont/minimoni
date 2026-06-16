@@ -25,7 +25,7 @@ For security-sensitive issues, see [SECURITY.md](SECURITY.md).
 - Discuss in an issue before sending non-trivial PRs.
 - Keep commits small and focused. Format: `<module>: <imperative>` subject;
   keep the body minimal: subject-only unless it adds what the diff doesn't show.
-- Code must compile cleanly with `-Wall -Wextra` and pass `make`.
+- Code must compile cleanly with `-Wall -Wextra` (`make`) and pass `make test`.
 - Follow the existing K&R/Linux style (4-space indent, 100-col limit).
   A `.clang-format` is provided.
 - Sign your commits if possible (`git commit -S`).
@@ -45,6 +45,31 @@ Alpine Docker target:
 ```sh
 make release-linux
 ```
+
+## Linting
+
+Formatting and static checks run through [pre-commit](https://pre-commit.com).
+Install the hooks once and they run automatically on every commit (and on push
+for the heavier checks):
+
+```sh
+pip install pre-commit
+pre-commit install --install-hooks
+pre-commit install --hook-type pre-push   # clang-tidy runs here
+```
+
+To run the checks on demand:
+
+```sh
+pre-commit run --all-files   # format, ruff, eslint, shellcheck, gitleaks, ...
+make tidy                    # clang-tidy over src/ in Docker
+```
+
+## Continuous integration
+
+Every push and pull request to `main` runs three workflows: **Lint and static
+analysis** (the pre-commit checks above), **Tests** (`make test`), and **Security
+analysis** (CodeQL).
 
 ## Dashboard development
 

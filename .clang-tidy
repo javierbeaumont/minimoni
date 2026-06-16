@@ -1,0 +1,12 @@
+# Only our own headers are reported (vendored SQLite/civetweb/tomlc17/BearSSL excluded).
+# DeprecatedOrUnsafeBufferHandling flags C11 Annex K _s functions that musl/glibc
+# do not provide, so it is pure noise here.
+Checks: >
+  clang-analyzer-*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
+HeaderFilterRegex: '(^|/)src/'
+WarningsAsErrors: '*'
+CheckOptions:
+  bugprone-reserved-identifier.AllowedIdentifiers: '_POSIX_C_SOURCE'

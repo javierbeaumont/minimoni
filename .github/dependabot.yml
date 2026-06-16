@@ -3,5 +3,26 @@ version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
+    commit-message:
+      prefix: ci
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns:
+          - "*"
     schedule:
-      interval: weekly
+      interval: monthly
+
+  - package-ecosystem: pre-commit
+    directory: /
+    commit-message:
+      prefix: ci
+    cooldown:
+      default-days: 7
+    groups:
+      hooks:
+        patterns:
+          - "*"
+    schedule:
+      interval: monthly

@@ -34,7 +34,7 @@
  * v0.1.0 schema, and a migrator must see version 0 to upgrade it correctly. */
 #define MINIMONI_APPLICATION_ID 0x6D6F6E69
 
-/* --- SQL statements ------------------------------------------------------ */
+/* --- SQL statements --- */
 
 static const char SQL_CREATE[] =
     "CREATE TABLE IF NOT EXISTS metrics ("
@@ -73,7 +73,7 @@ static const char SQL_ALERT_CHECK[] =
 
 static const char SQL_ALERT_FIRE[] = "INSERT INTO alert_log (alert_name, fired_at) VALUES (?, ?)";
 
-/* --- Helpers ------------------------------------------------------------- */
+/* --- Helpers --- */
 
 static int step_with_retry(sqlite3_stmt *stmt)
 {
@@ -90,7 +90,7 @@ static int step_with_retry(sqlite3_stmt *stmt)
     return rc;
 }
 
-/* --- Public API ---------------------------------------------------------- */
+/* --- Public API --- */
 
 int db_open(db_t *db, const char *path)
 {
@@ -244,7 +244,7 @@ int db_prune(db_t *db, int retention_days)
     return 0;
 }
 
-/* --- Alert log ------------------------------------------------------------ */
+/* --- Alert log --- */
 
 int db_alert_on_cooldown(db_t *db, const char *alert_name, long cooldown_seconds)
 {
@@ -290,7 +290,7 @@ int db_alert_log_fire(db_t *db, const char *alert_name)
     return 0;
 }
 
-/* --- Query helpers -------------------------------------------------------- */
+/* --- Query helpers --- */
 
 /* Read one db_row_t from the current row of stmt (columns 0-19 as defined
  * by both SQL_CURRENT and the SELECT list in db_query_range). */
@@ -337,7 +337,7 @@ static void read_row(sqlite3_stmt *s, db_row_t *r)
     r->uptime_seconds = sqlite3_column_double(s, 19);
 }
 
-/* --- db_current ----------------------------------------------------------- */
+/* --- db_current --- */
 
 int db_current(db_t *db, db_row_t *row)
 {
@@ -417,7 +417,7 @@ int db_current(db_t *db, db_row_t *row)
     return 0;
 }
 
-/* --- db_count_range ------------------------------------------------------- */
+/* --- db_count_range --- */
 
 int db_count_range(db_t *db, long range_seconds)
 {
@@ -437,7 +437,7 @@ int db_count_range(db_t *db, long range_seconds)
     return count;
 }
 
-/* --- db_query_range ------------------------------------------------------- */
+/* --- db_query_range --- */
 
 /* Shared column layout for both raw and bucketed queries:
  *  0  timestamp (TEXT)

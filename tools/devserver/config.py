@@ -26,6 +26,7 @@ from os.path import abspath, dirname, join
 from sys import exit
 
 from tomllib import TOMLDecodeError, load as toml_load
+from typing import cast
 
 from mock_data import JSON
 
@@ -57,7 +58,7 @@ def dashboard_temp_critical_fallback(d: JSON) -> float:
     # Fallback 100% reference for temp percent mode when sysfs has no critical
     # trip point (config.c default 85).
     try:
-        v = float(d.get("temp_critical_fallback", 85.0))
+        v = float(cast(float, d.get("temp_critical_fallback", 85.0)))
         return v if v > 0 else 85.0
     except (TypeError, ValueError):
         return 85.0

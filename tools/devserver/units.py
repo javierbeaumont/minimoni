@@ -24,6 +24,8 @@ so the dashboard falls back to the percentage), and the load is normalised by
 core count when its unit is "%".
 """
 
+from typing import cast
+
 from mock_data import JSON
 
 # The real server reads the core count from sysfs; the dashboard assumes 4 when
@@ -75,6 +77,9 @@ def load_convert(load: float, cores: int, unit: str) -> float:
 
 def to_current(raw: JSON, f: JSON, fallback: float) -> JSON:
     """Serialize a raw snapshot for /api/current using the CARD units."""
+    # The metric values are numeric at runtime; the str/int passthroughs
+    # (timestamp, uptime) are read from `raw` directly.
+    m = cast(dict[str, float], raw)
     lu, mu = str(f["cpu_load_card_unit"]), str(f["mem_card_unit"])
     du, nu, tu = (
         str(f["disk_card_unit"]),
@@ -84,40 +89,43 @@ def to_current(raw: JSON, f: JSON, fallback: float) -> JSON:
 
     out: JSON = {
         "timestamp": raw["timestamp"],
-        "load_1m": round(load_convert(raw["load_1m"], CORES, lu), 2),
-        "load_5m": round(load_convert(raw["load_5m"], CORES, lu), 2),
-        "load_15m": round(load_convert(raw["load_15m"], CORES, lu), 2),
-        "cpu_user_percent": round(raw["cpu_user"], 1),
-        "cpu_system_percent": round(raw["cpu_system"], 1),
-        "cpu_idle_percent": round(raw["cpu_idle"], 1),
+        "load_1m": round(load_convert(m["load_1m"], CORES, lu), 2),
+        "load_5m": round(load_convert(m["load_5m"], CORES, lu), 2),
+        "load_15m": round(load_convert(m["load_15m"], CORES, lu), 2),
+        "cpu_user_percent": round(m["cpu_user"], 1),
+        "cpu_system_percent": round(m["cpu_system"], 1),
+        "cpu_idle_percent": round(m["cpu_idle"], 1),
     }
     if mu[0] != "%":
-        out["mem_used"] = round(mem_convert(raw["mem_used_mb"], mu), 2)
-        out["mem_available"] = round(mem_convert(raw["mem_avail_mb"], mu), 2)
-        out["mem_total"] = round(mem_convert(raw["mem_total_mb"], mu), 2)
-    out["mem_percent"] = round(raw["mem_percent"], 1)
+        out["mem_used"] = round(mem_convert(m["mem_used_mb"], mu), 2)
+        out["mem_available"] = round(mem_convert(m["mem_avail_mb"], mu), 2)
+        out["mem_total"] = round(mem_convert(m["mem_total_mb"], mu), 2)
+    out["mem_percent"] = round(m["mem_percent"], 1)
     if du[0] != "%":
-        out["disk_used"] = round(disk_convert(raw["disk_used_gb"], du), 2)
-        out["disk_total"] = round(disk_convert(raw["disk_total_gb"], du), 2)
-        out["disk_free"] = round(disk_convert(raw["disk_free_gb"], du), 2)
-    out["disk_percent"] = round(raw["disk_percent"], 1)
+        out["disk_used"] = round(disk_convert(m["disk_used_gb"], du), 2)
+        out["disk_total"] = round(disk_convert(m["disk_total_gb"], du), 2)
+        out["disk_free"] = round(disk_convert(m["disk_free_gb"], du), 2)
+    out["disk_percent"] = round(m["disk_percent"], 1)
 
-    tc = raw.get("temp_c")
-    crit = raw.get("temp_critical_c")
+    tc = m.get("temp_c")
+    crit = m.get("temp_critical_c")
     ref = temp_ref(crit, fallback)
     out["temp"] = round(temp_convert(tc, tu, ref), 1) if tc is not None else None
     out["temp_critical"] = (
         round(temp_convert(crit, tu, ref), 1) if crit is not None else None
     )
 
-    out["net_rx"] = round(net_convert(raw["net_rx_bps"], nu), 2)
-    out["net_tx"] = round(net_convert(raw["net_tx_bps"], nu), 2)
+    out["net_rx"] = round(net_convert(m["net_rx_bps"], nu), 2)
+    out["net_tx"] = round(net_convert(m["net_tx_bps"], nu), 2)
     out["uptime_seconds"] = raw["uptime"]
     return out
 
 
 def to_point(raw: JSON, f: JSON, fallback: float) -> JSON:
     """Serialize a raw point for /api/metrics using the CHART units (short keys)."""
+    # The metric values are numeric at runtime; the int passthrough (t, uptime)
+    # is read from `raw` directly.
+    m = cast(dict[str, float], raw)
     lu, mu = str(f["cpu_load_chart_unit"]), str(f["mem_chart_unit"])
     du, nu, tu = (
         str(f["disk_chart_unit"]),
@@ -127,29 +135,29 @@ def to_point(raw: JSON, f: JSON, fallback: float) -> JSON:
 
     out: JSON = {
         "t": raw["t"],
-        "l1": round(load_convert(raw["load_1m"], CORES, lu), 2),
-        "l5": round(load_convert(raw["load_5m"], CORES, lu), 2),
-        "l15": round(load_convert(raw["load_15m"], CORES, lu), 2),
-        "cu": round(raw["cpu_user"], 1),
-        "cs": round(raw["cpu_system"], 1),
-        "ci": round(raw["cpu_idle"], 1),
+        "l1": round(load_convert(m["load_1m"], CORES, lu), 2),
+        "l5": round(load_convert(m["load_5m"], CORES, lu), 2),
+        "l15": round(load_convert(m["load_15m"], CORES, lu), 2),
+        "cu": round(m["cpu_user"], 1),
+        "cs": round(m["cpu_system"], 1),
+        "ci": round(m["cpu_idle"], 1),
     }
     if mu[0] != "%":
-        out["mu"] = round(mem_convert(raw["mem_used_mb"], mu), 2)
-        out["ma"] = round(mem_convert(raw["mem_avail_mb"], mu), 2)
-        out["mt"] = round(mem_convert(raw["mem_total_mb"], mu), 2)
-    out["mp"] = round(raw["mem_percent"], 1)
+        out["mu"] = round(mem_convert(m["mem_used_mb"], mu), 2)
+        out["ma"] = round(mem_convert(m["mem_avail_mb"], mu), 2)
+        out["mt"] = round(mem_convert(m["mem_total_mb"], mu), 2)
+    out["mp"] = round(m["mem_percent"], 1)
     if du[0] != "%":
-        out["du"] = round(disk_convert(raw["disk_used_gb"], du), 2)
-        out["dt"] = round(disk_convert(raw["disk_total_gb"], du), 2)
-        out["df"] = round(disk_convert(raw["disk_free_gb"], du), 2)
-    out["dp"] = round(raw["disk_percent"], 1)
+        out["du"] = round(disk_convert(m["disk_used_gb"], du), 2)
+        out["dt"] = round(disk_convert(m["disk_total_gb"], du), 2)
+        out["df"] = round(disk_convert(m["disk_free_gb"], du), 2)
+    out["dp"] = round(m["disk_percent"], 1)
 
-    tc = raw.get("temp_c")
-    ref = temp_ref(raw.get("temp_critical_c"), fallback)
+    tc = m.get("temp_c")
+    ref = temp_ref(m.get("temp_critical_c"), fallback)
     out["tp"] = round(temp_convert(tc, tu, ref), 1) if tc is not None else None
 
-    out["nr"] = round(net_convert(raw["net_rx_bps"], nu), 2)
-    out["nt"] = round(net_convert(raw["net_tx_bps"], nu), 2)
+    out["nr"] = round(net_convert(m["net_rx_bps"], nu), 2)
+    out["nt"] = round(net_convert(m["net_tx_bps"], nu), 2)
     out["up"] = raw["uptime"]
     return out

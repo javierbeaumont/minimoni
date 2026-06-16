@@ -13,8 +13,8 @@ stripping of unused features to keep the binary small.
 
 | Option | Reason rejected |
 |---|---|
-| mongoose | `GPL-2.0-only` — incompatible with GPLv3+ (see below) |
-| libmicrohttpd | LGPL; ~95 source files, requires autotools — not vendorable as a file copy |
+| mongoose | `GPL-2.0-only`: incompatible with GPLv3+ (see below) |
+| libmicrohttpd | LGPL; ~95 source files, requires autotools (not vendorable as a file copy) |
 | Custom HTTP parser | ~500+ lines for keep-alive, chunked encoding, concurrent connections |
 
 **On mongoose incompatibility:** mongoose is licensed `GPL-2.0-only`. GPLv3+ adds clauses
@@ -35,7 +35,7 @@ Compile-time flags strip all unused features:
 
 ## Consequences
 
-- No TLS — a reverse proxy (nginx, Caddy) is required for HTTPS.
+- No TLS: a reverse proxy (nginx, Caddy) is required for HTTPS.
 - No IPv6 in v1.
 - ~16 KB stack per connection thread.
 - Compile-time flags significantly reduce binary contribution vs. the full civetweb build.

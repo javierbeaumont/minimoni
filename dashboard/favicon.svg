@@ -1,13 +1,31 @@
+<!--
+   minimoni - zero-dependency system monitoring
+   Copyright (C) 2026 Javier Beaumont <javierbeaumont@users.noreply.github.com>
+
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program. If not, see <https://www.gnu.org/licenses/>.
+-->
+
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <!-- Dark pill background -->
   <rect width="32" height="32" rx="5" fill="#18181b"/>
   <!-- Green EKG line -->
   <polyline
-    points="2,20 6,20 9,7 13,24 17,12 21,20 25,16 30,16"
     fill="none"
+    points="2,20 6,20 9,7 13,24 17,12 21,20 25,16 30,16"
     stroke="#4ade80"
-    stroke-width="2.5"
-    stroke-linejoin="round"
     stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="2.5"
   />
 </svg>

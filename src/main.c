@@ -89,9 +89,7 @@ static int retention_days(const config_t *cfg)
     return max > 0 ? max : 90;
 }
 
-/* -------------------------------------------------------------------------
- * collect: oneshot - seed CPU snapshot, sleep 250 ms, collect, insert
- * ---------------------------------------------------------------------- */
+/* --- collect: oneshot - seed CPU snapshot, sleep 250 ms, collect, insert --- */
 
 static int run_collect(const char *config_path)
 {
@@ -136,9 +134,7 @@ static int run_collect(const char *config_path)
     return ret;
 }
 
-/* -------------------------------------------------------------------------
- * serve: daemon - HTTP server + drift-free collect loop
- * ---------------------------------------------------------------------- */
+/* --- serve: daemon - HTTP server + drift-free collect loop --- */
 
 static int run_serve(const char *config_path)
 {
@@ -193,9 +189,7 @@ static int run_serve(const char *config_path)
     return 0;
 }
 
-/* -------------------------------------------------------------------------
- * main
- * ---------------------------------------------------------------------- */
+/* --- main --- */
 
 int main(int argc, char **argv)
 {

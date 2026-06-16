@@ -49,7 +49,7 @@ for (let i = 0; i < TESTS.length; i++) {
   try {
     TESTS[i][1]();
     console.log('  ' + name.padEnd(45) + ' ok');
-  } catch (e) {
+  } catch {
     failed++;
     console.log('  ' + name.padEnd(45) + ' FAIL');
   }

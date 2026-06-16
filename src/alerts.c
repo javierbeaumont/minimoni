@@ -1,5 +1,5 @@
 /*
- * minimoni — zero-dependency system monitoring
+ * minimoni - zero-dependency system monitoring
  * Copyright (C) 2026 Javier Beaumont <javierbeaumont@users.noreply.github.com>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -34,7 +34,7 @@
 
 #include "alerts.h"
 
-/* --- Metric lookup --------------------------------------------------------- */
+/* --- Metric lookup --- */
 
 static double get_metric_value(const db_row_t *row, const char *m, int *valid)
 {
@@ -92,7 +92,7 @@ static double get_metric_value(const db_row_t *row, const char *m, int *valid)
     return 0.0;
 }
 
-/* --- Condition evaluation -------------------------------------------------- */
+/* --- Condition evaluation --- */
 
 static int eval_op(double value, const char *op, double threshold)
 {
@@ -109,7 +109,7 @@ static int eval_op(double value, const char *op, double threshold)
     return 0;
 }
 
-/* --- Webhook (HTTP and HTTPS) ----------------------------------------------- */
+/* --- Webhook (HTTP and HTTPS) --- */
 
 static int parse_url(const char *url, char *host, size_t hsz, char *port_str, size_t psz,
                      char *path, size_t pasz)
@@ -212,8 +212,8 @@ static void post_webhook(const alert_cfg_t *a, double value, const char *timesta
     char body[512];
     int  blen = snprintf(body, sizeof(body),
                          "{\"alert\":\"%s\",\"metric\":\"%s\",\"value\":%.6g,"
-                          "\"threshold\":%.6g,\"operator\":\"%s\","
-                          "\"timestamp\":\"%s\",\"hostname\":\"%s\"}",
+                         "\"threshold\":%.6g,\"operator\":\"%s\","
+                         "\"timestamp\":\"%s\",\"hostname\":\"%s\"}",
                          a->name, a->metric, value, a->threshold, a->op, timestamp, hostname);
 
     struct addrinfo hints, *res;
@@ -270,12 +270,12 @@ static void post_webhook(const alert_cfg_t *a, double value, const char *timesta
     char req[1024];
     int  rlen = snprintf(req, sizeof(req),
                          "POST %s HTTP/1.0\r\n"
-                          "Host: %s\r\n"
-                          "Content-Type: application/json\r\n"
-                          "Content-Length: %d\r\n"
-                          "Connection: close\r\n"
-                          "\r\n"
-                          "%s",
+                         "Host: %s\r\n"
+                         "Content-Type: application/json\r\n"
+                         "Content-Length: %d\r\n"
+                         "Connection: close\r\n"
+                         "\r\n"
+                         "%s",
                          path, host, blen, body);
 
     if (scheme == 0) {
@@ -298,8 +298,7 @@ static void post_webhook(const alert_cfg_t *a, double value, const char *timesta
         br_sslio_write_all(&ioc, req, (size_t)rlen);
         br_sslio_flush(&ioc);
         char buf[256];
-        int  n;
-        while ((n = br_sslio_read(&ioc, buf, sizeof(buf))) > 0)
+        while (br_sslio_read(&ioc, buf, sizeof(buf)) > 0)
             ;
         br_sslio_close(&ioc);
     }
@@ -307,7 +306,7 @@ static void post_webhook(const alert_cfg_t *a, double value, const char *timesta
     close(fd);
 }
 
-/* --- Command execution ----------------------------------------------------- */
+/* --- Command execution --- */
 
 static void run_command(const alert_cfg_t *a, double value)
 {
@@ -332,7 +331,7 @@ static void run_command(const alert_cfg_t *a, double value)
     unsetenv("MINIMONI_ALERT_OPERATOR");
 }
 
-/* --- Public API ------------------------------------------------------------- */
+/* --- Public API --- */
 
 int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row)
 {

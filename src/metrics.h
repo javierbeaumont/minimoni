@@ -1,5 +1,5 @@
 /*
- * minimoni — zero-dependency system monitoring
+ * minimoni - zero-dependency system monitoring
  * Copyright (C) 2026 Javier Beaumont <javierbeaumont@users.noreply.github.com>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -20,10 +20,10 @@
 #define MINIMONI_METRICS_H
 
 typedef struct {
-    /* CPU load averages — always valid */
+    /* CPU load averages: always valid */
     double load_1m, load_5m, load_15m;
 
-    /* CPU usage — invalid (0) on the first collect call (no previous snapshot) */
+    /* CPU usage: invalid (0) on the first collect call (no previous snapshot) */
     int    cpu_valid;
     double cpu_user_percent, cpu_system_percent, cpu_idle_percent;
 
@@ -33,11 +33,11 @@ typedef struct {
     /* Disk */
     double disk_total_gb, disk_used_gb, disk_free_gb, disk_percent;
 
-    /* Temperature — optional (temp_valid=0 if sensor absent) */
+    /* Temperature: optional (temp_valid=0 if sensor absent) */
     int    temp_valid;
     double temp_celsius;
 
-    /* Network — cumulative bytes since boot, sum of all non-loopback interfaces */
+    /* Network: cumulative bytes since boot, sum of all non-loopback interfaces */
     long long net_rx_bytes, net_tx_bytes;
 
     /* Uptime */

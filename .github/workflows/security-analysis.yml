@@ -1,4 +1,4 @@
-name: CodeQL
+name: Security analysis
 
 on:
   push:
@@ -12,7 +12,6 @@ on:
   workflow_dispatch:
 
 permissions:
-  security-events: write
   contents: read
 
 env:
@@ -22,6 +21,10 @@ jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     strategy:
       fail-fast: false
       matrix:
@@ -33,7 +36,7 @@ jobs:
           - language: python
             build-mode: none
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Generate build/embed.h (c-cpp prerequisite)
         if: matrix.language == 'c-cpp'
@@ -42,13 +45,13 @@ jobs:
           make embed
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
           config-file: ./.github/codeql/codeql-config.yml
 
       - name: Analyze
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
         with:
           category: "/language:${{ matrix.language }}"

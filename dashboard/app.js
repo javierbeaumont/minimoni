@@ -24,7 +24,7 @@
  *   load: [70,90] when normalized ("%"); [0.75,1.0]x cores when "abs"
  *         (cores unknown client-side -> 4 assumed; real cores TODO post-0.1).
  *   temp: [0.9*trip, trip] from the sysfs critical point; [70,80] degC fallback. */
-var THRESH = {
+const THRESH = {
   cpu:  [70, 90],
   mem:  [70, 90],
   disk: [80, 90],
@@ -37,7 +37,7 @@ var THRESH = {
  * C1 sky-400    (#38bdf8): load1, user, mem, disk, tx, temp
  * C2 violet-400 (#a78bfa): load5, sys, memAvail, diskFree, rx
  * C3 slate-400  (#94a3b8): load15 */
-var CLR = {
+const CLR = {
   load1:    '#38bdf8',
   load5:    '#a78bfa',
   load15:   '#94a3b8',
@@ -54,27 +54,27 @@ var CLR = {
 
 /* --- State --- */
 
-var curRange     = '1d';    /* currently selected time range */
-var pts          = [];      /* array of data points from /api/metrics */
-var tempCritical = null;    /* sysfs trip-point; drawn as a red dashed line */
+let curRange     = '1d';    /* currently selected time range */
+let pts          = [];      /* array of data points from /api/metrics */
+let tempCritical = null;    /* sysfs trip-point; drawn as a red dashed line */
 /* Which sub-metric is shown as the primary value in each card.
    0 = first option, 1 = second; toggled by clicking the sub-value. */
-var cardPrimary  = { load: 0, cpu: 0, mem: 0, disk: 0, net: 0 };
-var lastCurrent  = null;    /* last /current snapshot; replayed on swapCard */
+const cardPrimary  = { load: 0, cpu: 0, mem: 0, disk: 0, net: 0 };
+let lastCurrent  = null;    /* last /current snapshot; replayed on swapCard */
 
 /* Units read from server config; sensible defaults until first /current */
-var cfgCardUnits  = { mem: '%',  disk: '%',  temp: 'c', net: 'mb', load: 'abs' };
-var cfgChartUnits = { mem: 'mb', disk: 'gb', temp: 'c', net: 'mb', load: 'abs' };
-var cfgUptimeUnit = 'auto';
-var cfgRanges     = ['1d', '7d', '30d', '90d'];
+const cfgCardUnits  = { mem: '%',  disk: '%',  temp: 'c', net: 'mb', load: 'abs' };
+const cfgChartUnits = { mem: 'mb', disk: 'gb', temp: 'c', net: 'mb', load: 'abs' };
+let cfgUptimeUnit = 'auto';
+let cfgRanges     = ['1d', '7d', '30d', '90d'];
 /* Three-state visibility: null = show all, [] = hide all, [...] = listed only */
-var cfgVisCharts  = null;
-var cfgVisCards   = null;
+let cfgVisCharts  = null;
+let cfgVisCards   = null;
 
 /* --- Chart legend definitions --- */
 
 /* Entries for each chart's interactive legend (temperature has none) */
-var LEGENDS = {
+const LEGENDS = {
   'g-load': [
     { label: '1m',  c: CLR.load1  },
     { label: '5m',  c: CLR.load5  },
@@ -99,7 +99,7 @@ var LEGENDS = {
 };
 
 /* Per-chart, per-series hidden state; toggled by clicking a legend item */
-var seriesHidden = {
+const seriesHidden = {
   'g-load': [false, false, false],
   'g-cpu':  [false, false],
   'g-mem':  [false, false],
@@ -117,28 +117,28 @@ function cssv(v) {
 
 function drawChart(id, series, opts) {
   opts = opts || {};
-  var cv = document.getElementById(id);
+  const cv = document.getElementById(id);
   if (!cv) return;
 
   /* Scale the canvas backing store to the device pixel ratio so the
      chart looks sharp on retina / HiDPI screens */
-  var dpr = devicePixelRatio || 1;
-  var w   = cv.parentElement.clientWidth - 24;
-  var h   = cv.clientHeight || 160;
+  const dpr = devicePixelRatio || 1;
+  const w   = cv.parentElement.clientWidth - 24;
+  const h   = cv.clientHeight || 160;
   cv.width        = w * dpr;
   cv.height       = h * dpr;
   cv.style.width  = w + 'px';
 
-  var ctx = cv.getContext('2d');
+  const ctx = cv.getContext('2d');
   ctx.scale(dpr, dpr);
 
   /* Chart padding: Top, Right, Bottom, Left */
-  var Pt = 6, Pr = 8, Pb = 20, Pl = 38;
-  var cw = w - Pl - Pr;  /* drawable width */
-  var ch = h - Pt - Pb;  /* drawable height */
+  const Pt = 6, Pr = 8, Pb = 20, Pl = 38;
+  const cw = w - Pl - Pr;  /* drawable width */
+  const ch = h - Pt - Pb;  /* drawable height */
 
-  var yMn = opts.yMin != null ? opts.yMin : 0;
-  var yMx = opts.yMax != null ? opts.yMax : 0;
+  const yMn = opts.yMin != null ? opts.yMin : 0;
+  let yMx = opts.yMax != null ? opts.yMax : 0;
   if (opts.yMax == null) {
     /* Auto-scale: find the max value across all series, add 10% headroom */
     series.forEach(function(s) {
@@ -148,18 +148,18 @@ function drawChart(id, series, opts) {
     });
     yMx = yMx > 0 ? yMx * 1.1 : 1;
   }
-  var yr = yMx - yMn || 1;
-  var n  = (series[0] ? series[0].v.length : 0) || 1;
+  const yr = yMx - yMn || 1;
+  const n  = (series[0] ? series[0].v.length : 0) || 1;
 
   /* Map a data-space index/value to canvas pixel coordinates */
-  var tx = function(i) { return Pl + (i / Math.max(n - 1, 1)) * cw; };
-  var ty = function(v) { return Pt + (1 - (v - yMn) / yr) * ch; };
+  const tx = function(i) { return Pl + (i / Math.max(n - 1, 1)) * cw; };
+  const ty = function(v) { return Pt + (1 - (v - yMn) / yr) * ch; };
 
   /* Grid lines */
   ctx.strokeStyle = cssv('--brd');
   ctx.lineWidth   = 0.5;
-  for (var gi = 0; gi <= 4; gi++) {
-    var gy = Pt + (gi / 4) * ch;
+  for (let gi = 0; gi <= 4; gi++) {
+    const gy = Pt + (gi / 4) * ch;
     ctx.beginPath();
     ctx.moveTo(Pl, gy);
     ctx.lineTo(Pl + cw, gy);
@@ -170,16 +170,16 @@ function drawChart(id, series, opts) {
   ctx.fillStyle = cssv('--mut');
   ctx.font      = '10px system-ui';
   [[0, yMn], [0.5, (yMn + yMx) / 2], [1, yMx]].forEach(function(pair) {
-    var f = pair[0];
-    var v = pair[1];
+    const f = pair[0];
+    const v = pair[1];
     ctx.textAlign = 'right';
     ctx.fillText(fmtY(v, opts.unit), Pl - 3, Pt + (1 - f) * ch + 3);
   });
 
   /* X-axis: first and last timestamp */
-  var ts = opts.ts || [];
+  const ts = opts.ts || [];
   if (ts.length > 1) {
-    var xspan = ts[ts.length - 1] - ts[0];
+    const xspan = ts[ts.length - 1] - ts[0];
     ctx.textAlign = 'left';
     ctx.fillText(fmtX(ts[0], xspan), Pl, h - 4);
     ctx.textAlign = 'right';
@@ -193,7 +193,7 @@ function drawChart(id, series, opts) {
     /* Fill area under the line */
     if (s.fill !== false) {
       ctx.beginPath();
-      var ok = false;
+      let ok = false;
       s.v.forEach(function(v, i) {
         if (v == null) { ok = false; return; }  /* null = gap in data */
         if (!ok) { ctx.moveTo(tx(i), ty(v)); ok = true; }
@@ -212,7 +212,7 @@ function drawChart(id, series, opts) {
     ctx.strokeStyle = s.c;
     ctx.lineWidth   = 1.5;
     ctx.beginPath();
-    var ok2 = false;
+    let ok2 = false;
     s.v.forEach(function(v, i) {
       if (v == null) { ok2 = false; return; }
       if (!ok2) { ctx.moveTo(tx(i), ty(v)); ok2 = true; }
@@ -224,7 +224,7 @@ function drawChart(id, series, opts) {
   /* Reference lines - used to draw the critical temperature threshold */
   if (opts.refLines) {
     opts.refLines.forEach(function(rl) {
-      var ry = ty(rl.v);
+      const ry = ty(rl.v);
       if (ry < Pt || ry > Pt + ch) return;  /* out of visible range */
       ctx.save();
       ctx.strokeStyle = rl.c || cssv('--red');
@@ -252,8 +252,8 @@ function fmtY(v, u) {
 /* Format a Unix timestamp as HH:MM */
 function fmtX(t, span) {
   if (!t) return '';
-  var d  = new Date(t * 1000);
-  var mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  const d  = new Date(t * 1000);
+  const mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
             'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   if (span <= 3600)
     return d.getMinutes().toString().padStart(2, '0') + ':' +
@@ -273,9 +273,9 @@ function fmtX(t, span) {
 function fmtUptime(s) {
   if (cfgUptimeUnit === 'd') return 'up ' + (s / 86400).toFixed(1) + 'd';
   if (cfgUptimeUnit === 'h') return 'up ' + Math.floor(s / 3600) + 'h';
-  var d = Math.floor(s / 86400);
-  var h = Math.floor(s % 86400 / 3600);
-  var m = Math.floor(s % 3600 / 60);
+  const d = Math.floor(s / 86400);
+  const h = Math.floor(s % 86400 / 3600);
+  const m = Math.floor(s % 3600 / 60);
   if (d > 0) return 'up ' + d + 'd ' + h + 'h';
   if (h > 0) return 'up ' + h + 'h ' + m + 'm';
   return 'up ' + m + 'm';
@@ -320,18 +320,19 @@ function cardLevel(v, thresh) {
 }
 
 function setCard(id, val, sub, cls) {
-  var el = document.getElementById(id);
+  const el = document.getElementById(id);
   el.querySelector('.cval').textContent = val != null ? val : '—';
-  var s = el.querySelector('.csub');
+  const s = el.querySelector('.csub');
   if (s) s.textContent = sub || '';
   el.className = 'card' + (cls ? ' ' + cls : '');
 }
 
 /* Map a status level to its CSS variable (used for inline sub-value spans) */
-var lvlClr = { g: 'var(--grn)', y: 'var(--ylw)', r: 'var(--red)', '': 'inherit' };
+const lvlClr = { g: 'var(--grn)', y: 'var(--ylw)', r: 'var(--red)', '': 'inherit' };
 
 /* Swap which sub-metric (0 or 1) is shown as primary in a card.
    Replays lastCurrent so the change is visible immediately. */
+/* eslint-disable-next-line no-unused-vars -- called from generated onclick handlers */
 function swapCard(id, idx) {
   cardPrimary[id] = idx;
   if (lastCurrent) updateCards(lastCurrent);
@@ -369,7 +370,7 @@ function updateCards(d) {
     document.getElementById('ttl').textContent = d.title;
   }
   if (d.show_footer !== undefined) {
-    var ftr = document.getElementById('ftr');
+    const ftr = document.getElementById('ftr');
     ftr.style.display = d.show_footer ? '' : 'none';
     if (d.version) document.getElementById('ftr-ver').textContent = d.version;
   }
@@ -391,7 +392,7 @@ function updateCards(d) {
   /* Chart visibility & ordering */
   if (d.charts !== undefined) {
     cfgVisCharts = d.charts === null ? null : d.charts;
-    var CHART_BOX = {
+    const CHART_BOX = {
       cpu_load:  'b-load',
       cpu_usage: 'b-cpu',
       memory:    'b-mem',
@@ -400,9 +401,9 @@ function updateCards(d) {
       net:       'b-net',
     };
     Object.keys(CHART_BOX).forEach(function(nm) {
-      var el  = document.getElementById(CHART_BOX[nm]);
+      const el  = document.getElementById(CHART_BOX[nm]);
       if (!el) return;
-      var idx = cfgVisCharts !== null ? cfgVisCharts.indexOf(nm) : -1;
+      const idx = cfgVisCharts !== null ? cfgVisCharts.indexOf(nm) : -1;
       /* Hide when excluded; CSS order drives the configured sequence */
       el.classList.toggle('hide', cfgVisCharts !== null && idx === -1);
       el.style.order = (cfgVisCharts !== null && idx !== -1) ? idx : '';
@@ -412,7 +413,7 @@ function updateCards(d) {
   /* Card visibility & ordering */
   if (d.cards !== undefined) {
     cfgVisCards = d.cards === null ? null : d.cards;
-    var CARD_EL = {
+    const CARD_EL = {
       cpu_load:  'c-load',
       cpu_usage: 'c-cpu',
       memory:    'c-mem',
@@ -422,10 +423,10 @@ function updateCards(d) {
       uptime:    'upt',
     };
     Object.keys(CARD_EL).forEach(function(nm) {
-      var el       = document.getElementById(CARD_EL[nm]);
+      const el       = document.getElementById(CARD_EL[nm]);
       if (!el) return;
-      var idx      = cfgVisCards !== null ? cfgVisCards.indexOf(nm) : -1;
-      var excluded = cfgVisCards !== null && idx === -1;
+      const idx      = cfgVisCards !== null ? cfgVisCards.indexOf(nm) : -1;
+      const excluded = cfgVisCards !== null && idx === -1;
       if (excluded)           el.style.display = 'none';
       /* Temperature visibility is driven by data (null sensor -> hidden),
          not by the cards config, so we never force it to display:'' here */
@@ -435,29 +436,29 @@ function updateCards(d) {
   }
 
   /* CPU Load */
-  var loadFmt = cfgCardUnits.load === '%'
+  const loadFmt = cfgCardUnits.load === '%'
     ? function(v) { return v.toFixed(1) + '%'; }
     : function(v) { return v.toFixed(2); };
-  var loadS = [
+  const loadS = [
     { label: '1m',  c: CLR.load1,  v: d.load_1m,  fmt: loadFmt },
     { label: '5m',  c: CLR.load5,  v: d.load_5m,  fmt: loadFmt },
     { label: '15m', c: CLR.load15, v: d.load_15m, fmt: loadFmt },
   ];
-  var lp = cardPrimary.load;
-  var lc = document.getElementById('c-load');
+  const lp = cardPrimary.load;
+  const lc = document.getElementById('c-load');
   /* "%" is normalized by cores (0-100); "abs" is raw load average */
-  var loadTh = cfgCardUnits.load === '%' ? [70, 90] : THRESH.load;
-  var lcLvl = cardLevel(d.load_1m, loadTh);
+  const loadTh = cfgCardUnits.load === '%' ? [70, 90] : THRESH.load;
+  const lcLvl = cardLevel(d.load_1m, loadTh);
   lc.className = 'card' + (lcLvl ? ' ' + lcLvl : '');
   lc.querySelector('.clabel').innerHTML =
     'CPU Load <span style="color:' + loadS[lp].c +
     ';font-size:10px">' + loadS[lp].label + '</span>';
   lc.querySelector('.cval').textContent =
     loadS[lp].v != null ? loadS[lp].fmt(loadS[lp].v) : '—';
-  var loadSub = '';
+  let loadSub = '';
   loadS.forEach(function(s, i) {
     if (i === lp || s.v == null) return;
-    var vc = lvlClr[cardLevel(s.v, loadTh)];
+    const vc = lvlClr[cardLevel(s.v, loadTh)];
     loadSub += (loadSub ? '&ensp;' : '') +
       subSpan(s.label, s.c,
         '<span style="color:' + vc + '">' + s.fmt(s.v) + '</span>',
@@ -467,20 +468,20 @@ function updateCards(d) {
 
   /* CPU Usage (absent on the first collect before a delta is available) */
   if (d.cpu_user_percent != null) {
-    var pctFmt = function(v) { return v.toFixed(1) + '%'; };
-    var cpuS = [
+    const pctFmt = function(v) { return v.toFixed(1) + '%'; };
+    const cpuS = [
       { label: 'user', c: CLR.user, v: d.cpu_user_percent,   fmt: pctFmt },
       { label: 'sys',  c: CLR.sys,  v: d.cpu_system_percent, fmt: pctFmt },
     ];
-    var cp    = cardPrimary.cpu;
-    var cc    = document.getElementById('c-cpu');
-    var ccLvl = cardLevel(d.cpu_user_percent, THRESH.cpu);
+    const cp    = cardPrimary.cpu;
+    const cc    = document.getElementById('c-cpu');
+    const ccLvl = cardLevel(d.cpu_user_percent, THRESH.cpu);
     cc.className = 'card' + (ccLvl ? ' ' + ccLvl : '');
     cc.querySelector('.clabel').innerHTML =
       'CPU Usage <span style="color:' + cpuS[cp].c +
       ';font-size:10px">' + cpuS[cp].label + '</span>';
     cc.querySelector('.cval').textContent = cpuS[cp].v != null ? cpuS[cp].fmt(cpuS[cp].v) : '—';
-    var cpuSub = '';
+    let cpuSub = '';
     cpuS.forEach(function(s, i) {
       if (i === cp || s.v == null) return;
       cpuSub = subSpan(s.label, s.c, s.fmt(s.v), 'swapCard(\'cpu\',' + i + ')');
@@ -491,33 +492,33 @@ function updateCards(d) {
   /* Memory */
   if (d.mem_percent != null) {
     /* When unit is absolute (MB/GB), show raw bytes; otherwise show % */
-    var memIsAbs = cfgCardUnits.mem !== '%';
-    var memFmt = memIsAbs
+    const memIsAbs = cfgCardUnits.mem !== '%';
+    const memFmt = memIsAbs
       ? function(v) {
           if (v == null) return '—';
           if (cfgCardUnits.mem === 'gb') return (v / 1024).toFixed(2) + ' GB';
           return v.toFixed(0) + ' MB';
         }
       : function(v) { return v.toFixed(1) + '%'; };
-    var memS = memIsAbs ? [
+    const memS = memIsAbs ? [
       { label: 'used',  c: CLR.mem,      v: d.mem_used,      fmt: memFmt },
       { label: 'avail', c: CLR.memAvail, v: d.mem_available, fmt: memFmt },
     ] : [
       { label: 'used',  c: CLR.mem,      v: d.mem_percent,       fmt: memFmt },
       { label: 'avail', c: CLR.memAvail, v: 100 - d.mem_percent, fmt: memFmt },
     ];
-    var mp = cardPrimary.mem;
-    var mc = document.getElementById('c-mem');
-    var mcLvl = cardLevel(d.mem_percent, THRESH.mem);
+    const mp = cardPrimary.mem;
+    const mc = document.getElementById('c-mem');
+    const mcLvl = cardLevel(d.mem_percent, THRESH.mem);
     mc.className = 'card' + (mcLvl ? ' ' + mcLvl : '');
     mc.querySelector('.clabel').innerHTML =
       'Memory <span style="color:' + memS[mp].c +
       ';font-size:10px">' + memS[mp].label + '</span>';
     mc.querySelector('.cval').textContent = memS[mp].fmt(memS[mp].v);
-    var memSub = '';
+    let memSub = '';
     memS.forEach(function(s, i) {
       if (i === mp) return;
-      var mvc = lvlClr[cardLevel(d.mem_percent, THRESH.mem)];
+      const mvc = lvlClr[cardLevel(d.mem_percent, THRESH.mem)];
       memSub = subSpan(s.label, s.c,
         '<span style="color:' + mvc + '">' + s.fmt(s.v) + '</span>',
         'swapCard(\'mem\',' + i + ')');
@@ -527,33 +528,33 @@ function updateCards(d) {
 
   /* Disk */
   if (d.disk_percent != null) {
-    var diskIsAbs = cfgCardUnits.disk !== '%';
-    var diskFmt = diskIsAbs
+    const diskIsAbs = cfgCardUnits.disk !== '%';
+    const diskFmt = diskIsAbs
       ? function(v) {
           if (v == null) return '—';
           if (cfgCardUnits.disk === 'tb') return (v / 1000).toFixed(2) + ' TB';
           return v.toFixed(1) + ' GB';
         }
       : function(v) { return v.toFixed(1) + '%'; };
-    var diskS = diskIsAbs ? [
+    const diskS = diskIsAbs ? [
       { label: 'used', c: CLR.disk,     v: d.disk_used, fmt: diskFmt },
       { label: 'free', c: CLR.diskFree, v: d.disk_free, fmt: diskFmt },
     ] : [
       { label: 'used', c: CLR.disk,     v: d.disk_percent,       fmt: diskFmt },
       { label: 'free', c: CLR.diskFree, v: 100 - d.disk_percent, fmt: diskFmt },
     ];
-    var dkp  = cardPrimary.disk;
-    var dcel = document.getElementById('c-disk');
-    var dcelLvl = cardLevel(d.disk_percent, THRESH.disk);
+    const dkp  = cardPrimary.disk;
+    const dcel = document.getElementById('c-disk');
+    const dcelLvl = cardLevel(d.disk_percent, THRESH.disk);
     dcel.className = 'card' + (dcelLvl ? ' ' + dcelLvl : '');
     dcel.querySelector('.clabel').innerHTML =
       'Disk <span style="color:' + diskS[dkp].c +
       ';font-size:10px">' + diskS[dkp].label + '</span>';
     dcel.querySelector('.cval').textContent = diskS[dkp].fmt(diskS[dkp].v);
-    var diskSub = '';
+    let diskSub = '';
     diskS.forEach(function(s, i) {
       if (i === dkp) return;
-      var dvc = lvlClr[cardLevel(d.disk_percent, THRESH.disk)];
+      const dvc = lvlClr[cardLevel(d.disk_percent, THRESH.disk)];
       diskSub = subSpan(s.label, s.c,
         '<span style="color:' + dvc + '">' + s.fmt(s.v) + '</span>',
         'swapCard(\'disk\',' + i + ')');
@@ -567,10 +568,10 @@ function updateCards(d) {
     document.getElementById('c-temp').style.display = '';
     /* Prefer the hardware critical trip-point (same unit as d.temp); warn at
        90% of it. Fall back to the fixed degC band when no trip point is known. */
-    var tempTh = d.temp_critical != null
+    const tempTh = d.temp_critical != null
       ? [0.9 * d.temp_critical, d.temp_critical]
       : THRESH.temp;
-    var tempLvl = cardLevel(d.temp, tempTh);
+    const tempLvl = cardLevel(d.temp, tempTh);
     setCard('c-temp', fmtTempVal(d.temp, cfgCardUnits.temp), null, tempLvl);
   }
   /* Store the critical trip-point for the chart reference line */
@@ -578,21 +579,21 @@ function updateCards(d) {
 
   /* Network */
   if (d.net_rx != null) {
-    var netS = [
+    const netS = [
       { label: '↑', c: CLR.tx, v: d.net_tx },
       { label: '↓', c: CLR.rx, v: d.net_rx },
     ];
-    var np = cardPrimary.net;
-    var nc = document.getElementById('c-net');
+    const np = cardPrimary.net;
+    const nc = document.getElementById('c-net');
     nc.className = 'card';
     nc.querySelector('.clabel').innerHTML =
       'Network <span style="color:' + netS[np].c +
       ';font-size:10px">' + netS[np].label + '</span>';
     nc.querySelector('.cval').textContent = fmtNet(netS[np].v, cfgCardUnits.net);
-    var netSub = '';
+    let netSub = '';
     netS.forEach(function(s, i) {
       if (i === np) return;
-      var oc = 'swapCard(\'net\',' + i + ')';
+      const oc = 'swapCard(\'net\',' + i + ')';
       netSub = subSpan(s.label, s.c, fmtNet(s.v, cfgCardUnits.net), oc);
     });
     nc.querySelector('.csub').innerHTML = netSub;
@@ -607,19 +608,19 @@ function updateCards(d) {
 /* --- Render all charts --- */
 
 function renderAll() {
-  var ts = pts.map(function(p) { return p.t; });
+  const ts = pts.map(function(p) { return p.t; });
 
   /* Derive display labels and axis unit keys from the configured units */
-  var memUL  = { 'mb': 'MB', 'gb': 'GB', '%': '%' }[cfgChartUnits.mem]  || 'MB';
-  var dskUL  = { 'gb': 'GB', 'tb': 'TB', '%': '%' }[cfgChartUnits.disk] || 'GB';
-  var tmpUK  = cfgChartUnits.temp[0] === '%' ? '%' : 'C';  /* axis key for fmtY */
-  var tmpSym = cfgChartUnits.temp[0] === 'f' ? '°F'
+  const memUL  = { 'mb': 'MB', 'gb': 'GB', '%': '%' }[cfgChartUnits.mem]  || 'MB';
+  const dskUL  = { 'gb': 'GB', 'tb': 'TB', '%': '%' }[cfgChartUnits.disk] || 'GB';
+  const tmpUK  = cfgChartUnits.temp[0] === '%' ? '%' : 'C';  /* axis key for fmtY */
+  const tmpSym = cfgChartUnits.temp[0] === 'f' ? '°F'
              : cfgChartUnits.temp[0] === '%' ? '%' : '°C';
-  var netUL  = {
+  const netUL  = {
     'mb': 'MB/s', 'gb': 'GB/s', 'mbps': 'Mbps', 'gbps': 'Gbps',
   }[cfgChartUnits.net] || 'MB/s';
 
-  var loadOpts = cfgChartUnits.load === '%'
+  const loadOpts = cfgChartUnits.load === '%'
     ? { yMin: 0, yMax: 100, unit: '%', ts: ts }
     : { yMin: 0, ts: ts };
 
@@ -690,7 +691,7 @@ function renderAll() {
     { yMin: 0, ts: ts, unit: cfgChartUnits.disk === '%' ? '%' : null });
 
   /* Temperature chart: only show when at least one point has a real value */
-  var tempVisible = pts.some(function(p) { return p.tp != null; }) &&
+  const tempVisible = pts.some(function(p) { return p.tp != null; }) &&
       (cfgVisCharts === null || cfgVisCharts.indexOf('temp') !== -1);
   document.getElementById('b-temp').classList.toggle('hide', !tempVisible);
   if (tempVisible) {
@@ -718,12 +719,12 @@ function renderAll() {
 /* Inject a legend strip into each chart header at startup */
 function buildLegends() {
   Object.keys(LEGENDS).forEach(function(id) {
-    var hdr  = document.getElementById(id).parentElement.querySelector('.chdr');
-    var wrap = document.createElement('div');
+    const hdr  = document.getElementById(id).parentElement.querySelector('.chdr');
+    const wrap = document.createElement('div');
     wrap.className = 'legend';
     wrap.id        = 'leg-' + id;
     LEGENDS[id].forEach(function(item, idx) {
-      var s = document.createElement('span');
+      const s = document.createElement('span');
       s.className = 'leg-item';
       s.innerHTML = '<span class="leg-dot" style="background:' + item.c + '"></span>'
                  + item.label;
@@ -737,16 +738,17 @@ function buildLegends() {
 
 function toggleSeries(id, idx) {
   seriesHidden[id][idx] = !seriesHidden[id][idx];
-  var items = document.getElementById('leg-' + id).querySelectorAll('.leg-item');
+  const items = document.getElementById('leg-' + id).querySelectorAll('.leg-item');
   items[idx].classList.toggle('off', seriesHidden[id][idx]);
   renderAll();
 }
 
 /* --- Theme toggle --- */
 
+/* eslint-disable-next-line no-unused-vars -- called from index.html onclick */
 function toggleTheme() {
-  var html    = document.documentElement;
-  var goLight = html.dataset.theme !== 'light';
+  const html    = document.documentElement;
+  const goLight = html.dataset.theme !== 'light';
   html.dataset.theme = goLight ? 'light' : 'dark';
   document.getElementById('thm').textContent = goLight ? '🌙 Dark' : '☀ Light';
   /* Redraw charts so canvas colors update to the new theme variables */
@@ -769,9 +771,9 @@ function metricsUrl(range, points) {
   return '/api/metrics?range=' + range + '&points=' + points;
 }
 
-var metricsRequestId = 0;
+let metricsRequestId = 0;
 function loadMetrics() {
-  var myId = ++metricsRequestId;
+  const myId = ++metricsRequestId;
   fetch(metricsUrl(curRange, 480)).then(function(r) {
     if (!r.ok) return;
     r.json().then(function(d) {
@@ -785,12 +787,12 @@ function loadMetrics() {
 /* --- Range tabs --- */
 
 function buildTabs() {
-  var el = document.getElementById('rngs');
+  const el = document.getElementById('rngs');
   el.innerHTML = '';
   /* If the previously selected range is no longer in the list, fall back */
   if (cfgRanges.indexOf(curRange) === -1) curRange = cfgRanges[0];
   cfgRanges.forEach(function(r) {
-    var b = document.createElement('button');
+    const b = document.createElement('button');
     b.textContent = r;
     if (r === curRange) b.classList.add('act');
     b.onclick = function() {
@@ -808,12 +810,12 @@ function buildTabs() {
 /* --- SSE live stream --- */
 
 function connectSSE() {
-  var es = new EventSource('/stream');
+  const es = new EventSource('/stream');
   es.onmessage = function(e) {
     try {
       updateCards(JSON.parse(e.data));
       loadMetrics();
-    } catch (ex) {}
+    } catch (e) { /* ignore a malformed SSE frame */ }
   };
   /* On any error (network drop, server restart) close and reconnect
      after 5 seconds to avoid hammering the server */
@@ -842,7 +844,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   connectSSE();
 
   /* Debounce canvas redraws on window resize to avoid per-pixel storms */
-  var resizeTimer;
+  let resizeTimer;
   window.addEventListener('resize', function() {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(renderAll, 100);

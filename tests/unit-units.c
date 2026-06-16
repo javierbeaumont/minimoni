@@ -33,7 +33,7 @@ static int approx(double a, double b)
     return d < 1e-9;
 }
 
-/* --- net_convert (bps -> mb/gb/mbps/gbps) ------------------------------ */
+/* --- net_convert (bps -> mb/gb/mbps/gbps) --- */
 
 static int test_net_mb(void) { return approx(net_convert(1048576.0, "mb"), 1.0) ? 0 : 1; }
 
@@ -48,7 +48,7 @@ static int test_net_null_defaults_mb(void)
     return approx(net_convert(1048576.0, NULL), 1.0) ? 0 : 1;
 }
 
-/* --- mem_convert / disk_convert ---------------------------------------- */
+/* --- mem_convert / disk_convert --- */
 
 static int test_mem_gb(void) { return approx(mem_convert(1024.0, "gb"), 1.0) ? 0 : 1; }
 
@@ -58,7 +58,7 @@ static int test_disk_tb(void) { return approx(disk_convert(1024.0, "tb"), 1.0) ?
 
 static int test_disk_gb_passthrough(void) { return approx(disk_convert(50.0, "gb"), 50.0) ? 0 : 1; }
 
-/* --- temp_convert (celsius -> c/f/%) ----------------------------------- */
+/* --- temp_convert (celsius -> c/f/%) --- */
 
 static int test_temp_celsius(void) { return approx(temp_convert(50.0, "c", 85.0), 50.0) ? 0 : 1; }
 
@@ -88,7 +88,7 @@ static int test_temp_percent_zero_ref_safe(void)
     return approx(temp_convert(50.0, "%", 0.0), 50.0) ? 0 : 1;
 }
 
-/* --- load_convert ------------------------------------------------------ */
+/* --- load_convert --- */
 
 static int test_load_percent(void) { return approx(load_convert(2.0, 4, "%"), 50.0) ? 0 : 1; }
 
@@ -99,7 +99,7 @@ static int test_load_percent_zero_cores_safe(void)
     return approx(load_convert(2.0, 0, "%"), 2.0) ? 0 : 1;
 }
 
-/* --- temp_ref (critical when valid, else fallback) --------------------- */
+/* --- temp_ref (critical when valid, else fallback) --- */
 
 static int test_temp_ref_uses_critical(void)
 {
@@ -108,7 +108,7 @@ static int test_temp_ref_uses_critical(void)
 
 static int test_temp_ref_falls_back(void) { return approx(temp_ref(0, 105.0, 85.0), 85.0) ? 0 : 1; }
 
-/* --- Runner ------------------------------------------------------------ */
+/* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
     T(net_mb),

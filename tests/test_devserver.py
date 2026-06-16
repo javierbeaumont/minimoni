@@ -20,15 +20,10 @@ Unit tests for the dev-server pure functions. Zero-dependency, no framework
 add cases here as more pure helpers appear. Run via `make test`.
 """
 
-import os
-import sys
+from os.path import abspath, dirname, join
+from sys import exit, path
 
-sys.path.insert(
-    0,
-    os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "..", "tools", "devserver"
-    ),
-)
+path.insert(0, join(dirname(abspath(__file__)), "..", "tools", "devserver"))
 
 from mock_data import _range_seconds, clamp_points  # noqa: E402
 from units import temp_convert, temp_ref  # noqa: E402
@@ -130,4 +125,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    exit(main())

@@ -158,6 +158,7 @@ static void read_temp_critical(http_ctx_t *ctx)
         char type[32] = {0};
         fgets(type, sizeof(type), f);
         fclose(f);
+        /* NOLINTNEXTLINE(clang-analyzer-security.ArrayBound) strcspn stays within type[32] */
         type[strcspn(type, "\n")] = '\0';
         if (strcmp(type, "critical") != 0)
             continue;

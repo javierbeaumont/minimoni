@@ -1,5 +1,5 @@
 /*
- * minimoni — zero-dependency system monitoring
+ * minimoni - zero-dependency system monitoring
  * Copyright (C) 2026 Javier Beaumont <javierbeaumont@users.noreply.github.com>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -24,7 +24,7 @@
 
 #include "metrics.h"
 
-/* --- CPU helpers --------------------------------------------------------- */
+/* --- CPU helpers --- */
 
 typedef struct {
     unsigned long long user, nice, system, idle, iowait, irq, softirq;
@@ -45,7 +45,7 @@ static int read_cpu_raw(cpu_raw_t *c)
     return ok ? 0 : -1;
 }
 
-/* --- Load average -------------------------------------------------------- */
+/* --- Load average --- */
 
 static int collect_load(metrics_t *m)
 {
@@ -58,7 +58,7 @@ static int collect_load(metrics_t *m)
     return ok ? 0 : -1;
 }
 
-/* --- CPU usage ----------------------------------------------------------- */
+/* --- CPU usage --- */
 
 static void collect_cpu(metrics_t *m)
 {
@@ -98,7 +98,7 @@ static void collect_cpu(metrics_t *m)
     m->cpu_valid = 1;
 }
 
-/* --- Memory -------------------------------------------------------------- */
+/* --- Memory --- */
 
 static int collect_mem(metrics_t *m)
 {
@@ -131,7 +131,7 @@ static int collect_mem(metrics_t *m)
     return 0;
 }
 
-/* --- Disk ---------------------------------------------------------------- */
+/* --- Disk --- */
 
 static int collect_disk(metrics_t *m, const char *disk_path)
 {
@@ -151,7 +151,7 @@ static int collect_disk(metrics_t *m, const char *disk_path)
     return 0;
 }
 
-/* --- Temperature --------------------------------------------------------- */
+/* --- Temperature --- */
 
 static void collect_temp(metrics_t *m)
 {
@@ -170,6 +170,7 @@ static void collect_temp(metrics_t *m)
         char type[32] = {0};
         fgets(type, sizeof(type), f);
         fclose(f);
+        /* NOLINTNEXTLINE(clang-analyzer-security.ArrayBound) strcspn stays within type[32] */
         type[strcspn(type, "\n")] = '\0';
 
         for (int p = 0; PREFERRED[p]; p++) {
@@ -201,7 +202,7 @@ static void collect_temp(metrics_t *m)
     m->temp_valid = 1;
 }
 
-/* --- Network ------------------------------------------------------------- */
+/* --- Network --- */
 
 static void collect_net(metrics_t *m)
 {
@@ -247,7 +248,7 @@ static void collect_net(metrics_t *m)
     m->net_tx_bytes = tx_total;
 }
 
-/* --- Uptime -------------------------------------------------------------- */
+/* --- Uptime --- */
 
 static int collect_uptime(metrics_t *m)
 {
@@ -260,7 +261,7 @@ static int collect_uptime(metrics_t *m)
     return ok ? 0 : -1;
 }
 
-/* --- Public API ---------------------------------------------------------- */
+/* --- Public API --- */
 
 int metrics_collect(metrics_t *m, const char *disk_path)
 {

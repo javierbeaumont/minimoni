@@ -1,0 +1,92 @@
+exclude: '^(vendor/|build/|\.dev/)'
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=100]
+      - id: check-case-conflict
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: check-symlinks
+      - id: destroyed-symlinks
+      - id: forbid-submodules
+      - id: check-yaml
+      - id: check-toml
+      - id: detect-private-key
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.17
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.2
+    hooks:
+      - id: codespell
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.1.0
+    hooks:
+      - id: mypy
+        files: '\.py$'
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+  - repo: https://github.com/Lucas-C/pre-commit-hooks
+    rev: v1.5.6
+    hooks:
+      - id: insert-license
+        name: insert-license (C/JS/CSS)
+        files: '\.(c|h|js|css)$'
+        args: [--license-filepath=tools/license-header.txt, '--comment-style=/*| *| */']
+      - id: insert-license
+        name: insert-license (shell/Python/Make)
+        files: '\.(sh|py)$|(^|/)Makefile$'
+        args: [--license-filepath=tools/license-header.txt, --comment-style=#]
+      - id: insert-license
+        name: insert-license (HTML/SVG)
+        files: '\.(html|svg)$'
+        args: [--license-filepath=tools/license-header.txt, '--comment-style=<!--|  |-->']
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v22.1.5
+    hooks:
+      - id: clang-format
+        files: '\.(c|h)$'
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v10.5.0
+    hooks:
+      - id: eslint
+        files: '\.js$'
+        additional_dependencies:
+          - eslint@10.5.0
+          - '@eslint/js@10.0.1'
+          - globals@17.6.0
+  # clang-tidy needs the musl toolchain + a generated build/embed.h, so it runs in
+  # Docker (see tools/clang-tidy.sh) at pre-push time to keep per-commit hooks fast.
+  - repo: local
+    hooks:
+      - id: clang-tidy
+        name: clang-tidy (Docker, src/)
+        entry: tools/clang-tidy.sh
+        language: script
+        files: '^src/.*\.[ch]$'
+        pass_filenames: false
+        stages: [pre-push]

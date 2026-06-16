@@ -57,9 +57,7 @@ int db_insert(db_t *db, const metrics_t *m);
  */
 int db_prune(db_t *db, int retention_days);
 
-/* -------------------------------------------------------------------------
- * Query API
- * ---------------------------------------------------------------------- */
+/* --- Query API --- */
 
 /* One row of metrics, either from the latest snapshot or from a range query. */
 typedef struct {
@@ -120,9 +118,7 @@ int db_count_range(db_t *db, long range_seconds);
  */
 void db_release_memory(db_t *db);
 
-/* -------------------------------------------------------------------------
- * Alert log
- * ---------------------------------------------------------------------- */
+/* --- Alert log --- */
 
 /*
  * Check whether alert_name fired within the last cooldown_seconds.

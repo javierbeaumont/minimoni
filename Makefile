@@ -35,7 +35,8 @@ BEARSSL_LIB = vendor/bearssl/build/libbearssl.a
 BEARSSL_INC = -Ivendor/bearssl/inc
 
 # SRC expands as modules are implemented
-SRC = src/main.c src/metrics.c src/db.c src/config.c src/http.c src/downsample.c src/units.c src/alerts.c
+SRC = src/main.c src/metrics.c src/db.c src/config.c \
+      src/http.c src/downsample.c src/units.c src/alerts.c
 VENDOR = vendor/sqlite3.c vendor/civetweb.c vendor/tomlc17.c
 
 # Vendored amalgamations carry upstream warnings we don't own (e.g. civetweb's
@@ -43,6 +44,8 @@ VENDOR = vendor/sqlite3.c vendor/civetweb.c vendor/tomlc17.c
 # check disabled so src/ stays strict under -Wall -Wextra. $(OPT) carries each
 # target's optimisation flags - run "make clean" when switching release/debug.
 VENDOR_OBJ = $(patsubst vendor/%.c,build/%.o,$(VENDOR))
+
+.PHONY: all embed release release-linux debug tidy test fmt clean
 
 all: embed minimoni
 
@@ -71,7 +74,8 @@ minimoni: $(SRC) $(VENDOR_OBJ) $(BEARSSL_LIB)
 release: OPT = -Os -flto=auto
 release: embed $(VENDOR_OBJ) $(BEARSSL_LIB)
 	$(CC) $(CFLAGS) -Os -flto=auto $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
-	  -Ivendor -Isrc -Ibuild -o minimoni $(SRC) $(VENDOR_OBJ) $(BEARSSL_LIB) $(LDFLAGS) -Wl,--gc-sections
+	  -Ivendor -Isrc -Ibuild -o minimoni $(SRC) $(VENDOR_OBJ) \
+	  $(BEARSSL_LIB) $(LDFLAGS) -Wl,--gc-sections
 	strip minimoni
 
 release-linux:
@@ -84,9 +88,8 @@ debug: embed $(VENDOR_OBJ) $(BEARSSL_LIB)
 	  $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) -Ivendor -Isrc -Ibuild \
 	  -o build/minimoni-debug $(SRC) $(VENDOR_OBJ) $(BEARSSL_LIB) $(LDFLAGS_DEBUG)
 
-lint:
-	docker run --rm -v "$(PWD)":/work -w /work alpine:latest \
-	  sh -c "apk add --quiet cppcheck && cppcheck --error-exitcode=1 --quiet src/"
+tidy:
+	pre-commit run clang-tidy --all-files --hook-stage pre-push
 
 # Unit tests: pure logic across C, Python and JS, all run inside Docker (never
 # the host). C suites (one per module) use the shared harness in tests/runner.h
@@ -109,12 +112,7 @@ test: tests/unit-config.c tests/unit-downsample.c tests/unit-units.c tests/runne
 	    python3 tests/test_devserver.py && node tests/dashboard.test.js"
 
 fmt:
-	find src -name '*.[ch]' | xargs $(CLANG_FORMAT) -i
-
-hooks:
-	cp hooks/pre-commit .git/hooks/pre-commit
-	chmod +x .git/hooks/pre-commit
-	@echo "pre-commit hook installed"
+	find src tests -name '*.[ch]' | xargs $(CLANG_FORMAT) -i
 
 clean:
 	rm -f minimoni

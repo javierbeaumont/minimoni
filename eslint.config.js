@@ -16,20 +16,25 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef MINIMONI_ALERTS_H
-#define MINIMONI_ALERTS_H
+const js = require("@eslint/js");
+const globals = require("globals");
 
-#include "config.h"
-#include "db.h"
-
-/*
- * Evaluate all configured alerts against the current metrics snapshot.
- * For each alert whose condition is met and whose cooldown has expired:
- *   - POSTs the webhook (if configured)
- *   - executes the command via system() with MINIMONI_ALERT_* env vars set
- *   - logs the fire event in alert_log
- * Individual failures are logged to stderr; the function always returns 0.
- */
-int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row);
-
-#endif /* MINIMONI_ALERTS_H */
+module.exports = [
+    js.configs.recommended,
+    {
+        languageOptions: { ecmaVersion: 2021, sourceType: "commonjs" },
+        rules: {
+            "no-unused-vars": ["error", { caughtErrors: "none" }],
+            "no-var": "error",
+            "prefer-const": "error",
+        },
+    },
+    {
+        files: ["dashboard/**/*.js"],
+        languageOptions: { globals: { ...globals.browser } },
+    },
+    {
+        files: ["tests/**/*.js", "eslint.config.js"],
+        languageOptions: { globals: { ...globals.node } },
+    },
+];
