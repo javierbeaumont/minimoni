@@ -1,5 +1,12 @@
 # <img src="dashboard/favicon.svg" alt="" width="18" height="18"> minimoni
 
+![Dependencies: 0][b-deps]
+![Binary ~1.2 MB][b-size]
+[![Tests][b-tests]][w-tests]
+[![Security analysis][b-sec]][w-sec]
+[![Latest release][b-rel]][rel]
+[![License: GPLv3][b-lic]][lic]
+
 Zero-dependency system monitoring in a single C binary. Collects CPU, memory, disk,
 temperature, and network metrics into SQLite and serves an interactive canvas dashboard.
 
@@ -97,6 +104,13 @@ chmod +x /usr/local/bin/minimoni
 
 Supported platforms: `linux-amd64` (x86\_64), `linux-arm64` (Raspberry Pi 3/4/5 and other
 64-bit AArch64 boards). A 64-bit OS is required; 32-bit (armv7) builds are not provided.
+
+The release binaries carry SLSA build provenance (SLSA Build Level 2): each is built on
+GitHub-hosted runners with a signed, verifiable attestation. Verify a download with:
+
+```sh
+gh attestation verify minimoni-linux-$ARCH --repo javierbeaumont/minimoni
+```
 
 ## Building
 
@@ -581,3 +595,15 @@ open a public issue for vulnerabilities).
 ## License
 
 GPL-3.0-or-later. See [LICENSE](LICENSE) for the full text.
+
+<!-- Badge definitions. The URLs below exceed 100 columns; a URL cannot be wrapped. -->
+[b-deps]: https://img.shields.io/badge/Dependencies-0-brightgreen
+[b-size]: https://img.shields.io/badge/Binary-~1.2_MB-blue
+[b-tests]: https://github.com/javierbeaumont/minimoni/actions/workflows/tests.yml/badge.svg
+[w-tests]: https://github.com/javierbeaumont/minimoni/actions/workflows/tests.yml
+[b-sec]: https://github.com/javierbeaumont/minimoni/actions/workflows/security-analysis.yml/badge.svg
+[w-sec]: https://github.com/javierbeaumont/minimoni/actions/workflows/security-analysis.yml
+[b-rel]: https://img.shields.io/github/v/release/javierbeaumont/minimoni?label=Release
+[rel]: https://github.com/javierbeaumont/minimoni/releases/latest
+[b-lic]: https://img.shields.io/badge/License-GPLv3-blue
+[lic]: https://github.com/javierbeaumont/minimoni/blob/main/LICENSE

@@ -34,7 +34,7 @@ module.exports = [
         languageOptions: { globals: { ...globals.browser } },
     },
     {
-        files: ["tests/**/*.js", "eslint.config.js"],
+        files: ["tests/**/*.js", "tools/**/*.js", "eslint.config.js"],
         languageOptions: { globals: { ...globals.node } },
     },
 ];

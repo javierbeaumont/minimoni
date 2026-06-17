@@ -26,6 +26,8 @@ For security-sensitive issues, see [SECURITY.md](SECURITY.md).
 - Keep commits small and focused. Format: `<module>: <imperative>` subject;
   keep the body minimal: subject-only unless it adds what the diff doesn't show.
 - Code must compile cleanly with `-Wall -Wextra` (`make`) and pass `make test`.
+- New functionality with testable logic should come with a test: add it under `tests/` so it
+  runs as part of `make test`.
 - Follow the existing K&R/Linux style (4-space indent, 100-col limit).
   A `.clang-format` is provided.
 - Sign your commits if possible (`git commit -S`).
@@ -69,7 +71,22 @@ make tidy                    # clang-tidy over src/ in Docker
 
 Every push and pull request to `main` runs three workflows: **Lint and static
 analysis** (the pre-commit checks above), **Tests** (`make test`), and **Security
-analysis** (CodeQL).
+analysis** (CodeQL). A fourth, **Supply-chain analysis** (OpenSSF Scorecard),
+runs on pushes to `main` and weekly to score the repository's security posture.
+
+## Vendored dependencies
+
+The dependencies (SQLite, civetweb, tomlc17, BearSSL) are vendored as source
+under `vendor/` and compiled into the binary. After bumping a vendored copy,
+regenerate the SBOM so it stays in sync:
+
+```sh
+node tools/gen-sbom.js > sbom.cdx.json
+```
+
+SQLite and civetweb versions are read from their headers automatically; update
+the pinned `tomlc17` / `bearssl` versions in `tools/gen-sbom.js` when those
+change. A `sbom-sync` pre-commit hook (and CI) fails if `sbom.cdx.json` drifts.
 
 ## Dashboard development
 

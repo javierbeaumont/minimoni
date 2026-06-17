@@ -1,0 +1,33 @@
+name: Supply-chain analysis
+
+on:
+  branch_protection_rule:
+  schedule:
+    - cron: '24 5 * * 1'   # Weekly: Mondays at 05:24 UTC
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# No workflow-level env or defaults: OpenSSF Scorecard's publish step rejects them.
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write          # publish results to the OpenSSF API
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true

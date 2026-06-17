@@ -79,6 +79,15 @@ repos:
           - eslint@10.5.0
           - '@eslint/js@10.0.1'
           - globals@17.6.0
+  - repo: local
+    hooks:
+      - id: sbom-sync
+        name: sbom.cdx.json matches vendored versions
+        entry: tools/gen-sbom.js
+        args: [--check]
+        language: script
+        pass_filenames: false
+        always_run: true
   # clang-tidy needs the musl toolchain + a generated build/embed.h, so it runs in
   # Docker (see tools/clang-tidy.sh) at pre-push time to keep per-commit hooks fast.
   - repo: local

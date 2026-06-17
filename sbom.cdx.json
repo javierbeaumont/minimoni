@@ -1,0 +1,73 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "type": "application",
+      "name": "minimoni",
+      "description": "Zero-dependency system monitoring in a single C binary"
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "name": "sqlite",
+      "version": "3.53.1",
+      "purl": "pkg:generic/sqlite@3.53.1",
+      "cpe": "cpe:2.3:a:sqlite:sqlite:3.53.1:*:*:*:*:*:*:*",
+      "licenses": [
+        {
+          "license": {
+            "name": "Public Domain"
+          }
+        }
+      ],
+      "description": "Vendored SQLite amalgamation, compiled in"
+    },
+    {
+      "type": "library",
+      "name": "civetweb",
+      "version": "1.16",
+      "purl": "pkg:generic/civetweb@1.16",
+      "cpe": "cpe:2.3:a:civetweb_project:civetweb:1.16:*:*:*:*:*:*:*",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "description": "Vendored civetweb HTTP server, compiled in"
+    },
+    {
+      "type": "library",
+      "name": "tomlc17",
+      "version": "R260517",
+      "purl": "pkg:generic/tomlc17@R260517",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "description": "Vendored tomlc17 TOML parser, compiled in"
+    },
+    {
+      "type": "library",
+      "name": "bearssl",
+      "version": "0.6",
+      "purl": "pkg:generic/bearssl@0.6",
+      "cpe": "cpe:2.3:a:bearssl:bearssl:0.6:*:*:*:*:*:*:*",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "description": "Vendored BearSSL TLS client, compiled in (outbound HTTPS webhooks)"
+    }
+  ]
+}
