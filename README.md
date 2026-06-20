@@ -150,10 +150,11 @@ make release-linux # builds inside an Alpine Docker container
 ## Running
 
 ```sh
-minimoni serve     # start HTTP server + background collector
-minimoni collect   # collect once and exit (for systemd timer or cron)
+minimoni serve             # start HTTP server + background collector
+minimoni collect           # collect once and exit (for systemd timer or cron)
+minimoni db info <db_path> # inspect a database file (read-only)
 minimoni --version
-minimoni --help    # usage summary (also -h)
+minimoni --help            # usage summary (also -h)
 ```
 
 `serve` binds to `0.0.0.0:8080` by default. Open `http://<host>:8080` in a browser.
@@ -163,6 +164,15 @@ To use a config file:
 ```sh
 minimoni serve --config /etc/minimoni/config.toml
 ```
+
+`db info` takes the path to a database file (not the config file) and prints a
+read-only report: the file size (plus any WAL/SHM sidecars), the format
+identifier (minimoni's schema version, or a hex id when the file is not a
+minimoni database), the row count with the oldest and newest timestamps and the
+time span they cover, the per-tier row distribution (or a note when the database
+uses an older schema without tiered consolidation), and a summary of the alert
+log. It opens the file read-only, so it is safe to run against the database of a
+live daemon.
 
 ## HTTP endpoints
 

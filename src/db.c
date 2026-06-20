@@ -28,14 +28,6 @@
 #define RETRY_COUNT 3
 #define RETRY_DELAY_NS (100 * 1000000L) /* 100 ms */
 
-/* SQLite header magic: ASCII "moni". Stamped into every database so tooling
- * (e.g. minimoni-migrate) can recognise the file via PRAGMA application_id.
- * user_version carries the schema version: 1 is the tiered write-time
- * consolidation schema (net rates + bucket_sec). Detection of older versions
- * and migration are deferred to a future commit. */
-#define MINIMONI_APPLICATION_ID 0x6D6F6E69
-#define MINIMONI_SCHEMA_VERSION 1
-
 /* --- SQL statements --- */
 
 static const char SQL_CREATE[] =
