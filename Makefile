@@ -103,8 +103,8 @@ tidy:
 # unit-config links tomlc17. The devserver (Python) and dashboard (JS) pure
 # helpers each get one suite; app.js guards its browser entry point so node can
 # require it for the pure helpers without a DOM.
-test: ci-image tests/unit-config.c tests/unit-downsample.c tests/unit-units.c tests/runner.h \
-      tests/test_devserver.py tests/dashboard.test.js
+test: ci-image tests/unit-config.c tests/unit-downsample.c tests/unit-units.c tests/unit-metrics.c tests/unit-db.c \
+      tests/runner.h tests/test_devserver.py tests/dashboard.test.js
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
 	  sh -c "apk add --quiet gcc musl-dev nodejs python3 && mkdir -p build && \
 	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Itests \
@@ -113,8 +113,12 @@ test: ci-image tests/unit-config.c tests/unit-downsample.c tests/unit-units.c te
 	      tests/unit-downsample.c -o build/unit-downsample-test && \
 	    gcc -Wall -Wextra -std=c11 -Isrc -Itests \
 	      tests/unit-units.c -o build/unit-units-test && \
+	    gcc -Wall -Wextra -std=c11 -Isrc -Itests \
+	      tests/unit-metrics.c -o build/unit-metrics-test && \
+	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Itests $(SQLITE_FLAGS) \
+	      tests/unit-db.c vendor/sqlite3.c -o build/unit-db-test -lpthread && \
 	    ./build/unit-config-test && ./build/unit-downsample-test && \
-	    ./build/unit-units-test && \
+	    ./build/unit-units-test && ./build/unit-metrics-test && ./build/unit-db-test && \
 	    python3 tests/test_devserver.py && node tests/dashboard.test.js"
 
 fmt:

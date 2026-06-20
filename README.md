@@ -42,15 +42,15 @@ at build time, so there are no files to deploy alongside the binary.
 
 ## How minimoni compares
 
-| | minimoni | [Beszel][b] | [Netdata][n] |
-|---|---|---|---|
-| RAM (daemon) | ~1.6 MB [1] | ~5-10 MB + ~75 MB hub | ~150-200 MB |
-| Architecture | single binary | agent + hub | agent (complex) |
-| Runtime deps | none | none | many |
-| Dashboard | yes (canvas) | yes (web UI) | yes (web UI) |
-| Persistent history | yes (SQLite) | yes (SQLite) | yes |
-| Alerts | yes (webhook + cmd) | yes | yes |
-| License | GPLv3+ | MIT | GPLv3+ / NCUL1 [2] |
+|                    | minimoni            | [Beszel][b]           | [Netdata][n]       |
+|--------------------|---------------------|-----------------------|--------------------|
+| RAM (daemon)       | ~1.6 MB [1]         | ~5-10 MB + ~75 MB hub | ~150-200 MB        |
+| Architecture       | single binary       | agent + hub           | agent (complex)    |
+| Runtime deps       | none                | none                  | many               |
+| Dashboard          | yes (canvas)        | yes (web UI)          | yes (web UI)       |
+| Persistent history | yes (SQLite)        | yes (SQLite)          | yes                |
+| Alerts             | yes (webhook + cmd) | yes                   | yes                |
+| License            | GPLv3+              | MIT                   | GPLv3+ / NCUL1 [2] |
 
 [1] Measured on a Raspberry Pi 3B (Raspberry Pi OS, kernel 6.18, arm64): ~1.6 MB PSS at idle
 and under sustained query load. The static musl build keeps a flat memory profile; it
@@ -72,17 +72,17 @@ Measured on a Raspberry Pi 3B (Cortex-A53, 1 GB RAM, Raspberry Pi OS, kernel 6.1
 with the CI-built static musl binary (`-Os -flto`), against a continuous ~50-day database
 (~72k rows at a 1-minute interval):
 
-| Metric | Value |
-|---|---:|
-| Binary size | 1.24 MB |
-| PSS (idle and under query load) | ~1.6 MB, flat |
-| CPU per collect cycle | ~11 ms (excl. the 250 ms intentional sleep for the CPU delta) |
-| Disk writes per 1-min cycle | 24 KiB (SQLite WAL) |
-| `/api/metrics?range=1d` | ~100 ms |
-| `/api/metrics?range=7d` | ~460 ms |
-| `/api/metrics?range=30d` | ~1.7 s |
-| `/api/metrics?range=90d` | ~3.0 s |
-| `/api/current`, `/api/health` | ~2 ms, ~1 ms |
+| Metric                          |                                                         Value |
+|---------------------------------|--------------------------------------------------------------:|
+| Binary size                     |                                                       1.24 MB |
+| PSS (idle and under query load) |                                                 ~1.6 MB, flat |
+| CPU per collect cycle           | ~11 ms (excl. the 250 ms intentional sleep for the CPU delta) |
+| Disk writes per 1-min cycle     |                                           24 KiB (SQLite WAL) |
+| `/api/metrics?range=1d`         |                                                       ~100 ms |
+| `/api/metrics?range=7d`         |                                                       ~460 ms |
+| `/api/metrics?range=30d`        |                                                        ~1.7 s |
+| `/api/metrics?range=90d`        |                                                        ~3.0 s |
+| `/api/current`, `/api/health`   |                                                  ~2 ms, ~1 ms |
 
 PSS does not grow under query load; the daemon self-trims rather than accumulating, and
 Swap stays at 0 throughout. Long-range query time scales with the number of rows in range.
@@ -166,18 +166,21 @@ minimoni serve --config /etc/minimoni/config.toml
 
 ## HTTP endpoints
 
-| Endpoint | Response | Purpose |
-|---|---|---|
-| `GET /` | Embedded HTML dashboard | Browser |
-| `GET /api/current` | JSON: latest collected values + config | Snapshot |
-| `GET /api/metrics?range=1d&points=480` | JSON: history grouped into ~`points` buckets | Charts |
-| `GET /api/health` | `{"status":"ok","version":"..."}` | Liveness probe |
-| `GET /stream` | SSE: live push every `refresh` seconds | Live updates |
+| Endpoint           | Response                                     | Purpose        |
+|--------------------|----------------------------------------------|----------------|
+| `GET /`            | Embedded HTML dashboard                      | Browser        |
+| `GET /api/current` | JSON: latest collected values + config       | Snapshot       |
+| `GET /api/metrics` | JSON: history grouped into ~`points` buckets | Charts         |
+| `GET /api/health`  | `{"status":"ok","version":"..."}`            | Liveness probe |
+| `GET /stream`      | SSE: live push every `refresh` seconds       | Live updates   |
 
-`range` accepts values from `[dashboard].ranges` (default `1d`, `7d`, `30d`, `90d`).
-`points` is optional; the server caps it at `1440` (one point per minute over a
-24h window) and defaults to `240` when the parameter is missing. The bundled
-dashboard passes an explicit value.
+`/api/metrics` takes two query parameters, e.g. `GET /api/metrics?range=1d&points=480`:
+
+- **`range`** - one of `[dashboard].ranges` (default `1d`, `7d`, `30d`, `90d`).
+- **`points`** - optional; how many buckets to group the history into. The server caps it
+  at `1440` (one point per minute over a 24h window, the design point of the tiered
+  consolidation ladder; see [ADR-0005](docs/adr/0005-tiered-consolidation.md)) and
+  defaults to `240` when omitted. The bundled dashboard passes an explicit value.
 
 ## Systemd setup
 
@@ -387,9 +390,10 @@ that order with 45-day retention). Sub-day ranges round up to 1 day for retentio
 
 The number of data points per chart is no longer a per-install setting - the dashboard
 JS asks for what it can render, via the `points` query parameter on `/api/metrics`
-(see [HTTP endpoints](#http-endpoints)). The server caps it at `1440` (one point per
-minute over 24h) and defaults to `240` if the parameter
-is missing.
+(see [HTTP endpoints](#http-endpoints)). The server caps it at `1440` - one point per
+minute over a 24h window, which is also the design point of the tiered consolidation
+ladder (see [ADR-0005](docs/adr/0005-tiered-consolidation.md)) - and defaults to `240`
+if the parameter is missing.
 
 ### Alerts
 
@@ -409,26 +413,26 @@ cooldown  = "1h"           # minimum time between repeated firings
 
 **Available metrics:**
 
-| Metric | Unit | Description |
-|---|---|---|
-| `load_1m` | load avg | 1-minute load average |
-| `load_5m` | load avg | 5-minute load average |
-| `load_15m` | load avg | 15-minute load average |
-| `cpu_user_percent` | % | User-space CPU usage |
-| `cpu_system_percent` | % | Kernel CPU usage |
-| `cpu_idle_percent` | % | Idle CPU |
-| `mem_total_mb` | MB | Total memory |
-| `mem_used_mb` | MB | Used memory |
-| `mem_available_mb` | MB | Available memory |
-| `mem_percent` | % | Used memory as percent of total |
-| `disk_total_gb` | GB | Total disk space |
-| `disk_used_gb` | GB | Used disk space |
-| `disk_free_gb` | GB | Free disk space |
-| `disk_percent` | % | Used disk as percent of total |
-| `temp_celsius` | C | CPU temperature (skipped if no sensor is present) |
-| `net_rx_bps` | bytes/s | Receive throughput |
-| `net_tx_bps` | bytes/s | Transmit throughput |
-| `uptime_seconds` | s | Seconds since boot |
+| Metric               | Unit     | Description                                       |
+|----------------------|----------|---------------------------------------------------|
+| `load_1m`            | load avg | 1-minute load average                             |
+| `load_5m`            | load avg | 5-minute load average                             |
+| `load_15m`           | load avg | 15-minute load average                            |
+| `cpu_user_percent`   | %        | User-space CPU usage                              |
+| `cpu_system_percent` | %        | Kernel CPU usage                                  |
+| `cpu_idle_percent`   | %        | Idle CPU                                          |
+| `mem_total_mb`       | MB       | Total memory                                      |
+| `mem_used_mb`        | MB       | Used memory                                       |
+| `mem_available_mb`   | MB       | Available memory                                  |
+| `mem_percent`        | %        | Used memory as percent of total                   |
+| `disk_total_gb`      | GB       | Total disk space                                  |
+| `disk_used_gb`       | GB       | Used disk space                                   |
+| `disk_free_gb`       | GB       | Free disk space                                   |
+| `disk_percent`       | %        | Used disk as percent of total                     |
+| `temp_celsius`       | C        | CPU temperature (skipped if no sensor is present) |
+| `net_rx_bps`         | bytes/s  | Receive throughput                                |
+| `net_tx_bps`         | bytes/s  | Transmit throughput                               |
+| `uptime_seconds`     | s        | Seconds since boot                                |
 
 Thresholds are compared against the raw metric value, in the unit named by its suffix:
 `_mb` is megabytes, `_gb` is gigabytes, `_percent` is a percentage, `_celsius` is degrees
@@ -559,12 +563,17 @@ See `config.example.toml` for a fully annotated reference.
 
 All four compile directly into the binary; no runtime dependencies, no package manager.
 
-| Library | Version | Purpose | License |
-|---|---|---|---|
-| [SQLite](https://www.sqlite.org/) | 3.53.1 | Single-file metric database | Public domain |
-| [civetweb](https://github.com/civetweb/civetweb) | 1.16 | Embedded HTTP server, JSON API | MIT |
-| [tomlc17](https://github.com/cktan/tomlc17) | R260517 | TOML configuration parser | MIT |
-| [BearSSL](https://bearssl.org/) | 0.6 | TLS client for HTTPS webhook delivery | MIT |
+| Library              | Version | Purpose                                 | License       |
+|----------------------|---------|-----------------------------------------|---------------|
+| [SQLite][SQLite]     | 3.53.1  | Single-file metric database             | Public domain |
+| [civetweb][civetweb] | 1.16    | Embedded HTTP server, JSON API          | MIT           |
+| [tomlc17][tomlc17]   | R260517 | TOML configuration parser               | MIT           |
+| [BearSSL][BearSSL]   | 0.6     | TLS client for HTTPS webhook delivery   | MIT           |
+
+[SQLite]: https://www.sqlite.org/
+[civetweb]: https://github.com/civetweb/civetweb
+[tomlc17]: https://github.com/cktan/tomlc17
+[BearSSL]: https://bearssl.org/
 
 ## Architecture Decision Records
 
@@ -572,12 +581,13 @@ Significant technology choices are documented as ADRs in [`docs/adr/`](docs/adr/
 record captures the context, the alternatives considered, the decision made, and its
 consequences, so future contributors understand not just what was chosen but why.
 
-| ADR | Decision |
-|---|---|
-| [0001](docs/adr/0001-sqlite.md) | SQLite as the metric store |
-| [0002](docs/adr/0002-civetweb.md) | civetweb as the HTTP server |
-| [0003](docs/adr/0003-tomlc17.md) | tomlc17 as the TOML parser |
-| [0004](docs/adr/0004-bearssl.md) | BearSSL for HTTPS webhook delivery |
+| ADR                                           | Decision                           |
+|-----------------------------------------------|------------------------------------|
+| [0001](docs/adr/0001-sqlite.md)               | SQLite as the metric store         |
+| [0002](docs/adr/0002-civetweb.md)             | civetweb as the HTTP server        |
+| [0003](docs/adr/0003-tomlc17.md)              | tomlc17 as the TOML parser         |
+| [0004](docs/adr/0004-bearssl.md)              | BearSSL for HTTPS webhook delivery |
+| [0005](docs/adr/0005-tiered-consolidation.md) | Tiered write-time consolidation    |
 
 ## Roadmap
 

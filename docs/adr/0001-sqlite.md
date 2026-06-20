@@ -15,11 +15,11 @@ for downsampling.
 
 ## Alternatives considered
 
-| Option | Reason rejected |
-|---|---|
-| RRDtool | External binary, not embeddable, no SQL query interface |
+| Option           | Reason rejected                                                   |
+|------------------|-------------------------------------------------------------------|
+| RRDtool          | External binary, not embeddable, no SQL query interface           |
 | Custom flat file | ~500+ lines for indexing, pruning, range queries, and aggregation |
-| In-memory only | No persistence across restarts |
+| In-memory only   | No persistence across restarts                                    |
 
 ## Decision
 

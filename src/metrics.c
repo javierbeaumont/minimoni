@@ -19,10 +19,12 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <errno.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/statvfs.h>
+#include <time.h>
 
 #include "metrics.h"
 
@@ -250,25 +252,39 @@ static void collect_temp(metrics_t *m)
 
 /* --- Network --- */
 
-static void collect_net(metrics_t *m)
+/* Snapshot of cumulative byte counters plus the monotonic instant they were
+ * sampled. The bps fields in metrics_t are computed from the delta between
+ * consecutive snapshots (same pattern as the CPU delta). The clock is
+ * monotonic with sub-second resolution: net throughput is a rate, so unlike
+ * the ratio-based CPU percentage it must divide by the real elapsed time, and
+ * the short inter-sample gap of one-shot collect mode must not round to zero. */
+typedef struct {
+    int64_t         rx, tx;
+    struct timespec t;
+} net_raw_t;
+
+static int       s_prev_net_valid = 0;
+static net_raw_t s_prev_net;
+
+/* Sum rx/tx bytes across all non-loopback interfaces in /proc/net/dev into
+ * *cur, stamping the sample with a monotonic timestamp. Returns 0 on success,
+ * -1 if the file cannot be read. */
+static int read_net_raw(net_raw_t *cur)
 {
+    cur->rx = 0;
+    cur->tx = 0;
+    clock_gettime(CLOCK_MONOTONIC, &cur->t);
+
     FILE *f = fopen("/proc/net/dev", "r");
-    if (!f) {
-        m->net_rx_bytes = 0;
-        m->net_tx_bytes = 0;
-        return;
-    }
+    if (!f)
+        return -1;
 
     /* skip the two header lines */
     char line[256];
     if (!fgets(line, sizeof(line), f) || !fgets(line, sizeof(line), f)) {
         fclose(f);
-        m->net_rx_bytes = 0;
-        m->net_tx_bytes = 0;
-        return;
+        return -1;
     }
-
-    long long rx_total = 0, tx_total = 0;
 
     while (fgets(line, sizeof(line), f)) {
         char *colon = strchr(line, ':');
@@ -291,13 +307,13 @@ static void collect_net(metrics_t *m)
         /* columns after ':' are rx_bytes rx_packets rx_errs rx_drop rx_fifo
          * rx_frame rx_compressed rx_multicast tx_bytes ...; keep rx_bytes
          * (column 0) and tx_bytes (column 8). */
-        char     *p = colon + 1;
-        long long cols[9];
-        int       ok = 1;
+        char   *p = colon + 1;
+        int64_t cols[9];
+        int     ok = 1;
         for (size_t i = 0; i < sizeof(cols) / sizeof(cols[0]); i++) {
             char *end;
             errno = 0;
-            cols[i] = strtoll(p, &end, 10);
+            cols[i] = (int64_t)strtoll(p, &end, 10);
             if (end == p || errno != 0) {
                 ok = 0;
                 break;
@@ -307,13 +323,50 @@ static void collect_net(metrics_t *m)
         if (!ok)
             continue;
 
-        rx_total += cols[0];
-        tx_total += cols[8];
+        cur->rx += cols[0];
+        cur->tx += cols[8];
     }
 
     fclose(f);
-    m->net_rx_bytes = rx_total;
-    m->net_tx_bytes = tx_total;
+    return 0;
+}
+
+/* Compute rx/tx throughput (bytes/s) from two consecutive snapshots. Returns 1
+ * and fills *rx_bps / *tx_bps on success; returns 0 (a gap) when elapsed time is
+ * not positive or a counter went backwards (interface reset or wrap). Pure: the
+ * sub-second-dt and counter-reset logic is exercised by tests/unit-metrics.c. */
+static int net_rate(const net_raw_t *prev, const net_raw_t *cur, double *rx_bps, double *tx_bps)
+{
+    double dt =
+        (double)(cur->t.tv_sec - prev->t.tv_sec) + (double)(cur->t.tv_nsec - prev->t.tv_nsec) / 1e9;
+    int64_t drx = cur->rx - prev->rx;
+    int64_t dtx = cur->tx - prev->tx;
+
+    if (dt <= 0.0 || drx < 0 || dtx < 0)
+        return 0;
+
+    *rx_bps = (double)drx / dt;
+    *tx_bps = (double)dtx / dt;
+    return 1;
+}
+
+static void collect_net(metrics_t *m)
+{
+    net_raw_t cur;
+    if (read_net_raw(&cur) != 0) {
+        m->net_valid = 0;
+        return;
+    }
+
+    if (!s_prev_net_valid) {
+        s_prev_net = cur;
+        s_prev_net_valid = 1;
+        m->net_valid = 0;
+        return;
+    }
+
+    m->net_valid = net_rate(&s_prev_net, &cur, &m->net_rx_bps, &m->net_tx_bps);
+    s_prev_net = cur;
 }
 
 /* --- Uptime --- */

@@ -37,24 +37,26 @@ typedef struct {
     int    temp_valid;
     double temp_celsius;
 
-    /* Network: cumulative bytes since boot, sum of all non-loopback interfaces */
-    long long net_rx_bytes, net_tx_bytes;
+    /* Network throughput in bytes/s, summed over all non-loopback interfaces.
+     * Computed from the delta between consecutive collect samples (like CPU);
+     * net_valid=0 on the first sample and after a counter reset. */
+    int    net_valid;
+    double net_rx_bps, net_tx_bps;
 
     /* Uptime */
     double uptime_seconds;
 } metrics_t;
 
-/*
- * Collect all metrics into m. disk_path is the filesystem to measure (e.g. "/").
+/* Collect all metrics into m. disk_path is the filesystem to measure (e.g. "/").
  *
- * CPU usage: uses a static snapshot for delta computation. On the first call,
- * cpu_valid is set to 0 and the snapshot is saved. On subsequent calls the
- * delta is computed and cpu_valid is set to 1.
+ * CPU usage and network throughput: use a static snapshot for delta
+ * computation. On the first call, cpu_valid / net_valid are set to 0 and the
+ * snapshot is saved. On subsequent calls the delta is computed and the
+ * corresponding valid flag is set to 1.
  *
  * Returns 0 on success. On non-fatal errors (missing temperature sensor,
  * unreadable network stats) the affected fields are zeroed and collection
- * continues. Returns -1 only if a required metric source is unavailable.
- */
+ * continues. Returns -1 only if a required metric source is unavailable. */
 int metrics_collect(metrics_t *m, const char *disk_path);
 
 #endif /* MINIMONI_METRICS_H */

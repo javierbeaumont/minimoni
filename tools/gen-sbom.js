@@ -114,7 +114,7 @@ const arg = process.argv[2];
 if (arg === "--check") {
     if (read("sbom.cdx.json") !== output) {
         console.error(
-            "gen-sbom: sbom.cdx.json is stale -- regenerate: node tools/gen-sbom.js > sbom.cdx.json");
+            "gen-sbom: sbom.cdx.json is stale; regenerate: node tools/gen-sbom.js > sbom.cdx.json");
         process.exit(1);
     }
 } else if (arg) {

@@ -11,11 +11,11 @@ stripping of unused features to keep the binary small.
 
 ## Alternatives considered
 
-| Option | Reason rejected |
-|---|---|
-| mongoose | `GPL-2.0-only`: incompatible with GPLv3+ (see below) |
-| libmicrohttpd | LGPL; ~95 source files, requires autotools (not vendorable as a file copy) |
-| Custom HTTP parser | ~500+ lines for keep-alive, chunked encoding, concurrent connections |
+| Option             | Reason rejected                                                            |
+|--------------------|----------------------------------------------------------------------------|
+| mongoose           | `GPL-2.0-only`: incompatible with GPLv3+ (see below)                       |
+| libmicrohttpd      | LGPL; ~95 source files, requires autotools (not vendorable as a file copy) |
+| Custom HTTP parser | ~500+ lines for keep-alive, chunked encoding, concurrent connections       |
 
 **On mongoose incompatibility:** mongoose is licensed `GPL-2.0-only`. GPLv3+ adds clauses
 (anti-tivoization, explicit patent grant) that GPLv2-only treats as "further restrictions",

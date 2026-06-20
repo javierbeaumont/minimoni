@@ -15,13 +15,20 @@ non-options.
 
 ## Alternatives considered
 
-| Option | Reason rejected |
-|---|---|
-| HTTP only | Rejected by most webhook endpoints; plaintext on the wire |
-| OpenSSL (system) | Runtime dependency; absent on minimal images and cross-compile targets |
-| mbedTLS | ~300 KB compiled; requires a platform configuration header; APACHE-2.0 (compatible) |
-| wolfSSL | ~100 KB but requires `--enable-*` flags and `user_settings.h`; GPL-2.0 (incompatible) |
-| Implement TLS manually | Not feasible; TLS 1.2/1.3 is ~2000 lines of correct cryptographic code |
+| Option                 | Reason rejected                                      |
+|------------------------|------------------------------------------------------|
+| HTTP only              | Rejected by webhook endpoints; plaintext on the wire |
+| OpenSSL (system)       | Runtime dependency; absent on minimal/cross images   |
+| mbedTLS                | ~300 KB; needs a platform config header; APACHE-2.0  |
+| wolfSSL                | ~100 KB; needs build flags + a generated header      |
+| Implement TLS manually | Not feasible; TLS 1.2/1.3 is ~2000 lines of crypto   |
+
+**On mbedTLS:** It is ~300 KB compiled and requires a platform configuration header;
+APACHE-2.0 is compatible with GPLv3+, but it carries the largest footprint of the options.
+
+**On wolfSSL:** It is ~100 KB compiled and GPLv3 (compatible with GPLv3+), but it requires
+`--enable-*` flags and a generated `user_settings.h`; BearSSL is smaller (~64 KB) and vendors
+as a self-contained static archive.
 
 ## Decision
 

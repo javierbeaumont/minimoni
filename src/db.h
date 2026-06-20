@@ -24,38 +24,48 @@
 
 typedef struct {
     sqlite3      *handle;
+    long          interval_sec; /* collect interval; stored as each raw row's bucket_sec */
     sqlite3_stmt *stmt_insert;
     sqlite3_stmt *stmt_prune_metrics;
     sqlite3_stmt *stmt_prune_alerts;
     sqlite3_stmt *stmt_alert_check; /* SELECT COUNT from alert_log by name + cutoff */
     sqlite3_stmt *stmt_alert_fire;  /* INSERT into alert_log */
+    char         *sql_consolidate;  /* built once in db_open from the tier table */
 } db_t;
 
-/*
- * Open (or create) the database at path. Enables WAL mode, sets cache
- * to 256 KB, creates the schema, stamps the "moni" application_id into the
- * file header, and prepares reusable statements.
- * Returns 0 on success, -1 on error (message written to stderr).
- */
-int db_open(db_t *db, const char *path);
+/* Open (or create) the database at path. Enables WAL mode, sets cache
+ * to 256 KB, creates the schema, stamps the "moni" application_id and the
+ * schema user_version into the file header, and prepares reusable statements.
+ * interval_sec is the collect interval, stored as the bucket_sec of raw rows.
+ * Returns 0 on success, -1 on error (message written to stderr). */
+int db_open(db_t *db, const char *path, long interval_sec);
 
 /* Finalize prepared statements and close the database handle. */
 void db_close(db_t *db);
 
-/*
- * Insert one metrics row timestamped at the current UTC second.
+/* Insert one metrics row timestamped at the current UTC second.
  * Fields gated by cpu_valid and temp_valid are stored as NULL when
  * invalid so they do not distort averages in downsampled queries.
  * Retries up to 3 times on SQLITE_BUSY with 100ms backoff.
- * Returns 0 on success, -1 on error.
- */
+ * Returns 0 on success, -1 on error. */
 int db_insert(db_t *db, const metrics_t *m);
 
-/*
- * Delete rows older than retention_days from metrics and alert_log.
- * Returns 0 on success, -1 on error.
- */
+/* Delete rows older than retention_days from metrics and alert_log.
+ * Returns 0 on success, -1 on error. */
 int db_prune(db_t *db, int retention_days);
+
+/* Run write-time tiered consolidation. Five transitions in a single
+ * BEGIN IMMEDIATE / COMMIT transaction:
+ *   Raw -> T1 (5s buckets, threshold 2h)
+ *   T1  -> T2 (30s, 12h)
+ *   T2  -> T3 (5m, 5d)
+ *   T3  -> T4 (1h, 60d)
+ *   T4  -> T5 (6h, 365d)
+ * Each transition is a no-op when no bucket is fully past its threshold
+ * (cheap index scan). Called once per collect cycle, after db_insert() and
+ * before db_prune(). See docs/adr/0005-tiered-consolidation.md.
+ * Returns 0 on success, -1 on error. */
+int db_consolidate(db_t *db);
 
 /* --- Query API --- */
 
@@ -84,53 +94,41 @@ typedef struct {
     double uptime_seconds;
 } db_row_t;
 
-/*
- * Fetch the most recent metrics row into *row.  Net throughput is computed
- * from the two most recent rows; net_valid=0 when only one row exists or
- * when the counter rolled over.
- * Returns 0 on success, 1 when the table is empty, -1 on error.
- */
+/* Fetch the most recent metrics row into *row.  Net throughput is read
+ * directly (rates are computed at collect time and stored), so a single-row
+ * read suffices; net_valid=0 when the stored rate is NULL.
+ * Returns 0 on success, 1 when the table is empty, -1 on error. */
 int db_current(db_t *db, db_row_t *row);
 
-/*
- * Query time-series data for the past range_seconds seconds.
+/* Query time-series data for the past range_seconds seconds.
  * bucket_sec=0  -> return raw rows (no aggregation).
  * bucket_sec>0  -> aggregate into buckets of that size (AVG per bucket).
- * Net throughput is computed via LAG() and exposed as bytes/s; negative
- * deltas (counter reset) become net_valid=0 in the returned rows.
+ * Net throughput is stored as bytes/s directly; bucketed queries AVG it like
+ * any other column, and rows whose stored rate is NULL have net_valid=0.
  *
  * On success allocates *out_rows on the heap (caller must free) and returns
- * the row count (>= 0).  Returns -1 on error.
- */
+ * the row count (>= 0).  Returns -1 on error. */
 int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_rows);
 
-/*
- * Return the number of raw rows in the past range_seconds seconds.
+/* Return the number of raw rows in the past range_seconds seconds.
  * Used by the HTTP handler to skip bucketing when fewer rows than the
  * target point count exist (progressive resolution at startup).
- * Returns the count (>= 0) on success, -1 on error.
- */
+ * Returns the count (>= 0) on success, -1 on error. */
 int db_count_range(db_t *db, long range_seconds);
 
-/*
- * Release SQLite's internal memory (page cache, temp buffers) back to
- * the allocator.  Call after heavy range queries to keep RSS in check.
- */
+/* Release SQLite's internal memory (page cache, temp buffers) back to
+ * the allocator.  Call after heavy range queries to keep RSS in check. */
 void db_release_memory(db_t *db);
 
 /* --- Alert log --- */
 
-/*
- * Check whether alert_name fired within the last cooldown_seconds.
+/* Check whether alert_name fired within the last cooldown_seconds.
  * Returns 0 if cooled down (safe to fire), 1 if still on cooldown,
- * -1 on database error.
- */
+ * -1 on database error. */
 int db_alert_on_cooldown(db_t *db, const char *alert_name, long cooldown_seconds);
 
-/*
- * Record a fire event for alert_name in alert_log with the current UTC time.
- * Returns 0 on success, -1 on error.
- */
+/* Record a fire event for alert_name in alert_log with the current UTC time.
+ * Returns 0 on success, -1 on error. */
 int db_alert_log_fire(db_t *db, const char *alert_name);
 
 #endif /* MINIMONI_DB_H */

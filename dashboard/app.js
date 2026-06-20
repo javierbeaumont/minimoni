@@ -58,7 +58,7 @@ let curRange     = '1d';    /* currently selected time range */
 let pts          = [];      /* array of data points from /api/metrics */
 let tempCritical = null;    /* sysfs trip-point; drawn as a red dashed line */
 /* Which sub-metric is shown as the primary value in each card.
-   0 = first option, 1 = second; toggled by clicking the sub-value. */
+ * 0 = first option, 1 = second; toggled by clicking the sub-value. */
 const cardPrimary  = { load: 0, cpu: 0, mem: 0, disk: 0, net: 0 };
 let lastCurrent  = null;    /* last /current snapshot; replayed on swapCard */
 
@@ -121,7 +121,7 @@ function drawChart(id, series, opts) {
   if (!cv) return;
 
   /* Scale the canvas backing store to the device pixel ratio so the
-     chart looks sharp on retina / HiDPI screens */
+   * chart looks sharp on retina / HiDPI screens */
   const dpr = devicePixelRatio || 1;
   const w   = cv.parentElement.clientWidth - 24;
   const h   = cv.clientHeight || 160;
@@ -269,7 +269,7 @@ function fmtX(t, span) {
 }
 
 /* Format uptime according to the configured unit (auto picks the
-   most readable granularity: days -> hours -> minutes) */
+ * most readable granularity: days -> hours -> minutes) */
 function fmtUptime(s) {
   if (cfgUptimeUnit === 'd') return 'up ' + (s / 86400).toFixed(1) + 'd';
   if (cfgUptimeUnit === 'h') return 'up ' + Math.floor(s / 3600) + 'h';
@@ -282,7 +282,7 @@ function fmtUptime(s) {
 }
 
 /* Format a network throughput value (MB/s internally) into the
-   configured display unit, automatically scaling to KB when small */
+ * configured display unit, automatically scaling to KB when small */
 function fmtNet(v, unit) {
   if (v == null) return '—';
   if (!unit || unit === 'mb') {
@@ -331,7 +331,7 @@ function setCard(id, val, sub, cls) {
 const lvlClr = { g: 'var(--grn)', y: 'var(--ylw)', r: 'var(--red)', '': 'inherit' };
 
 /* Swap which sub-metric (0 or 1) is shown as primary in a card.
-   Replays lastCurrent so the change is visible immediately. */
+ * Replays lastCurrent so the change is visible immediately. */
 /* eslint-disable-next-line no-unused-vars -- called from generated onclick handlers */
 function swapCard(id, idx) {
   cardPrimary[id] = idx;
@@ -429,7 +429,7 @@ function updateCards(d) {
       const excluded = cfgVisCards !== null && idx === -1;
       if (excluded)           el.style.display = 'none';
       /* Temperature visibility is driven by data (null sensor -> hidden),
-         not by the cards config, so we never force it to display:'' here */
+       * not by the cards config, so we never force it to display:'' here */
       else if (nm !== 'temp') el.style.display = '';
       el.style.order = (!excluded && idx !== -1) ? idx : '';
     });
@@ -563,11 +563,11 @@ function updateCards(d) {
   }
 
   /* Temperature - card is shown only when the server sends a non-null
-     value, meaning a real sensor was found at collection time */
+   * value, meaning a real sensor was found at collection time */
   if (d.temp != null && (cfgVisCards === null || cfgVisCards.indexOf('temp') !== -1)) {
     document.getElementById('c-temp').style.display = '';
     /* Prefer the hardware critical trip-point (same unit as d.temp); warn at
-       90% of it. Fall back to the fixed degC band when no trip point is known. */
+     * 90% of it. Fall back to the fixed degC band when no trip point is known. */
     const tempTh = d.temp_critical != null
       ? [0.9 * d.temp_critical, d.temp_critical]
       : THRESH.temp;
@@ -764,9 +764,9 @@ function loadCurrent() {
 }
 
 /* Build the /api/metrics URL. The default dashboard targets 480 points per
-   chart - 1 point per 4 backing pixels at 1920x1080 fullscreen, the threshold
-   where the eye no longer sees discreteness. A custom dashboard can compute its
-   own value from canvas width and pass it here; the server caps it at 5120. */
+ * chart - 1 point per 4 backing pixels at 1920x1080 fullscreen, the threshold
+ * where the eye no longer sees discreteness. A custom dashboard can compute its
+ * own value from canvas width and pass it here; the server caps it at 1440. */
 function metricsUrl(range, points) {
   return '/api/metrics?range=' + range + '&points=' + points;
 }
@@ -818,7 +818,7 @@ function connectSSE() {
     } catch (e) { /* ignore a malformed SSE frame */ }
   };
   /* On any error (network drop, server restart) close and reconnect
-     after 5 seconds to avoid hammering the server */
+   * after 5 seconds to avoid hammering the server */
   es.onerror = function() {
     es.close();
     setTimeout(connectSSE, 5000);
@@ -828,8 +828,8 @@ function connectSSE() {
 /* --- Init --- */
 
 /* Browser entry point: run the dashboard only inside a real document. Guarded
-   so the test harness (node) can require this file for its pure helpers without
-   a DOM present. */
+ * so the test harness (node) can require this file for its pure helpers without
+ * a DOM present. */
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   /* Set the correct initial button label based on the OS preference */
   if (!window.matchMedia('(prefers-color-scheme: dark)').matches) {
