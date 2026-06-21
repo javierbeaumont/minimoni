@@ -120,8 +120,9 @@ function drawChart(id, series, opts) {
   const cv = document.getElementById(id);
   if (!cv) return;
 
-  /* Scale the canvas backing store to the device pixel ratio so the
-   * chart looks sharp on retina / HiDPI screens */
+  /* Scale the canvas backing store to the device pixel ratio so the chart
+   * looks sharp on retina / HiDPI screens. Height is CSS-driven (read via
+   * clientHeight); JS only sets the width to match the panel. */
   const dpr = devicePixelRatio || 1;
   const w   = cv.parentElement.clientWidth - 24;
   const h   = cv.clientHeight || 160;
@@ -249,7 +250,10 @@ function fmtY(v, u) {
   return v < 10 ? v.toFixed(1) : v.toFixed(0);
 }
 
-/* Format a Unix timestamp as HH:MM */
+/* Format an X-axis label from the data span (seconds): <= 1h -> MM:SS,
+ * <= 2d -> HH:MM, <= 60d -> Mon DD, < 2y -> Mon 'YY, else YYYY. Boundaries
+ * are inclusive, so a 1d range (span = 86400 s exactly) lands in HH:MM,
+ * not Mon DD. */
 function fmtX(t, span) {
   if (!t) return '';
   const d  = new Date(t * 1000);
@@ -728,8 +732,20 @@ function buildLegends() {
       s.className = 'leg-item';
       s.innerHTML = '<span class="leg-dot" style="background:' + item.c + '"></span>'
                  + item.label;
+      s.setAttribute('tabindex', '0');
+      s.setAttribute('role', 'checkbox');
+      s.setAttribute('aria-checked', 'true');
+      s.setAttribute('aria-label', item.label + ' series');
       /* IIFE captures idx so each closure refers to its own series index */
-      s.onclick   = (function(i) { return function() { toggleSeries(id, i); }; })(idx);
+      s.onclick = (function(i) { return function() { toggleSeries(id, i); }; })(idx);
+      s.addEventListener('keydown', (function(i) {
+        return function(e) {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            toggleSeries(id, i);
+          }
+        };
+      })(idx));
       wrap.appendChild(s);
     });
     hdr.appendChild(wrap);
@@ -739,13 +755,14 @@ function buildLegends() {
 function toggleSeries(id, idx) {
   seriesHidden[id][idx] = !seriesHidden[id][idx];
   const items = document.getElementById('leg-' + id).querySelectorAll('.leg-item');
-  items[idx].classList.toggle('off', seriesHidden[id][idx]);
+  const item  = items[idx];
+  item.classList.toggle('off', seriesHidden[id][idx]);
+  item.setAttribute('aria-checked', seriesHidden[id][idx] ? 'false' : 'true');
   renderAll();
 }
 
 /* --- Theme toggle --- */
 
-/* eslint-disable-next-line no-unused-vars -- called from index.html onclick */
 function toggleTheme() {
   const html    = document.documentElement;
   const goLight = html.dataset.theme !== 'light';
@@ -763,18 +780,26 @@ function loadCurrent() {
   }).catch(function() {});
 }
 
-/* Build the /api/metrics URL. The default dashboard targets 480 points per
- * chart - 1 point per 4 backing pixels at 1920x1080 fullscreen, the threshold
- * where the eye no longer sees discreteness. A custom dashboard can compute its
- * own value from canvas width and pass it here; the server caps it at 1440. */
+/* Build the /api/metrics URL. points is computed by the caller from the canvas
+ * width (see clampPoints / loadMetrics); the server caps it at 1440. */
 function metricsUrl(range, points) {
   return '/api/metrics?range=' + range + '&points=' + points;
+}
+
+/* Points the canvas can resolve: 1 point per 4 backing pixels (the threshold
+ * where discreteness becomes invisible), clamped to [120, 1440] (the server
+ * cap, which is the consolidation ladder design point). */
+function clampPoints(width, dpr) {
+  return Math.min(1440, Math.max(120, Math.round(width * (dpr || 1) / 4)));
 }
 
 let metricsRequestId = 0;
 function loadMetrics() {
   const myId = ++metricsRequestId;
-  fetch(metricsUrl(curRange, 480)).then(function(r) {
+  const cv     = document.getElementById('g-load');
+  const w      = cv ? cv.parentElement.clientWidth - 24 : 800;
+  const points = clampPoints(w, devicePixelRatio);
+  fetch(metricsUrl(curRange, points)).then(function(r) {
     if (!r.ok) return;
     r.json().then(function(d) {
       if (myId !== metricsRequestId) return;   /* discard stale responses */
@@ -835,6 +860,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   if (!window.matchMedia('(prefers-color-scheme: dark)').matches) {
     document.getElementById('thm').textContent = '🌙 Dark';
   }
+  document.getElementById('thm').addEventListener('click', toggleTheme);
 
   buildLegends();
   buildTabs();
@@ -853,5 +879,13 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
 
 /* Export pure helpers for the test harness; a no-op in the browser. */
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { metricsUrl: metricsUrl };
+  module.exports = {
+    fmtY: fmtY,
+    fmtX: fmtX,
+    fmtNet: fmtNet,
+    fmtTempVal: fmtTempVal,
+    cardLevel: cardLevel,
+    metricsUrl: metricsUrl,
+    clampPoints: clampPoints
+  };
 }

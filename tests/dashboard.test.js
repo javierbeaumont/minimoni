@@ -16,22 +16,63 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/*
- * Unit tests for the dashboard pure helpers. Zero-dependency (node's stdlib
+/* Unit tests for the dashboard pure helpers. Zero-dependency (node's stdlib
  * assert + a tiny runner). app.js guards its browser entry point behind a
  * window/document check and exports its pure helpers, so it can be required
  * here without a DOM. One suite for the whole dashboard; add cases as more
- * pure helpers (fmtY, fmtNet, fmtX, ...) are touched. Run via `make test`.
- */
+ * pure helpers are touched. Run via `make test`. */
 
 'use strict';
+
+/* Pin the zone so fmtX (which formats a local-time Date) is deterministic. */
+process.env.TZ = 'UTC';
 
 const assert = require('assert');
 const path = require('path');
 
-const { metricsUrl } = require(path.join(__dirname, '..', 'dashboard', 'app.js'));
+const {
+  fmtY, fmtX, fmtNet, fmtTempVal, cardLevel, metricsUrl, clampPoints
+} = require(path.join(__dirname, '..', 'dashboard', 'app.js'));
+
+/* UI glyphs the formatters emit, built from code points so this test stays
+ * ASCII (the glyphs themselves live only in the dashboard sources). */
+const DEG = String.fromCharCode(0x00B0); /* degree sign */
+const EMD = String.fromCharCode(0x2014); /* em dash (null placeholder) */
 
 const TESTS = [
+  ['fmtY by magnitude and unit', function () {
+    assert.strictEqual(fmtY(8, ''), '8.0');
+    assert.strictEqual(fmtY(50, ''), '50');
+    assert.strictEqual(fmtY(50, '%'), '50%');
+    assert.strictEqual(fmtY(45, 'C'), '45' + DEG);
+  }],
+  ['fmtX picks granularity from span', function () {
+    const t = 1700000000;            /* 2023-11-14 22:13:20 UTC */
+    assert.strictEqual(fmtX(t, 3600), '13:20');
+    assert.strictEqual(fmtX(t, 86400 * 2), '22:13');
+    assert.strictEqual(fmtX(t, 86400 * 30), 'Nov 14');
+    assert.strictEqual(fmtX(t, 86400 * 365), "Nov '23");
+    assert.strictEqual(fmtX(t, 86400 * 800), '2023');
+    assert.strictEqual(fmtX(0, 3600), '');
+  }],
+  ['fmtNet scales and respects unit', function () {
+    assert.strictEqual(fmtNet(null, 'mb'), EMD);
+    assert.strictEqual(fmtNet(0.5, 'mb'), '512 KB/s');
+    assert.strictEqual(fmtNet(2.5, 'mb'), '2.50 MB/s');
+    assert.strictEqual(fmtNet(0.5, 'mbps'), '500 Kbps');
+    assert.strictEqual(fmtNet(2, 'gb'), '2.000 GB/s');
+  }],
+  ['fmtTempVal by unit', function () {
+    assert.strictEqual(fmtTempVal(45.5, 'c'), '45.5' + DEG + 'C');
+    assert.strictEqual(fmtTempVal(113, 'f'), '113.0' + DEG + 'F');
+    assert.strictEqual(fmtTempVal(80, '%'), '80.0%');
+  }],
+  ['cardLevel thresholds', function () {
+    assert.strictEqual(cardLevel(null, [70, 90]), '');
+    assert.strictEqual(cardLevel(50, [70, 90]), 'g');
+    assert.strictEqual(cardLevel(75, [70, 90]), 'y');
+    assert.strictEqual(cardLevel(95, [70, 90]), 'r');
+  }],
   ['metricsUrl basic', function () {
     assert.strictEqual(metricsUrl('7d', 480), '/api/metrics?range=7d&points=480');
   }],
@@ -40,6 +81,14 @@ const TESTS = [
   }],
   ['metricsUrl 90d', function () {
     assert.strictEqual(metricsUrl('90d', 1440), '/api/metrics?range=90d&points=1440');
+  }],
+  ['clampPoints scales by width and dpr', function () {
+    assert.strictEqual(clampPoints(800, 1), 200);
+    assert.strictEqual(clampPoints(800, 2), 400);
+  }],
+  ['clampPoints clamps to [120, 1440]', function () {
+    assert.strictEqual(clampPoints(100, 1), 120);
+    assert.strictEqual(clampPoints(100000, 1), 1440);
   }],
 ];
 

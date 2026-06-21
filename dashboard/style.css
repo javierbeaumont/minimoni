@@ -49,7 +49,7 @@
 }
 
 /* Automatic light theme when the OS preference is light and no explicit
-   theme has been set yet (i.e. the user hasn't clicked the toggle) */
+ * theme has been set yet (i.e. the user hasn't clicked the toggle) */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
     --bg:   #fafafa;
@@ -80,7 +80,7 @@
 body {
   background: var(--bg);
   color: var(--txt);
-  font: 14px/1.5 system-ui, sans-serif;
+  font: 0.875rem/1.5 system-ui, sans-serif;
   padding: 16px;
   overflow-x: clip;
 }
@@ -91,6 +91,7 @@ header {
   justify-content: space-between;
   margin-bottom: 20px;
   flex-wrap: wrap;
+  gap: 8px;
 }
 
 /* Right-hand header cluster: range tabs + theme toggle */
@@ -133,6 +134,13 @@ button.act {
   background: var(--acc);
   border-color: var(--acc);
   color: var(--act-txt);
+}
+
+/* Keyboard focus indicator: only shown for keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--acc);
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 
 /* --- Metric cards --- */
@@ -191,10 +199,11 @@ button.act {
 
 .charts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(650px, 1fr));
   gap: 14px;
 }
 
+/* Single column on screens too narrow for the 650px minimum */
 @media (max-width: 500px) {
   .charts {
     grid-template-columns: 1fr;
@@ -264,6 +273,12 @@ button.act {
 canvas {
   display: block;
   height: 160px;
+}
+
+@media (min-width: 900px) {
+  canvas {
+    height: 220px;
+  }
 }
 
 /* --- Footer --- */

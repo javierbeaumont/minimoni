@@ -15,7 +15,7 @@ and homelab servers) where every MB counts.
 
 - Single static binary (~1.2 MB), zero runtime dependencies, no package manager
 - CPU load and usage, memory, disk, temperature, network throughput, and uptime
-- Interactive canvas dashboard, dark/light theme, live updates via SSE
+- Interactive canvas dashboard, responsive, accessible, dark/light theme, live updates via SSE
 - SQLite storage with configurable retention
 - Webhook and command alerts with per-alert cooldown
 - TOML configuration, sensible defaults, works with zero config
@@ -190,7 +190,8 @@ live daemon.
 - **`points`** - optional; how many buckets to group the history into. The server caps it
   at `1440` (one point per minute over a 24h window, the design point of the tiered
   consolidation ladder; see [ADR-0005](docs/adr/0005-tiered-consolidation.md)) and
-  defaults to `240` when omitted. The bundled dashboard passes an explicit value.
+  defaults to `240` when omitted. The bundled dashboard computes it from the canvas
+  width (1 point per 4 backing pixels, clamped to `[120, 1440]`).
 
 ## Systemd setup
 
