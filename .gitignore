@@ -1,6 +1,8 @@
 # User-facing binaries (built at repo root for distribution)
 minimoni
 minimoni-linux-*
+minimoni-migrate
+minimoni-migrate-linux-*
 
 # Generated build outputs: everything `make` and `make debug` emit
 # (embed.h, minimoni-debug) goes into build/.

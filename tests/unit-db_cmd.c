@@ -269,6 +269,203 @@ static int test_dbinfo_v01(void)
                : 1;
 }
 
+/* --- db exec --- */
+
+/* Capture stdout AND stderr from db_cmd_exec into caller buffers; returns the
+ * exec exit code. dup2 to temp files (pipes would risk deadlock with no reader). */
+static int capture_exec(const char *db_path, const char *sql, char *out, size_t out_cap, char *err,
+                        size_t err_cap)
+{
+    char op[256], ep[256];
+    snprintf(op, sizeof(op), "/tmp/minimoni-exec-out-%d.txt", getpid());
+    snprintf(ep, sizeof(ep), "/tmp/minimoni-exec-err-%d.txt", getpid());
+
+    fflush(stdout);
+    fflush(stderr);
+    int   saved_out = dup(STDOUT_FILENO);
+    int   saved_err = dup(STDERR_FILENO);
+    FILE *of = fopen(op, "w+");
+    FILE *ef = fopen(ep, "w+");
+    if (saved_out < 0 || saved_err < 0 || !of || !ef) {
+        if (of)
+            fclose(of);
+        if (ef)
+            fclose(ef);
+        return -99;
+    }
+    dup2(fileno(of), STDOUT_FILENO);
+    dup2(fileno(ef), STDERR_FILENO);
+
+    int rc = db_cmd_exec(db_path, sql);
+
+    fflush(stdout);
+    fflush(stderr);
+    dup2(saved_out, STDOUT_FILENO);
+    dup2(saved_err, STDERR_FILENO);
+    close(saved_out);
+    close(saved_err);
+
+    rewind(of);
+    rewind(ef);
+    size_t no = fread(out, 1, out_cap - 1, of);
+    out[no] = '\0';
+    size_t ne = fread(err, 1, err_cap - 1, ef);
+    err[ne] = '\0';
+    fclose(of);
+    fclose(ef);
+    unlink(op);
+    unlink(ep);
+    return rc;
+}
+
+/* Create an empty, writable SQLite DB at a fresh temp path; NULL on error. */
+static const char *exec_db(void)
+{
+    const char *p = dbcmd_tmp();
+    sqlite3    *db = NULL;
+    if (sqlite3_open(p, &db) != SQLITE_OK) {
+        sqlite3_close(db);
+        return NULL;
+    }
+    sqlite3_close(db);
+    return p;
+}
+
+/* Remove the temp DB and its WAL/SHM sidecars. */
+static void exec_cleanup(const char *p)
+{
+    char side[300];
+    snprintf(side, sizeof(side), "%s-wal", p);
+    unlink(side);
+    snprintf(side, sizeof(side), "%s-shm", p);
+    unlink(side);
+    unlink(p);
+}
+
+static int test_exec_blob_rendering(void)
+{
+    const char *p = exec_db();
+    if (!p)
+        return 1;
+    char out[1024], err[1024];
+    int  rc = capture_exec(p, "SELECT X'deadbeef'", out, sizeof(out), err, sizeof(err));
+    int  fail = rc != 0 || strcmp(out, "X'DEADBEEF'\n") != 0;
+    exec_cleanup(p);
+    return fail;
+}
+
+static int test_exec_empty_script(void)
+{
+    const char *p = exec_db();
+    if (!p)
+        return 1;
+    char out[1024], err[1024];
+    int  rc = capture_exec(p, "   \n\t  ", out, sizeof(out), err, sizeof(err));
+    int  fail = rc != 0 || out[0] != '\0' || err[0] != '\0';
+    exec_cleanup(p);
+    return fail;
+}
+
+static int test_exec_multi_stmt_script(void)
+{
+    const char *p = exec_db();
+    if (!p)
+        return 1;
+    char out[1024], err[1024];
+    int  rc = capture_exec(p, "CREATE TABLE t(x INT); INSERT INTO t VALUES (1),(2),(3)", out,
+                           sizeof(out), err, sizeof(err));
+    int  fail = rc != 0 || out[0] != '\0' || err[0] != '\0';
+    exec_cleanup(p);
+    return fail;
+}
+
+static int test_exec_null_rendering(void)
+{
+    const char *p = exec_db();
+    if (!p)
+        return 1;
+    char out[1024], err[1024];
+    int  rc = capture_exec(p, "SELECT NULL", out, sizeof(out), err, sizeof(err));
+    int  fail = rc != 0 || strcmp(out, "NULL\n") != 0;
+    exec_cleanup(p);
+    return fail;
+}
+
+static int test_exec_open_error_returns_2(void)
+{
+    char out[1024], err[1024];
+    int  rc =
+        capture_exec("/nonexistent/path/to.db", "SELECT 1", out, sizeof(out), err, sizeof(err));
+    return (rc == 2 && strstr(err, "cannot open")) ? 0 : 1;
+}
+
+static int test_exec_select(void)
+{
+    const char *p = exec_db();
+    if (!p)
+        return 1;
+    char out[1024], err[1024];
+    int  rc = capture_exec(p, "SELECT 1, 'hi'", out, sizeof(out), err, sizeof(err));
+    int  fail = rc != 0 || strcmp(out, "1\thi\n") != 0;
+    exec_cleanup(p);
+    return fail;
+}
+
+static int test_exec_sql_error_returns_1(void)
+{
+    const char *p = exec_db();
+    if (!p)
+        return 1;
+    char out[1024], err[1024];
+    int rc = capture_exec(p, "SELECT * FROM nonexistent_table", out, sizeof(out), err, sizeof(err));
+    int fail = rc != 1 || strstr(err, "statement 1") == NULL;
+    exec_cleanup(p);
+    return fail;
+}
+
+static int test_exec_transaction_rollback(void)
+{
+    const char *p = exec_db();
+    if (!p)
+        return 1;
+    /* Seed a known row, then run a multi-stmt script that errors before COMMIT;
+     * the in-progress INSERT must roll back when the connection closes. */
+    sqlite3 *db = NULL;
+    if (sqlite3_open(p, &db) != SQLITE_OK ||
+        sqlite3_exec(db, "CREATE TABLE t(x INT); INSERT INTO t VALUES (1)", NULL, NULL, NULL) !=
+            SQLITE_OK) {
+        sqlite3_close(db);
+        exec_cleanup(p);
+        return 1;
+    }
+    sqlite3_close(db);
+
+    char out[1024], err[1024];
+    int  rc = capture_exec(p, "BEGIN; INSERT INTO t VALUES (99); SELECT * FROM nonexistent; COMMIT",
+                           out, sizeof(out), err, sizeof(err));
+    int  fail = (rc != 1);
+
+    if (!fail) {
+        sqlite3 *h = NULL;
+        int      seen = 0, bad = 0;
+        if (sqlite3_open_v2(p, &h, SQLITE_OPEN_READONLY, NULL) == SQLITE_OK) {
+            sqlite3_stmt *st = NULL;
+            if (sqlite3_prepare_v2(h, "SELECT x FROM t", -1, &st, NULL) == SQLITE_OK) {
+                while (sqlite3_step(st) == SQLITE_ROW) {
+                    seen++;
+                    if (sqlite3_column_int(st, 0) != 1)
+                        bad = 1;
+                }
+                sqlite3_finalize(st);
+            }
+            sqlite3_close(h);
+        }
+        fail = (seen != 1 || bad);
+    }
+    exec_cleanup(p);
+    return fail;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
@@ -284,6 +481,15 @@ static const test_t ALL_TESTS[] = {
     T(dbinfo_missing_file),
     T(dbinfo_no_metrics),
     T(dbinfo_v01),
+    /* db exec */
+    T(exec_blob_rendering),
+    T(exec_empty_script),
+    T(exec_multi_stmt_script),
+    T(exec_null_rendering),
+    T(exec_open_error_returns_2),
+    T(exec_select),
+    T(exec_sql_error_returns_1),
+    T(exec_transaction_rollback),
 };
 
 int main(void)

@@ -26,8 +26,8 @@
  * into every database so tooling (minimoni db info, minimoni-migrate) can
  * recognise the file via PRAGMA application_id. user_version carries the schema
  * version: 1 is the tiered write-time consolidation schema (net rates +
- * bucket_sec). Detection of older versions and migration are deferred to a
- * future commit. */
+ * bucket_sec). db_open refuses to run against a database at a different
+ * user_version; minimoni-migrate upgrades older databases. */
 #define MINIMONI_APPLICATION_ID 0x6D6F6E69
 #define MINIMONI_SCHEMA_VERSION 1
 

@@ -25,7 +25,7 @@ For security-sensitive issues, see [SECURITY.md](SECURITY.md).
 - Discuss in an issue before sending non-trivial PRs.
 - Keep commits small and focused. Format: `<module>: <imperative>` subject;
   keep the body minimal: subject-only unless it adds what the diff doesn't show.
-- Code must compile cleanly with `-Wall -Wextra` (`make`), pass `make test` and `make test-cli`.
+- Code must compile cleanly with `-Wall -Wextra` (`make`) and pass `make test` (unit + integration).
 - New functionality with testable logic should come with a test: add it under `tests/` so it
   runs as part of `make test`.
 - Follow the existing K&R/Linux style (4-space indent, 100-col limit).
@@ -35,11 +35,10 @@ For security-sensitive issues, see [SECURITY.md](SECURITY.md).
 ## Building and testing
 
 ```sh
-make embed    # bundle dashboard into build/embed.h
-make          # development build (-O2)
-make release  # release build (-Os -flto, stripped)
-make test     # run unit tests in Docker
-make test-cli # CLI integration tests (builds the binary) in Docker
+make embed   # bundle dashboard into build/embed.h
+make         # development build (-O2)
+make release # release build (-Os -flto, stripped)
+make test    # all tests (unit + integration) in Docker
 ```
 
 For release-equivalent binaries identical to the published ones, use the

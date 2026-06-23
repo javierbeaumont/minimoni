@@ -174,6 +174,33 @@ uses an older schema without tiered consolidation), and a summary of the alert
 log. It opens the file read-only, so it is safe to run against the database of a
 live daemon.
 
+## Upgrading
+
+minimoni versions the database schema (`PRAGMA user_version`). When you move to
+a release that changes it (e.g. v0.1 to v0.2, which adds tiered consolidation),
+the daemon refuses to start against the old database rather than corrupt it.
+Migrate it first with the bundled `minimoni-migrate` binary:
+
+```sh
+sudo systemctl stop minimoni
+minimoni-migrate --dry-run /var/lib/minimoni/metrics.db   # rehearse, no changes
+minimoni-migrate /var/lib/minimoni/metrics.db             # migrate (auto-backup)
+sudo systemctl start minimoni
+```
+
+`--dry-run` prints `status: up-to-date | migration-pending | blocked` and changes
+nothing, so a deploy can verify the upgrade will apply before swapping the binary.
+A real run snapshots to `<db>.backup-pre-migrate-vN` first (opt out: `--no-backup`).
+
+If migrate refuses with a schema-fingerprint mismatch, the database structure
+diverges from the canonical schema (e.g. a hand-added column or a different
+type). Review the reported diff, then either re-run with `--force` to accept the
+divergence (a backup is still taken), or restore the canonical schema by hand:
+inside a transaction, rename the table aside, recreate it with the canonical
+`CREATE TABLE` text, copy the rows back with an explicit column list, drop the
+old table, recreate the indexes, and commit. Re-run migrate afterwards; all rows
+are preserved.
+
 ## HTTP endpoints
 
 | Endpoint           | Response                                     | Purpose        |
@@ -599,6 +626,7 @@ consequences, so future contributors understand not just what was chosen but why
 | [0003](docs/adr/0003-tomlc17.md)              | tomlc17 as the TOML parser         |
 | [0004](docs/adr/0004-bearssl.md)              | BearSSL for HTTPS webhook delivery |
 | [0005](docs/adr/0005-tiered-consolidation.md) | Tiered write-time consolidation    |
+| [0006](docs/adr/0006-minimoni-migrate.md)     | Separate minimoni-migrate binary   |
 
 ## Roadmap
 

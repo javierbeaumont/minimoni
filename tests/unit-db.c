@@ -16,10 +16,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Unit tests for src/db.c write-time tiered consolidation (db_consolidate).
- * Zero-dependency, no framework; build with `make test`. The module under
- * test is #included directly so its helpers are exercisable, and the suite
- * links vendor/sqlite3.c to drive consolidation against a real database.
+/* Unit tests for src/db.c: db_open's validate-on-open state machine and the
+ * write-time tiered consolidation (db_consolidate). Zero-dependency, no
+ * framework; build with `make test`. The module under test is #included
+ * directly so its helpers are exercisable, and the suite links
+ * vendor/sqlite3.c to drive both against a real database.
  *
  * Rows are inserted with explicit timestamps (and, for the per-transition
  * regression tests, explicit bucket_sec) so consolidation can be exercised at
@@ -30,9 +31,11 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -571,9 +574,373 @@ static int test_consolidate_straddles_t4_t5(void)
     return (t5 == 0 && source == 5) ? 0 : 1;
 }
 
+/* --- db_open state machine (validate-on-open) -------------------------- */
+
+/* These tests drive db_open against each incoming database state and assert on
+ * the return code AND that the metadata pragmas are untouched on the refusal
+ * paths. The unmigrated-v0.1, foreign and outdated cases guard a regression
+ * where the daemon advanced the pragmas before failing prepare, leaving the DB
+ * in an inconsistent "user_version=1 but schema=v0" state. */
+
+static void temp_db_path(char *out, size_t out_size)
+{
+    snprintf(out, out_size, "/tmp/minimoni-test-dbopen-%d-%d.db", getpid(), g_db_counter++);
+}
+
+static void cleanup_db(const char *path)
+{
+    char wal[1024], shm[1024];
+    snprintf(wal, sizeof(wal), "%s-wal", path);
+    snprintf(shm, sizeof(shm), "%s-shm", path);
+    unlink(path);
+    unlink(wal);
+    unlink(shm);
+}
+
+/* Execute a SQL script on `path` using a fresh sqlite handle. Returns 0. */
+static int sql_exec(const char *path, const char *sql)
+{
+    sqlite3 *h = NULL;
+    if (sqlite3_open(path, &h) != SQLITE_OK) {
+        sqlite3_close(h);
+        return -1;
+    }
+    int rc = sqlite3_exec(h, sql, NULL, NULL, NULL);
+    sqlite3_close(h);
+    return (rc == SQLITE_OK) ? 0 : -1;
+}
+
+/* Read PRAGMA `name` into *out as long. Returns 0 on success. */
+static int read_pragma(const char *path, const char *name, long *out)
+{
+    sqlite3 *h = NULL;
+    if (sqlite3_open(path, &h) != SQLITE_OK) {
+        sqlite3_close(h);
+        return -1;
+    }
+    char query[64];
+    snprintf(query, sizeof(query), "PRAGMA %s", name);
+    sqlite3_stmt *stmt = NULL;
+    int           rc = -1;
+    if (sqlite3_prepare_v2(h, query, -1, &stmt, NULL) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            *out = (long)sqlite3_column_int64(stmt, 0);
+            rc = 0;
+        }
+        sqlite3_finalize(stmt);
+    }
+    sqlite3_close(h);
+    return rc;
+}
+
+/* DB resembling minimoni v0.1: a metrics table without bucket_sec/net_*bps,
+ * user_version still 0. Stamps the moni application_id because the v0.1 daemon
+ * already does, so this is "needs migrate", not "foreign". */
+static int make_db_v01(const char *path)
+{
+    char sql[256];
+    snprintf(sql, sizeof(sql),
+             "PRAGMA application_id = %d;"
+             "CREATE TABLE metrics (timestamp TEXT NOT NULL, load_1m REAL);"
+             "INSERT INTO metrics VALUES ('2026-01-01T00:00:00Z', 0.5);",
+             MINIMONI_APPLICATION_ID);
+    return sql_exec(path, sql);
+}
+
+/* DB at the current v0.2 schema with the correct pragmas. */
+static int make_db_v02(const char *path)
+{
+    char sql[2048];
+    snprintf(sql, sizeof(sql),
+             "PRAGMA application_id = %d;"
+             "PRAGMA user_version = %d;"
+             "CREATE TABLE metrics ("
+             "  timestamp TEXT NOT NULL,"
+             "  load_1m REAL, load_5m REAL, load_15m REAL,"
+             "  cpu_user_percent REAL, cpu_system_percent REAL, cpu_idle_percent REAL,"
+             "  mem_total_mb REAL, mem_used_mb REAL, mem_available_mb REAL, mem_percent REAL,"
+             "  disk_total_gb REAL, disk_used_gb REAL, disk_free_gb REAL, disk_percent REAL,"
+             "  temp_celsius REAL,"
+             "  net_rx_bps REAL, net_tx_bps REAL,"
+             "  uptime_seconds REAL,"
+             "  bucket_sec INTEGER"
+             ");"
+             "CREATE INDEX idx_metrics_ts ON metrics(timestamp);"
+             "CREATE TABLE alert_log (alert_name TEXT NOT NULL, fired_at TEXT NOT NULL);"
+             "CREATE INDEX idx_alert_log_name ON alert_log(alert_name);",
+             MINIMONI_APPLICATION_ID, MINIMONI_SCHEMA_VERSION);
+    return sql_exec(path, sql);
+}
+
+/* DB belonging to another application (custom application_id, not moni). */
+static int make_db_foreign(const char *path, int app_id)
+{
+    char sql[256];
+    snprintf(sql, sizeof(sql),
+             "PRAGMA application_id = %d;"
+             "CREATE TABLE metrics (timestamp TEXT);",
+             app_id);
+    return sql_exec(path, sql);
+}
+
+/* minimoni-flavoured DB with a user_version unknown to this build. */
+static int make_db_outdated(const char *path, int version)
+{
+    char sql[256];
+    snprintf(sql, sizeof(sql),
+             "PRAGMA application_id = %d;"
+             "PRAGMA user_version = %d;"
+             "CREATE TABLE metrics (timestamp TEXT);",
+             MINIMONI_APPLICATION_ID, version);
+    return sql_exec(path, sql);
+}
+
+/* 1. Fresh install: no file, so the daemon creates the schema and writes the
+ *    version pragmas. */
+static int test_db_open_fresh_install(void)
+{
+    char path[256];
+    temp_db_path(path, sizeof(path));
+    cleanup_db(path);
+
+    db_t db;
+    int  rc = db_open(&db, path, 60);
+    int  ok = (rc == 0);
+    if (ok) {
+        long app_id = -1, version = -1;
+        ok = (read_pragma(path, "application_id", &app_id) == 0 &&
+              app_id == MINIMONI_APPLICATION_ID &&
+              read_pragma(path, "user_version", &version) == 0 &&
+              version == MINIMONI_SCHEMA_VERSION);
+        db_close(&db);
+    }
+    cleanup_db(path);
+    return ok ? 0 : 1;
+}
+
+/* 2. Pre-existing v0.2 DB with correct pragmas: daemon proceeds silently. */
+static int test_db_open_existing_v02_ok(void)
+{
+    char path[256];
+    temp_db_path(path, sizeof(path));
+    cleanup_db(path);
+    if (make_db_v02(path) != 0) {
+        cleanup_db(path);
+        return 1;
+    }
+
+    db_t db;
+    int  rc = db_open(&db, path, 60);
+    int  ok = (rc == 0);
+    if (ok) {
+        long app_id = -1, version = -1;
+        ok = (read_pragma(path, "application_id", &app_id) == 0 &&
+              app_id == MINIMONI_APPLICATION_ID &&
+              read_pragma(path, "user_version", &version) == 0 &&
+              version == MINIMONI_SCHEMA_VERSION);
+        db_close(&db);
+    }
+    cleanup_db(path);
+    return ok ? 0 : 1;
+}
+
+/* 3. minimoni v0.1 DB (moni stamped, user_version=0, schema lacks the v0.2
+ *    columns): daemon refuses and tells the operator to run migrate, without
+ *    advancing the pragmas. */
+static int test_db_open_unmigrated_v01(void)
+{
+    char path[256];
+    temp_db_path(path, sizeof(path));
+    cleanup_db(path);
+    if (make_db_v01(path) != 0) {
+        cleanup_db(path);
+        return 1;
+    }
+
+    db_t db;
+    int  rc = db_open(&db, path, 60);
+    int  refused = (rc != 0);
+
+    long app_id = -1, version = -1;
+    int  pragmas_unchanged =
+        (read_pragma(path, "application_id", &app_id) == 0 && app_id == MINIMONI_APPLICATION_ID &&
+         read_pragma(path, "user_version", &version) == 0 && version == 0);
+
+    cleanup_db(path);
+    return (refused && pragmas_unchanged) ? 0 : 1;
+}
+
+/* 4. Foreign DB (application_id not moni): daemon refuses, leaves the pragmas
+ *    alone. */
+static int test_db_open_foreign_app_id(void)
+{
+    char path[256];
+    temp_db_path(path, sizeof(path));
+    cleanup_db(path);
+    if (make_db_foreign(path, 12345) != 0) {
+        cleanup_db(path);
+        return 1;
+    }
+
+    db_t db;
+    int  rc = db_open(&db, path, 60);
+    int  refused = (rc != 0);
+
+    long app_id = -1;
+    int  pragmas_unchanged = (read_pragma(path, "application_id", &app_id) == 0 && app_id == 12345);
+
+    cleanup_db(path);
+    return (refused && pragmas_unchanged) ? 0 : 1;
+}
+
+/* 5. minimoni DB with an unknown future user_version: daemon refuses. */
+static int test_db_open_outdated_minimoni(void)
+{
+    char path[256];
+    temp_db_path(path, sizeof(path));
+    cleanup_db(path);
+    if (make_db_outdated(path, 99) != 0) {
+        cleanup_db(path);
+        return 1;
+    }
+
+    db_t db;
+    int  rc = db_open(&db, path, 60);
+    int  refused = (rc != 0);
+
+    long version = -1;
+    int  pragmas_unchanged = (read_pragma(path, "user_version", &version) == 0 && version == 99);
+
+    cleanup_db(path);
+    return (refused && pragmas_unchanged) ? 0 : 1;
+}
+
+/* 6. Repeated failed opens never advance the pragmas, even after many
+ *    attempts. */
+static int test_db_open_pragmas_unchanged_on_refuse(void)
+{
+    char path[256];
+    temp_db_path(path, sizeof(path));
+    cleanup_db(path);
+    if (make_db_v01(path) != 0) {
+        cleanup_db(path);
+        return 1;
+    }
+
+    db_t db;
+    for (int i = 0; i < 5; i++)
+        (void)db_open(&db, path, 60);
+
+    long app_id = -1, version = -1;
+    int  ok =
+        (read_pragma(path, "application_id", &app_id) == 0 && app_id == MINIMONI_APPLICATION_ID &&
+         read_pragma(path, "user_version", &version) == 0 && version == 0);
+
+    cleanup_db(path);
+    return ok ? 0 : 1;
+}
+
+/* 7. File exists but contains garbage (not a SQLite file): no crash. */
+static int test_db_open_corrupt_file(void)
+{
+    char path[256];
+    temp_db_path(path, sizeof(path));
+    cleanup_db(path);
+
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0)
+        return 1;
+    const char garbage[] = "This is not a SQLite database, just garbage bytes\n";
+    if (write(fd, garbage, sizeof(garbage) - 1) < 0) {
+        close(fd);
+        cleanup_db(path);
+        return 1;
+    }
+    close(fd);
+
+    db_t db;
+    int  rc = db_open(&db, path, 60);
+    /* Either accepted (SQLite is permissive about file format on some
+     * versions) or refused: both are non-crashing, which is what we test. If
+     * accepted, close cleanly. */
+    if (rc == 0)
+        db_close(&db);
+
+    cleanup_db(path);
+    return 0;
+}
+
+/* 8. Path points at a directory: sqlite3_open fails, db_open returns non-zero,
+ *    no crash. */
+static int test_db_open_directory_as_path(void)
+{
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/minimoni-test-dbopen-dir-%d", getpid());
+    rmdir(path);
+    if (mkdir(path, 0755) != 0)
+        return 1;
+
+    db_t db;
+    int  rc = db_open(&db, path, 60);
+    int  refused = (rc != 0);
+
+    rmdir(path);
+    return refused ? 0 : 1;
+}
+
+/* 9. Fresh install + close + reopen: the second open goes through the
+ *    existed_before branch and proceeds OK. */
+static int test_db_open_reopen_after_fresh(void)
+{
+    char path[256];
+    temp_db_path(path, sizeof(path));
+    cleanup_db(path);
+
+    db_t db;
+    int  rc1 = db_open(&db, path, 60);
+    if (rc1 != 0) {
+        cleanup_db(path);
+        return 1;
+    }
+    db_close(&db);
+
+    int rc2 = db_open(&db, path, 60);
+    int ok = (rc2 == 0);
+    if (ok)
+        db_close(&db);
+
+    cleanup_db(path);
+    return ok ? 0 : 1;
+}
+
+/* 10. Path points inside a non-existent directory: sqlite3_open fails, no .db
+ *     file ever gets created. */
+static int test_db_open_path_in_nonexistent_dir(void)
+{
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/minimoni-nonexistent-%d/foo.db", getpid());
+
+    db_t db;
+    int  rc = db_open(&db, path, 60);
+    int  refused = (rc != 0);
+
+    return refused ? 0 : 1;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
+    /* db_open validate-on-open state machine */
+    T(db_open_fresh_install),
+    T(db_open_existing_v02_ok),
+    T(db_open_unmigrated_v01),
+    T(db_open_foreign_app_id),
+    T(db_open_outdated_minimoni),
+    T(db_open_pragmas_unchanged_on_refuse),
+    T(db_open_corrupt_file),
+    T(db_open_directory_as_path),
+    T(db_open_reopen_after_fresh),
+    T(db_open_path_in_nonexistent_dir),
     /* db_insert and query round-trip */
     T(db_insert_roundtrip),
     T(db_insert_null_gating),
@@ -592,4 +959,10 @@ static const test_t ALL_TESTS[] = {
     T(consolidate_straddles_t4_t5),
 };
 
-int main(void) { return run_tests(ALL_TESTS, sizeof(ALL_TESTS) / sizeof(ALL_TESTS[0])); }
+int main(void)
+{
+    /* Silence db_open's diagnostics so the test output stays readable. */
+    if (!freopen("/dev/null", "w", stderr))
+        return 2;
+    return run_tests(ALL_TESTS, sizeof(ALL_TESTS) / sizeof(ALL_TESTS[0]));
+}

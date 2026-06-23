@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 
 #include "db.h"
@@ -86,6 +87,24 @@ static int step_with_retry(sqlite3_stmt *stmt)
     return rc;
 }
 
+/* Read a single-row integer-valued PRAGMA into *out. Returns 0 on success,
+ * -1 if the prepare or step failed (in which case *out is untouched). */
+static int read_pragma_long(sqlite3 *handle, const char *pragma_name, long *out)
+{
+    char query[64];
+    snprintf(query, sizeof(query), "PRAGMA %s", pragma_name);
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(handle, query, -1, &stmt, NULL) != SQLITE_OK)
+        return -1;
+    int rc = -1;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        *out = (long)sqlite3_column_int64(stmt, 0);
+        rc = 0;
+    }
+    sqlite3_finalize(stmt);
+    return rc;
+}
+
 /* Forward declaration; definition lives next to db_consolidate. */
 static char *build_consolidate_sql(void);
 
@@ -95,6 +114,15 @@ int db_open(db_t *db, const char *path, long interval_sec)
 {
     memset(db, 0, sizeof(*db));
     db->interval_sec = interval_sec;
+
+    /* Detect whether the file existed BEFORE sqlite3_open touches it.
+     * sqlite3_open creates a fresh empty database if the path is missing,
+     * which is the only case where the daemon is allowed to author the
+     * schema and pragmas itself. Any pre-existing file must come from either
+     * an in-version daemon (proceed) or a prior schema the operator needs to
+     * migrate explicitly (refuse to start). */
+    struct stat st;
+    int         existed_before = (stat(path, &st) == 0);
 
     if (sqlite3_open(path, &db->handle) != SQLITE_OK) {
         fprintf(stderr, "db: cannot open %s: %s\n", path, sqlite3_errmsg(db->handle));
@@ -111,19 +139,60 @@ int db_open(db_t *db, const char *path, long interval_sec)
     }
     sqlite3_exec(db->handle, "PRAGMA cache_size=-256", NULL, NULL, NULL);
 
-    if (sqlite3_exec(db->handle, SQL_CREATE, NULL, NULL, &errmsg) != SQLITE_OK) {
-        fprintf(stderr, "db: schema error: %s\n", errmsg);
-        sqlite3_free(errmsg);
-        sqlite3_close(db->handle);
-        db->handle = NULL;
-        return -1;
+    if (existed_before) {
+        /* Pre-existing file. Validate that we know how to talk to it BEFORE
+         * preparing any statements against the (possibly outdated) schema.
+         * Mutating the file with SQL_CREATE or writing the version pragmas
+         * here would silently advance the recorded schema version past the
+         * schema actually present, leaving the DB claiming a version whose
+         * columns do not exist (every prepare would then fail). The version
+         * pragmas are owned by minimoni-migrate; the daemon only reads them. */
+        long app_id = 0;
+        long version = 0;
+        if (read_pragma_long(db->handle, "application_id", &app_id) != 0 ||
+            read_pragma_long(db->handle, "user_version", &version) != 0) {
+            fprintf(stderr, "db: could not read schema metadata from %s\n", path);
+            sqlite3_close(db->handle);
+            db->handle = NULL;
+            return -1;
+        }
+        if (app_id != MINIMONI_APPLICATION_ID) {
+            fprintf(stderr,
+                    "db: %s is not a minimoni database (application_id=%ld, "
+                    "expected %d); refusing to write\n",
+                    path, app_id, MINIMONI_APPLICATION_ID);
+            sqlite3_close(db->handle);
+            db->handle = NULL;
+            return -1;
+        }
+        if (version != MINIMONI_SCHEMA_VERSION) {
+            fprintf(stderr,
+                    "db: schema at user_version=%ld; this daemon needs "
+                    "user_version=%d. Run minimoni-migrate before starting "
+                    "the daemon.\n",
+                    version, MINIMONI_SCHEMA_VERSION);
+            sqlite3_close(db->handle);
+            db->handle = NULL;
+            return -1;
+        }
+        /* All checks passed; do not touch the schema or pragmas. */
+    } else {
+        /* Fresh install: file did not exist before sqlite3_open created it.
+         * This is the only branch in which the daemon authors the schema and
+         * the version pragmas. */
+        if (sqlite3_exec(db->handle, SQL_CREATE, NULL, NULL, &errmsg) != SQLITE_OK) {
+            fprintf(stderr, "db: schema error: %s\n", errmsg);
+            sqlite3_free(errmsg);
+            sqlite3_close(db->handle);
+            db->handle = NULL;
+            return -1;
+        }
+        char pragma[48];
+        snprintf(pragma, sizeof(pragma), "PRAGMA application_id = %d", MINIMONI_APPLICATION_ID);
+        sqlite3_exec(db->handle, pragma, NULL, NULL, NULL);
+        snprintf(pragma, sizeof(pragma), "PRAGMA user_version = %d", MINIMONI_SCHEMA_VERSION);
+        sqlite3_exec(db->handle, pragma, NULL, NULL, NULL);
     }
-
-    char pragma[48];
-    snprintf(pragma, sizeof(pragma), "PRAGMA application_id = %d", MINIMONI_APPLICATION_ID);
-    sqlite3_exec(db->handle, pragma, NULL, NULL, NULL);
-    snprintf(pragma, sizeof(pragma), "PRAGMA user_version = %d", MINIMONI_SCHEMA_VERSION);
-    sqlite3_exec(db->handle, pragma, NULL, NULL, NULL);
 
     if (sqlite3_prepare_v2(db->handle, SQL_INSERT, -1, &db->stmt_insert, NULL) != SQLITE_OK ||
         sqlite3_prepare_v2(db->handle, SQL_PRUNE_METRICS, -1, &db->stmt_prune_metrics, NULL) !=

@@ -42,15 +42,21 @@ SRC = src/main.c src/alerts.c src/config.c src/db.c src/db_cmd.c \
       src/downsample.c src/http.c src/metrics.c src/units.c
 VENDOR = vendor/civetweb.c vendor/sqlite3.c vendor/tomlc17.c
 
+# minimoni-migrate: standalone binary that calls `minimoni db exec` for
+# every SQL statement, so it links no vendored libs.
+MIGRATE_SRC = src/migrate/main.c src/migrate/exec.c src/migrate/migrations.c \
+  src/migrate/preflight.c src/migrate/snapshot.c
+
 # Vendored amalgamations carry upstream warnings we don't own (e.g. civetweb's
 # unused-but-set variables). Compile them as separate objects with that one
 # check disabled so src/ stays strict under -Wall -Wextra. $(OPT) carries each
 # target's optimisation flags - run "make clean" when switching release/debug.
 VENDOR_OBJ = $(patsubst vendor/%.c,build/%.o,$(VENDOR))
 
-.PHONY: all embed release release-linux ci-image debug tidy test test-cli fmt clean
+.PHONY: all embed release release-linux ci-image debug tidy \
+        test-unit test-integration test fmt clean
 
-all: embed minimoni
+all: embed minimoni minimoni-migrate
 
 # embed.h: dashboard bundled (CSS + JS + favicon inlined) and serialised as a C byte array.
 # tools/bundle.sh inlines dashboard/style.css, app.js, and favicon.svg into index.html,
@@ -74,12 +80,18 @@ minimoni: $(SRC) $(VENDOR_OBJ) $(BEARSSL_LIB)
 	$(CC) $(CFLAGS) -O2 $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
 	  -Ivendor -Isrc -Ibuild -o $@ $(SRC) $(VENDOR_OBJ) $(BEARSSL_LIB) $(LDFLAGS)
 
+minimoni-migrate: $(MIGRATE_SRC)
+	$(CC) $(CFLAGS) -O2 -Isrc/migrate -o $@ $(MIGRATE_SRC) -static
+
 release: OPT = -Os -flto=auto
 release: embed $(VENDOR_OBJ) $(BEARSSL_LIB)
 	$(CC) $(CFLAGS) -Os -flto=auto $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
 	  -Ivendor -Isrc -Ibuild -o minimoni $(SRC) $(VENDOR_OBJ) \
 	  $(BEARSSL_LIB) $(LDFLAGS) -Wl,--gc-sections
 	strip minimoni
+	$(CC) $(CFLAGS) -Os -flto=auto -Isrc/migrate -o minimoni-migrate $(MIGRATE_SRC) \
+	  -static -Wl,--gc-sections
+	strip minimoni-migrate
 
 ci-image:
 	docker build -q -t $(CI_IMAGE) tools >/dev/null
@@ -103,7 +115,9 @@ tidy:
 # unit-config links tomlc17. The devserver (Python) and dashboard (JS) pure
 # helpers each get one suite; app.js guards its browser entry point so node can
 # require it for the pure helpers without a DOM.
-test: ci-image tests/unit-config.c tests/unit-db.c tests/unit-db_cmd.c tests/unit-downsample.c tests/unit-metrics.c tests/unit-units.c \
+test-unit: ci-image \
+      tests/unit-config.c tests/unit-db.c tests/unit-db_cmd.c tests/unit-downsample.c \
+      tests/unit-metrics.c tests/unit-migrate.c tests/unit-units.c \
       tests/runner.h tests/test_devserver.py tests/dashboard.test.js
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
 	  sh -c "apk add --quiet gcc musl-dev nodejs python3 && mkdir -p build && \
@@ -118,20 +132,29 @@ test: ci-image tests/unit-config.c tests/unit-db.c tests/unit-db_cmd.c tests/uni
 	    gcc -Wall -Wextra -std=c11 -Isrc -Itests \
 	      tests/unit-metrics.c -o build/unit-metrics-test && \
 	    gcc -Wall -Wextra -std=c11 -Isrc -Itests \
+	      tests/unit-migrate.c -o build/unit-migrate-test && \
+	    gcc -Wall -Wextra -std=c11 -Isrc -Itests \
 	      tests/unit-units.c -o build/unit-units-test && \
 	    ./build/unit-config-test && ./build/unit-db-test && ./build/unit-db_cmd-test && \
-	    ./build/unit-downsample-test && ./build/unit-metrics-test && ./build/unit-units-test && \
+	    ./build/unit-downsample-test && ./build/unit-metrics-test && \
+	    ./build/unit-migrate-test && ./build/unit-units-test && \
 	    python3 tests/test_devserver.py && node tests/dashboard.test.js"
 
-# Integration: build the release binary, then exercise the whole CLI.
-test-cli: ci-image
+# Integration: build the release binaries once, then run both black-box suites:
+# the minimoni CLI (cli.sh) and minimoni-migrate (migrate.sh, which builds its DB
+# fixtures with the sqlite3 CLI). One build serves both.
+test-integration: ci-image
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
-	  sh -c "apk add --quiet gcc musl-dev make xxd git && make release && sh tests/cli.sh"
+	  sh -c "apk add --quiet gcc musl-dev make xxd git sqlite && make release && \
+	    sh tests/cli.sh && sh tests/migrate.sh"
+
+# Run every test suite the project has.
+test: test-unit test-integration
 
 fmt:
 	find src tests -name '*.[ch]' | xargs $(CLANG_FORMAT) -i
 
 clean:
-	rm -f minimoni
+	rm -f minimoni minimoni-migrate
 	rm -rf build
 	-$(MAKE) -C vendor/bearssl clean 2>/dev/null

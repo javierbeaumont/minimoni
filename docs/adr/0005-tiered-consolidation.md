@@ -173,7 +173,7 @@ A new column `bucket_sec INTEGER` is added to the `metrics` table. Raw rows carr
 (5, 30, 300, 3,600, or 21,600).
 
 `PRAGMA application_id` and `PRAGMA user_version` are used to mark new databases.
-Migration is deferred to a future commit.
+Migrating existing databases to this schema is handled by `minimoni-migrate` (ADR-0006).
 
 ### Boundaries that did not survive iteration
 
