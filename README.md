@@ -19,7 +19,8 @@ and homelab servers) where every MB counts.
 - SQLite storage with configurable retention
 - Webhook and command alerts with per-alert cooldown
 - TOML configuration, sensible defaults, works with zero config
-- Runs comfortably on small arm64 boards (Raspberry Pi 3B, Zero 2 W, 512 MB RAM)
+- Runs comfortably on small arm64 boards (Raspberry Pi 3B, Zero 2 W, 512 MB RAM); 32-bit
+  ARMv7 and ARMv6 binaries are published too, down to the original Pi Zero
 
 ![minimoni dashboard, dark theme (7d range)](docs/screenshot-dark.png)
 
@@ -91,19 +92,28 @@ Swap stays at 0 throughout. Long-range query time scales with the number of rows
 
 ### Prebuilt binary
 
-Prebuilt static binaries for `linux-amd64` and `linux-arm64` are available on the
-[releases page](https://github.com/javierbeaumont/minimoni/releases).
+Prebuilt static binaries for `linux-amd64`, `linux-arm64`, `linux-armv7`, and `linux-armv6`
+are available on the [releases page](https://github.com/javierbeaumont/minimoni/releases).
 
 ```sh
 ARCH=$(uname -m)
-case $ARCH in x86_64) ARCH=amd64 ;; aarch64) ARCH=arm64 ;; esac
+case $ARCH in
+  x86_64)  ARCH=amd64 ;;
+  aarch64) ARCH=arm64 ;;
+  armv7l)  ARCH=armv7 ;;
+  armv6l)  ARCH=armv6 ;;
+esac
+
 BASE=https://github.com/javierbeaumont/minimoni/releases/latest/download
 curl -fsSL $BASE/minimoni-linux-$ARCH -o /usr/local/bin/minimoni
 chmod +x /usr/local/bin/minimoni
 ```
 
-Supported platforms: `linux-amd64` (x86\_64), `linux-arm64` (Raspberry Pi 3/4/5 and other
-64-bit AArch64 boards). A 64-bit OS is required; 32-bit (armv7) builds are not provided.
+Supported platforms (all static musl, no runtime dependencies): `linux-amd64` (x86\_64),
+`linux-arm64` (Raspberry Pi 3/4/5 and other 64-bit AArch64 boards), `linux-armv7` (32-bit
+ARMv7, e.g. a Pi 2 or a Pi 3/4 on a 32-bit OS), and `linux-armv6` (ARMv6: Raspberry Pi 1
+and the original Pi Zero / Zero W). The armv6 build is published for completeness but has
+not been tested on real ARMv6 hardware.
 
 The release binaries carry SLSA build provenance (SLSA Build Level 2): each is built on
 GitHub-hosted runners with a signed, verifiable attestation. Verify a download with:
@@ -179,7 +189,24 @@ live daemon.
 minimoni versions the database schema (`PRAGMA user_version`). When you move to
 a release that changes it (e.g. v0.1 to v0.2, which adds tiered consolidation),
 the daemon refuses to start against the old database rather than corrupt it.
-Migrate it first with the bundled `minimoni-migrate` binary:
+Migrate it first with `minimoni-migrate`, published alongside `minimoni` on the
+[releases page][rel] (one build per architecture). Download the one matching your system:
+
+```sh
+ARCH=$(uname -m)
+case $ARCH in
+  x86_64)  ARCH=amd64 ;;
+  aarch64) ARCH=arm64 ;;
+  armv7l)  ARCH=armv7 ;;
+  armv6l)  ARCH=armv6 ;;
+esac
+
+BASE=https://github.com/javierbeaumont/minimoni/releases/latest/download
+curl -fsSL $BASE/minimoni-migrate-linux-$ARCH -o /usr/local/bin/minimoni-migrate
+chmod +x /usr/local/bin/minimoni-migrate
+```
+
+Then stop the service, migrate, and start it again:
 
 ```sh
 sudo systemctl stop minimoni

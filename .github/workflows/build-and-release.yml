@@ -5,33 +5,65 @@ on:
     tags:
       - v*
   workflow_dispatch:
+    inputs:
+      build_all:
+        description: Build all architectures, including armv7 and armv6 (slow, via QEMU)
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
 jobs:
+  matrix:
+    name: Resolve build matrix
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.set.outputs.include }}
+    steps:
+      # A job-level if: cannot read matrix.*, so the build_all toggle is
+      # resolved here into the include list the build job consumes.
+      - id: set
+        env:
+          BUILD_ALL: ${{ github.event_name != 'workflow_dispatch' || inputs.build_all }}
+        run: |
+          INCLUDE='[
+            {"arch":"linux-amd64","runner":"ubuntu-latest","platform":"linux/amd64"},
+            {"arch":"linux-arm64","runner":"ubuntu-24.04-arm","platform":"linux/arm64"}'
+          if [ "$BUILD_ALL" = "true" ]; then
+            INCLUDE="$INCLUDE,
+            {\"arch\":\"linux-armv7\",\"runner\":\"ubuntu-latest\",\"platform\":\"linux/arm/v7\"},
+            {\"arch\":\"linux-armv6\",\"runner\":\"ubuntu-latest\",\"platform\":\"linux/arm/v6\"}"
+          fi
+          INCLUDE="$INCLUDE]"
+          echo "include=$(echo "$INCLUDE" | jq -c .)" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: matrix
     name: Build ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
-        include:
-          - arch: linux-amd64
-            runner: ubuntu-latest
-          - arch: linux-arm64
-            runner: ubuntu-24.04-arm
+        include: ${{ fromJson(needs.matrix.outputs.include) }}
 
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
 
-      # Both archs build the same way: a native Alpine container
-      # on a native runner, producing a static musl binary.
+      # QEMU emulation is only needed for the arm32 archs; amd64 and
+      # arm64 build natively on their own runners.
+      - name: Set up QEMU
+        if: matrix.arch == 'linux-armv7' || matrix.arch == 'linux-armv6'
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+
+      # Every arch builds the same way: an Alpine container (pinned by
+      # digest in tools/Dockerfile) producing a static musl binary.
+      # amd64 and arm64 run natively; armv7 and armv6 run under QEMU.
       - name: Build (musl)
         run: |
-          docker build -q -t minimoni-toolchain tools
-          docker run --rm \
+          docker build -q --platform ${{ matrix.platform }} -t minimoni-toolchain tools
+          docker run --rm --platform ${{ matrix.platform }} \
             -v "$PWD":/work \
             -w /work \
             minimoni-toolchain \
@@ -42,13 +74,17 @@ jobs:
               make release
             '
 
-      - name: Rename binary
-        run: mv minimoni minimoni-${{ matrix.arch }}
+      - name: Rename binaries
+        run: |
+          mv minimoni         minimoni-${{ matrix.arch }}
+          mv minimoni-migrate minimoni-migrate-${{ matrix.arch }}
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: minimoni-${{ matrix.arch }}
-          path: minimoni-${{ matrix.arch }}
+          name: ${{ matrix.arch }}
+          path: |
+            minimoni-${{ matrix.arch }}
+            minimoni-migrate-${{ matrix.arch }}
 
   release:
     needs: build
@@ -72,6 +108,12 @@ jobs:
           subject-path: |
             minimoni-linux-amd64
             minimoni-linux-arm64
+            minimoni-linux-armv7
+            minimoni-linux-armv6
+            minimoni-migrate-linux-amd64
+            minimoni-migrate-linux-arm64
+            minimoni-migrate-linux-armv7
+            minimoni-migrate-linux-armv6
 
       - name: Create GitHub Release
         env:
@@ -84,4 +126,13 @@ jobs:
             --notes-file /tmp/release-body.md \
             minimoni-linux-amd64 \
             minimoni-linux-arm64 \
-            config.example.toml
+            minimoni-linux-armv7 \
+            minimoni-linux-armv6 \
+            minimoni-migrate-linux-amd64 \
+            minimoni-migrate-linux-arm64 \
+            minimoni-migrate-linux-armv7 \
+            minimoni-migrate-linux-armv6 \
+            config.example.toml \
+            contrib/systemd/minimoni.service \
+            contrib/systemd/minimoni-collect.service \
+            contrib/systemd/minimoni-collect.timer
