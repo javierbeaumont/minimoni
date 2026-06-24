@@ -222,90 +222,39 @@ are preserved.
 
 ## Systemd setup
 
+Ready-to-use unit files are in [`contrib/systemd/`](contrib/systemd/). Both services run
+under `DynamicUser=yes` with a strict sandbox (LockPersonality, MemoryDenyWriteExecute,
+NoNewPrivileges, ProtectSystem strict, restricted syscall filter, etc.); see the files for
+the full list.
+
 ### Daemon mode
 
-Create `/etc/systemd/system/minimoni.service`:
-
-```ini
-[Unit]
-Description=minimoni system monitor
-After=network.target
-
-[Service]
-Type=exec
-ExecStart=/usr/local/bin/minimoni serve
-DynamicUser=yes
-Restart=on-failure
-RestartSec=5
-StateDirectory=minimoni
-
-# Hardening: defence in depth on top of DynamicUser.
-LockPersonality=true
-MemoryDenyWriteExecute=true
-NoNewPrivileges=true
-PrivateDevices=true
-PrivateTmp=true
-ProtectClock=true
-ProtectControlGroups=true
-ProtectHome=true
-ProtectHostname=true
-ProtectKernelLogs=true
-ProtectKernelModules=true
-ProtectKernelTunables=true
-ProtectProc=invisible
-ProtectSystem=strict
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-RestrictNamespaces=true
-RestrictRealtime=true
-RestrictSUIDSGID=true
-SystemCallArchitectures=native
-SystemCallFilter=@system-service
-
-[Install]
-WantedBy=multi-user.target
-```
-
 ```sh
-systemctl daemon-reload
-systemctl enable --now minimoni
+sudo cp contrib/systemd/minimoni.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now minimoni
 ```
 
-`DynamicUser=yes` runs minimoni as an unprivileged user. `StateDirectory=minimoni` creates
-`/var/lib/minimoni/` automatically; set `collect.db = "/var/lib/minimoni/metrics.db"`.
+`StateDirectory=minimoni` creates `/var/lib/minimoni/` automatically; set
+`collect.db = "/var/lib/minimoni/metrics.db"` in your config.
 
 ### Oneshot mode (timer)
 
 For scheduled collection without a persistent process:
 
-```ini
-# /etc/systemd/system/minimoni-collect.timer
-[Unit]
-Description=Collect system metrics every minute
-
-[Timer]
-OnCalendar=*:0/1
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-```
-
-```ini
-# /etc/systemd/system/minimoni-collect.service
-[Unit]
-Description=minimoni metric collection
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/minimoni collect
-DynamicUser=yes
-StateDirectory=minimoni
-```
-
 ```sh
-systemctl daemon-reload
-systemctl enable --now minimoni-collect.timer
+sudo cp contrib/systemd/minimoni-collect.service /etc/systemd/system/
+sudo cp contrib/systemd/minimoni-collect.timer   /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now minimoni-collect.timer
 ```
+
+The timer fires every minute (`OnCalendar=*:0/1`) and runs the oneshot service. Adjust the
+cadence by editing the `.timer` file.
+
+When upgrading to a release that changes the database schema, stop the service and run
+`minimoni-migrate` before starting it again; the daemon refuses to start against an
+unmigrated database. See [Upgrading](#upgrading).
 
 ## Configuration
 

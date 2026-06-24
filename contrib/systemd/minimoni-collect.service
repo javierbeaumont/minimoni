@@ -1,0 +1,30 @@
+[Unit]
+Description=minimoni metric collection
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/minimoni collect
+DynamicUser=yes
+StateDirectory=minimoni
+
+# Hardening: defence in depth on top of DynamicUser.
+LockPersonality=true
+MemoryDenyWriteExecute=true
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectProc=invisible
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service

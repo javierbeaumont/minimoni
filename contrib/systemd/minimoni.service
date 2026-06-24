@@ -1,0 +1,36 @@
+[Unit]
+Description=minimoni system monitor
+After=network.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/minimoni serve
+DynamicUser=yes
+Restart=on-failure
+RestartSec=5
+StateDirectory=minimoni
+
+# Hardening: defence in depth on top of DynamicUser.
+LockPersonality=true
+MemoryDenyWriteExecute=true
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectProc=invisible
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target
