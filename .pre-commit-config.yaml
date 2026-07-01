@@ -20,7 +20,7 @@ repos:
       - id: check-toml
       - id: detect-private-key
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.17
+    rev: v0.15.19
     hooks:
       - id: ruff
         args: [--fix]
@@ -78,7 +78,7 @@ repos:
         additional_dependencies:
           - eslint@10.5.0
           - '@eslint/js@10.0.1'
-          - globals@17.6.0
+          - globals@17.7.0
   - repo: local
     hooks:
       - id: sbom-sync
