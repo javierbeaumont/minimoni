@@ -31,6 +31,24 @@
   --red:  #f87171;  /* red-400: critical */
   --acc:  #4ade80;  /* accent unified with green */
   --act-txt: #09090b;  /* dark text on the light --acc fill (active tab) */
+
+  /* Chart series identification colours - override here to customise line/dot
+   * colours. Fixed across light/dark themes (identification, not semantics).
+   * C1 sky-400 (#38bdf8): load1, cpu user, mem used, disk used, net tx, temp
+   * C2 violet-400 (#a78bfa): load5, cpu sys, mem avail, disk free, net rx
+   * C3 slate-400 (#94a3b8): load15 */
+  --clr-load1:     #38bdf8;
+  --clr-load5:     #a78bfa;
+  --clr-load15:    #94a3b8;
+  --clr-cpu-user:  #38bdf8;
+  --clr-cpu-sys:   #a78bfa;
+  --clr-mem-used:  #38bdf8;
+  --clr-mem-avail: #a78bfa;
+  --clr-disk-used: #38bdf8;
+  --clr-disk-free: #a78bfa;
+  --clr-temp:      #38bdf8;
+  --clr-net-rx:    #a78bfa;
+  --clr-net-tx:    #38bdf8;
 }
 
 /* Explicit light theme via data attribute set by the toggle button */
@@ -159,6 +177,7 @@ button.act {
   border-radius: 8px;
   padding: 12px;
 }
+.card.hide { display: none; }
 
 /* Small all-caps metric label at the top of each card */
 .clabel {
@@ -177,10 +196,26 @@ button.act {
 
 /* Secondary value shown below the primary */
 .csub {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   font-size: 11px;
   color: var(--mut);
   margin-top: 2px;
 }
+
+/* Active sub-metric label shown inline in .clabel (e.g. "1m", "user") */
+.card-unit      { font-size: 10px; }
+.card-unit.hide { display: none; }
+
+/* Each clickable secondary metric inside .csub */
+.card-sub       { display: inline-flex; gap: 2px; align-items: baseline; cursor: pointer; }
+.card-sub.hide  { display: none; }
+
+/* Status colour on the secondary value - mirrors .card.g/y/r on .cval */
+.card-sub-val.g { color: var(--grn); }
+.card-sub-val.y { color: var(--ylw); }
+.card-sub-val.r { color: var(--red); }
 
 /* Color the primary value according to the status level */
 .card.g .cval { color: var(--grn); }
@@ -281,7 +316,25 @@ canvas {
   }
 }
 
+/* Series colour via class: card labels use it as text colour,
+ * legend dots as their background. */
+.s-load1 { --c: var(--clr-load1); }
+.s-load5 { --c: var(--clr-load5); }
+.s-load15 { --c: var(--clr-load15); }
+.s-cpu-user { --c: var(--clr-cpu-user); }
+.s-cpu-sys { --c: var(--clr-cpu-sys); }
+.s-mem-used { --c: var(--clr-mem-used); }
+.s-mem-avail { --c: var(--clr-mem-avail); }
+.s-disk-used { --c: var(--clr-disk-used); }
+.s-disk-free { --c: var(--clr-disk-free); }
+.s-net-tx { --c: var(--clr-net-tx); }
+.s-net-rx { --c: var(--clr-net-rx); }
+.card-unit, .card-sub-lbl { color: var(--c); }
+.leg-dot { background: var(--c); }
+
 /* --- Footer --- */
+
+footer.hide { display: none; }
 
 footer {
   text-align: center;
