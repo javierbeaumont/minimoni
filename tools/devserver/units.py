@@ -42,6 +42,10 @@ def net_convert(bps: float, unit: str) -> float:
         if len(unit) > 2 and unit[1] == "b" and unit[2] == "p":  # gbps
             return bps * 8.0 / 1e9
         return bps / 1073741824.0  # gb
+    if unit[0] == "k":
+        if len(unit) > 2 and unit[1] == "b" and unit[2] == "p":  # kbps
+            return bps * 8.0 / 1000.0
+        return bps / 1024.0  # kb
     return bps / 1048576.0
 
 

@@ -33,7 +33,7 @@ static int approx(double a, double b)
     return d < 1e-9;
 }
 
-/* --- net_convert (bps -> mb/gb/mbps/gbps) --- */
+/* --- net_convert (bps -> kb/mb/gb/kbps/mbps/gbps) --- */
 
 static int test_net_mb(void) { return approx(net_convert(1048576.0, "mb"), 1.0) ? 0 : 1; }
 
@@ -42,6 +42,10 @@ static int test_net_gb(void) { return approx(net_convert(1073741824.0, "gb"), 1.
 static int test_net_mbps(void) { return approx(net_convert(1.0e6, "mbps"), 8.0) ? 0 : 1; }
 
 static int test_net_gbps(void) { return approx(net_convert(1.0e9, "gbps"), 8.0) ? 0 : 1; }
+
+static int test_net_kb(void) { return approx(net_convert(1024.0, "kb"), 1.0) ? 0 : 1; }
+
+static int test_net_kbps(void) { return approx(net_convert(1000.0, "kbps"), 8.0) ? 0 : 1; }
 
 static int test_net_null_defaults_mb(void)
 {
@@ -115,6 +119,8 @@ static const test_t ALL_TESTS[] = {
     T(net_gb),
     T(net_mbps),
     T(net_gbps),
+    T(net_kb),
+    T(net_kbps),
     T(net_null_defaults_mb),
     T(mem_gb),
     T(mem_mb_passthrough),

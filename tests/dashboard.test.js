@@ -55,12 +55,22 @@ const TESTS = [
     assert.strictEqual(fmtX(t, 86400 * 800), '2023');
     assert.strictEqual(fmtX(0, 3600), '');
   }],
-  ['fmtNet scales and respects unit', function () {
-    assert.strictEqual(fmtNet(null, 'mb'), EMD);
-    assert.strictEqual(fmtNet(0.5, 'mb'), '512 KB/s');
-    assert.strictEqual(fmtNet(2.5, 'mb'), '2.50 MB/s');
-    assert.strictEqual(fmtNet(0.5, 'mbps'), '500 Kbps');
+  ['fmtNet: fixed unit, adaptive precision', function () {
+    assert.strictEqual(fmtNet(null, 'kb'), EMD);
+    /* The chosen unit never rescales: a small value keeps its unit
+     * (the old behaviour turned 0.5 mb into "512 KB/s"). */
+    assert.strictEqual(fmtNet(0.5, 'mb'), '0.500 MB/s');
+    assert.strictEqual(fmtNet(0.5, 'mbps'), '0.500 Mbps');
+    /* Precision adapts by magnitude to ~4 significant digits. */
+    assert.strictEqual(fmtNet(0, 'kb'), '0.000 KB/s');     /* idle: the common case */
+    assert.strictEqual(fmtNet(9.999, 'kb'), '9.999 KB/s');
+    assert.strictEqual(fmtNet(10, 'kb'), '10.00 KB/s');
+    assert.strictEqual(fmtNet(100, 'kb'), '100.0 KB/s');
+    assert.strictEqual(fmtNet(1500, 'kb'), '1500 KB/s');
+    /* The remaining unit suffixes; mb/kb/mbps are exercised above. */
     assert.strictEqual(fmtNet(2, 'gb'), '2.000 GB/s');
+    assert.strictEqual(fmtNet(2, 'kbps'), '2.000 Kbps');
+    assert.strictEqual(fmtNet(2, 'gbps'), '2.000 Gbps');
   }],
   ['fmtTempVal by unit', function () {
     assert.strictEqual(fmtTempVal(45.5, 'c'), '45.5' + DEG + 'C');

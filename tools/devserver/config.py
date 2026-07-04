@@ -47,8 +47,8 @@ CONFIG_DEFAULTS: JSON = {
     "temp_chart_unit": "c",
     "cpu_load_card_unit": "abs",
     "cpu_load_chart_unit": "abs",
-    "net_card_unit": "mb",
-    "net_chart_unit": "mb",
+    "net_card_unit": "kb",
+    "net_chart_unit": "kb",
     "uptime_unit": "auto",
     "ranges": ["1d", "7d", "30d", "90d"],
 }

@@ -360,8 +360,8 @@ disk_chart_unit        = "gb"   # chart Y-axis: "%" | "gb" | "tb"
 temp_card_unit         = "c"    # status card: "%" | "c" | "f"
 temp_chart_unit        = "c"    # chart Y-axis: "%" | "c" | "f"
 # temp_critical_fallback = 95     # temp % 100% ref when sysfs has no critical trip (default: 85)
-net_card_unit          = "mb"   # status card: "mb" | "gb" | "mbps" | "gbps"
-net_chart_unit         = "mb"   # chart Y-axis: "mb" | "gb" | "mbps" | "gbps"
+net_card_unit          = "kb"   # status card: "kb" | "mb" | "gb" | "kbps" | "mbps" | "gbps"
+net_chart_unit         = "kb"   # chart Y-axis: "kb" | "mb" | "gb" | "kbps" | "mbps" | "gbps"
 uptime_unit            = "auto" # uptime display: "auto" | "h" | "d"
 ```
 

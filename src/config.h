@@ -59,8 +59,8 @@ typedef struct {
     float temp_critical_fallback; /* temp percent 100% ref when sysfs critical absent; def: 85 */
     char  cpu_load_card_unit[4];  /* "abs" | "%", default: "abs" */
     char  cpu_load_chart_unit[4]; /* "abs" | "%", default: "abs" */
-    char  net_card_unit[8];       /* "mb"|"gb"|"mbps"|"gbps", default: "mb" */
-    char  net_chart_unit[8];      /* "mb"|"gb"|"mbps"|"gbps", default: "mb" */
+    char  net_card_unit[8];       /* "kb"|"mb"|"gb"|"kbps"|"mbps"|"gbps", default: "kb" */
+    char  net_chart_unit[8];      /* "kb"|"mb"|"gb"|"kbps"|"mbps"|"gbps", default: "kb" */
     char  uptime_unit[8];         /* "h"|"d"|"auto", default: "auto" */
     /* charts/cards: count=0 means show all in default order */
     char charts[MAX_CHARTS][16]; /* "cpu_load"|"cpu_usage"|"memory"|"disk"|"temp"|"net" */
@@ -76,25 +76,19 @@ typedef struct {
     alert_cfg_t alerts[MAX_ALERTS];
 } config_t;
 
-/*
- * Fill cfg with built-in defaults. Always call before config_load or config_open.
- */
+/* Fill cfg with built-in defaults. Always call before config_load or config_open. */
 void config_defaults(config_t *cfg);
 
-/*
- * Load and merge TOML values from path into cfg.
+/* Load and merge TOML values from path into cfg.
  * cfg must have been initialised with config_defaults() first.
  * Returns 0 on success, -1 if the file cannot be opened or parsed
- * (message written to stderr).
- */
+ * (message written to stderr). */
 int config_load(config_t *cfg, const char *path);
 
-/*
- * Apply config_defaults then find and load a config file.
+/* Apply config_defaults then find and load a config file.
  * If explicit_path is non-NULL it is used as-is (returns -1 on failure).
  * Otherwise tries "./config.toml", then "/etc/minimoni/config.toml",
- * then silently keeps defaults. Always returns 0 when explicit_path is NULL.
- */
+ * then silently keeps defaults. Always returns 0 when explicit_path is NULL. */
 int config_open(config_t *cfg, const char *explicit_path);
 
 #endif /* MINIMONI_CONFIG_H */
