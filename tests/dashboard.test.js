@@ -73,6 +73,7 @@ const TESTS = [
     assert.strictEqual(fmtNet(2, 'gbps'), '2.000 Gbps');
   }],
   ['fmtTempVal by unit', function () {
+    assert.strictEqual(fmtTempVal(null, 'c'), EMD);   /* sensor configured, no reading */
     assert.strictEqual(fmtTempVal(45.5, 'c'), '45.5' + DEG + 'C');
     assert.strictEqual(fmtTempVal(113, 'f'), '113.0' + DEG + 'F');
     assert.strictEqual(fmtTempVal(80, '%'), '80.0%');

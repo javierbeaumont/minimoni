@@ -43,7 +43,7 @@
   </header>
   <!-- --- Metric cards (visibility and order driven by server config) --- -->
   <div class="cards">
-    <div class="card" id="c-load">
+    <div class="card hide" id="c-load">
       <div class="clabel">CPU Load
         <span class="card-unit s-load1" data-series="0">1m</span>
         <span class="card-unit hide s-load5" data-series="1">5m</span>
@@ -56,7 +56,7 @@
         <span class="card-sub" data-card="load" data-idx="2"><span class="card-sub-lbl s-load15">15m</span> <span class="card-sub-val"></span></span>
       </div>
     </div>
-    <div class="card" id="c-cpu">
+    <div class="card hide" id="c-cpu">
       <div class="clabel">CPU Usage
         <span class="card-unit s-cpu-user" data-series="0">user</span>
         <span class="card-unit hide s-cpu-sys" data-series="1">sys</span>
@@ -67,7 +67,7 @@
         <span class="card-sub" data-card="cpu" data-idx="1"><span class="card-sub-lbl s-cpu-sys">sys</span> <span class="card-sub-val"></span></span>
       </div>
     </div>
-    <div class="card" id="c-mem">
+    <div class="card hide" id="c-mem">
       <div class="clabel">Memory
         <span class="card-unit s-mem-used" data-series="0">used</span>
         <span class="card-unit hide s-mem-avail" data-series="1">avail</span>
@@ -78,7 +78,7 @@
         <span class="card-sub" data-card="mem" data-idx="1"><span class="card-sub-lbl s-mem-avail">avail</span> <span class="card-sub-val"></span></span>
       </div>
     </div>
-    <div class="card" id="c-disk">
+    <div class="card hide" id="c-disk">
       <div class="clabel">Disk
         <span class="card-unit s-disk-used" data-series="0">used</span>
         <span class="card-unit hide s-disk-free" data-series="1">free</span>
@@ -89,12 +89,16 @@
         <span class="card-sub" data-card="disk" data-idx="1"><span class="card-sub-lbl s-disk-free">free</span> <span class="card-sub-val"></span></span>
       </div>
     </div>
-    <!-- Temperature card: hidden until the server confirms a valid sensor -->
+    <!-- Temperature card: like the others, shown once the server includes its
+         field ("temp"); a null reading still shows it with a dash. The empty
+         .csub keeps the row structure identical to the other cards so the
+         value lines up vertically with its neighbours. -->
     <div class="card hide" id="c-temp">
       <div class="clabel">Temp</div>
       <div class="cval">&#8212;</div>
+      <div class="csub"></div>
     </div>
-    <div class="card" id="c-net">
+    <div class="card hide" id="c-net">
       <div class="clabel">Network
         <span class="card-unit s-net-tx" data-series="0">&#8593;</span>
         <span class="card-unit hide s-net-rx" data-series="1">&#8595;</span>

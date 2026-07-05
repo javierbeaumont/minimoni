@@ -121,6 +121,13 @@ sv=$!
 sleep 1
 health=$(wget -qO- "http://127.0.0.1:$PORT/api/health" 2>/dev/null)
 check_has "serve answers /api/health" "$health" '"status":"ok"'
+# /api/current + /api/metrics smoke: confirm the binary wires both serializers
+# over HTTP. Exact threshold values, card/chart gating and null handling are
+# covered exhaustively by unit-json.c, so one assertion per endpoint suffices.
+current=$(wget -qO- "http://127.0.0.1:$PORT/api/current" 2>/dev/null)
+check_has "serve /api/current serializes a snapshot" "$current" '"thresh_cpu":[70,90]'
+metrics=$(wget -qO- "http://127.0.0.1:$PORT/api/metrics?range=1d" 2>/dev/null)
+check_has "serve /api/metrics serializes points" "$metrics" '"l1":'
 kill -TERM "$sv" 2>/dev/null
 wait "$sv"
 rc=$?

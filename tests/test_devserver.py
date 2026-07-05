@@ -25,8 +25,9 @@ from sys import exit, path
 
 path.insert(0, join(dirname(abspath(__file__)), "..", "tools", "devserver"))
 
-from mock_data import _range_seconds, clamp_points  # noqa: E402
-from units import temp_convert, temp_ref  # noqa: E402
+from config import config_fields  # noqa: E402
+from mock_data import _range_seconds, clamp_points, current_snapshot  # noqa: E402
+from units import temp_convert, temp_ref, to_current, to_point  # noqa: E402
 
 
 # --- clamp_points: the /api/metrics points hint (mirror of the C server) ---
@@ -104,6 +105,45 @@ def test_temp_convert_celsius():
 
 def test_range_seconds_invalid_defaults_one_day():
     assert _range_seconds("bogus") == 86400
+
+
+# --- to_current: server-computed thresholds + card field gating ---
+
+
+def test_to_current_emits_thresholds():
+    out = to_current(current_snapshot("normal"), config_fields({}), 85.0)
+    assert out["thresh_cpu"] == [70.0, 90.0]
+    assert out["thresh_mem"] == [70.0, 90.0]
+    assert out["thresh_disk"] == [80.0, 90.0]
+    assert "thresh_load" in out and len(out["thresh_load"]) == 2
+
+
+def test_to_current_gates_excluded_cards():
+    f = config_fields({"cards": ["cpu_load"]})
+    out = to_current(current_snapshot("normal"), f, 85.0)
+    assert "load_1m" in out and "thresh_load" in out
+    assert "mem_percent" not in out and "thresh_mem" not in out
+    assert "net_rx" not in out
+
+
+# --- to_point: chart-unit short keys + temp gated by charts ---
+
+
+def _point(scenario="normal"):
+    p = current_snapshot(scenario)
+    p["t"] = 1700000000
+    return p
+
+
+def test_to_point_emits_short_keys():
+    out = to_point(_point(), config_fields({}), 85.0)
+    for k in ("t", "l1", "cu", "mp", "dp", "nr", "up"):
+        assert k in out
+
+
+def test_to_point_temp_gated_by_charts():
+    assert "tp" in to_point(_point(), config_fields({}), 85.0)
+    assert "tp" not in to_point(_point(), config_fields({"charts": ["cpu_load"]}), 85.0)
 
 
 def main():

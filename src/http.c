@@ -33,97 +33,7 @@
 #include "downsample.h"
 #include "embed.h"
 #include "http.h"
-#include "units.h"
-
-/* =========================================================================
- * JSON buffer helpers
- * ======================================================================= */
-
-typedef struct {
-    char  *buf;
-    size_t pos;
-    size_t cap;
-    int    comma; /* 1 after the first field; prepend ',' to next */
-} jbuf_t;
-
-static void jbuf_init(jbuf_t *j, char *buf, size_t cap)
-{
-    j->buf = buf;
-    j->pos = 0;
-    j->cap = cap;
-    j->comma = 0;
-    if (cap > 0)
-        buf[0] = '\0';
-}
-
-static void jbuf_raw(jbuf_t *j, const char *s)
-{
-    size_t n = strlen(s);
-    if (j->pos + n < j->cap) {
-        memcpy(j->buf + j->pos, s, n);
-        j->pos += n;
-        j->buf[j->pos] = '\0';
-    }
-}
-
-static void jbuf_sep(jbuf_t *j)
-{
-    if (j->comma)
-        jbuf_raw(j, ",");
-    j->comma = 1;
-}
-
-static void jbuf_begin(jbuf_t *j)
-{
-    jbuf_raw(j, "{");
-    j->comma = 0;
-}
-
-static void jbuf_end(jbuf_t *j) { jbuf_raw(j, "}"); }
-
-static void jbuf_str(jbuf_t *j, const char *key, const char *val)
-{
-    jbuf_sep(j);
-    char tmp[256];
-    snprintf(tmp, sizeof(tmp), "\"%s\":\"%s\"", key, val);
-    jbuf_raw(j, tmp);
-}
-
-static int cfg_has(const char list[][16], int count, const char *name)
-{
-    if (count == 0)
-        return 1; /* default: show all */
-    if (count < 0)
-        return 0; /* explicit empty list: hide all */
-    for (int i = 0; i < count; i++)
-        if (strcmp(list[i], name) == 0)
-            return 1;
-    return 0;
-}
-
-static void jbuf_real(jbuf_t *j, const char *key, double val)
-{
-    jbuf_sep(j);
-    char tmp[128];
-    snprintf(tmp, sizeof(tmp), "\"%s\":%.4g", key, val);
-    jbuf_raw(j, tmp);
-}
-
-static void jbuf_long(jbuf_t *j, const char *key, long val)
-{
-    jbuf_sep(j);
-    char tmp[64];
-    snprintf(tmp, sizeof(tmp), "\"%s\":%ld", key, val);
-    jbuf_raw(j, tmp);
-}
-
-static void jbuf_null(jbuf_t *j, const char *key)
-{
-    jbuf_sep(j);
-    char tmp[64];
-    snprintf(tmp, sizeof(tmp), "\"%s\":null", key);
-    jbuf_raw(j, tmp);
-}
+#include "json.h"
 
 /* =========================================================================
  * CPU count  (for load normalisation when cpu_load_unit = "%")
@@ -188,135 +98,6 @@ static void read_temp_critical(http_ctx_t *ctx)
 }
 
 /* =========================================================================
- * Serialize one db_row_t to a jbuf using the configured units.
- * Used by /api/current and /stream (SSE).
- * ======================================================================= */
-
-static void serialize_current(jbuf_t *j, const db_row_t *r, const http_ctx_t *ctx)
-{
-    const config_t *cfg = ctx->cfg;
-    const char     *lu = cfg->cpu_load_card_unit;
-    const char     *mu = cfg->memory_card_unit;
-    const char     *du = cfg->disk_card_unit;
-    const char     *nu = cfg->net_card_unit;
-
-    jbuf_str(j, "timestamp", r->timestamp);
-
-    jbuf_real(j, "load_1m", load_convert(r->load_1m, ctx->num_cores, lu));
-    jbuf_real(j, "load_5m", load_convert(r->load_5m, ctx->num_cores, lu));
-    jbuf_real(j, "load_15m", load_convert(r->load_15m, ctx->num_cores, lu));
-
-    if (r->cpu_valid) {
-        jbuf_real(j, "cpu_user_percent", r->cpu_user_percent);
-        jbuf_real(j, "cpu_system_percent", r->cpu_system_percent);
-        jbuf_real(j, "cpu_idle_percent", r->cpu_idle_percent);
-    } else {
-        jbuf_null(j, "cpu_user_percent");
-        jbuf_null(j, "cpu_system_percent");
-        jbuf_null(j, "cpu_idle_percent");
-    }
-
-    if (mu[0] != '%') {
-        jbuf_real(j, "mem_used", mem_convert(r->mem_used_mb, mu));
-        jbuf_real(j, "mem_available", mem_convert(r->mem_available_mb, mu));
-        jbuf_real(j, "mem_total", mem_convert(r->mem_total_mb, mu));
-    }
-    jbuf_real(j, "mem_percent", r->mem_percent);
-
-    if (du[0] != '%') {
-        jbuf_real(j, "disk_used", disk_convert(r->disk_used_gb, du));
-        jbuf_real(j, "disk_total", disk_convert(r->disk_total_gb, du));
-        jbuf_real(j, "disk_free", disk_convert(r->disk_free_gb, du));
-    }
-    jbuf_real(j, "disk_percent", r->disk_percent);
-
-    if (cfg_has(cfg->cards, cfg->card_count, "temp")) {
-        double tref =
-            temp_ref(ctx->temp_critical_valid, ctx->temp_critical, cfg->temp_critical_fallback);
-        if (r->temp_valid)
-            jbuf_real(j, "temp", temp_convert(r->temp_celsius, cfg->temp_card_unit, tref));
-        else
-            jbuf_null(j, "temp");
-        if (ctx->temp_critical_valid)
-            jbuf_real(j, "temp_critical",
-                      temp_convert(ctx->temp_critical, cfg->temp_card_unit, tref));
-        else
-            jbuf_null(j, "temp_critical");
-    }
-
-    if (r->net_valid) {
-        jbuf_real(j, "net_rx", net_convert(r->net_rx_bps, nu));
-        jbuf_real(j, "net_tx", net_convert(r->net_tx_bps, nu));
-    } else {
-        jbuf_null(j, "net_rx");
-        jbuf_null(j, "net_tx");
-    }
-
-    jbuf_real(j, "uptime_seconds", r->uptime_seconds);
-
-    jbuf_str(j, "mem_card_unit", cfg->memory_card_unit);
-    jbuf_str(j, "mem_chart_unit", cfg->memory_chart_unit);
-    jbuf_str(j, "disk_card_unit", cfg->disk_card_unit);
-    jbuf_str(j, "disk_chart_unit", cfg->disk_chart_unit);
-    jbuf_str(j, "temp_card_unit", cfg->temp_card_unit);
-    jbuf_str(j, "temp_chart_unit", cfg->temp_chart_unit);
-    jbuf_str(j, "net_card_unit", cfg->net_card_unit);
-    jbuf_str(j, "net_chart_unit", cfg->net_chart_unit);
-    jbuf_str(j, "cpu_load_card_unit", cfg->cpu_load_card_unit);
-    jbuf_str(j, "cpu_load_chart_unit", cfg->cpu_load_chart_unit);
-
-    jbuf_str(j, "title", cfg->title);
-    jbuf_str(j, "version", MINIMONI_VERSION);
-    jbuf_str(j, "theme", cfg->theme);
-    jbuf_sep(j);
-    jbuf_raw(j, cfg->show_footer ? "\"show_footer\":true" : "\"show_footer\":false");
-    jbuf_str(j, "uptime_unit", cfg->uptime_unit);
-
-    jbuf_sep(j);
-    jbuf_raw(j, "\"ranges\":[");
-    for (int i = 0; i < cfg->range_count; i++) {
-        char rs[16];
-        snprintf(rs, sizeof(rs), "%s\"%s\"", i > 0 ? "," : "", cfg->ranges[i]);
-        jbuf_raw(j, rs);
-    }
-    jbuf_raw(j, "]");
-
-    if (cfg->chart_count == 0) {
-        jbuf_sep(j);
-        jbuf_raw(j, "\"charts\":null");
-    } else if (cfg->chart_count < 0) {
-        jbuf_sep(j);
-        jbuf_raw(j, "\"charts\":[]");
-    } else {
-        jbuf_sep(j);
-        jbuf_raw(j, "\"charts\":[");
-        for (int i = 0; i < cfg->chart_count; i++) {
-            char cs[24];
-            snprintf(cs, sizeof(cs), "%s\"%s\"", i > 0 ? "," : "", cfg->charts[i]);
-            jbuf_raw(j, cs);
-        }
-        jbuf_raw(j, "]");
-    }
-
-    if (cfg->card_count == 0) {
-        jbuf_sep(j);
-        jbuf_raw(j, "\"cards\":null");
-    } else if (cfg->card_count < 0) {
-        jbuf_sep(j);
-        jbuf_raw(j, "\"cards\":[]");
-    } else {
-        jbuf_sep(j);
-        jbuf_raw(j, "\"cards\":[");
-        for (int i = 0; i < cfg->card_count; i++) {
-            char ks[24];
-            snprintf(ks, sizeof(ks), "%s\"%s\"", i > 0 ? "," : "", cfg->cards[i]);
-            jbuf_raw(j, ks);
-        }
-        jbuf_raw(j, "]");
-    }
-}
-
-/* =========================================================================
  * Request handlers
  * ======================================================================= */
 
@@ -366,7 +147,8 @@ static int handler_current(struct mg_connection *conn, void *cbdata)
     jbuf_t j;
     jbuf_init(&j, buf, sizeof(buf));
     jbuf_begin(&j);
-    serialize_current(&j, &row, ctx);
+    json_serialize_current(&j, &row, ctx->cfg, ctx->num_cores, ctx->temp_critical_valid,
+                           ctx->temp_critical);
     jbuf_end(&j);
 
     mg_send_http_ok(conn, "application/json", (long long)j.pos);
@@ -447,16 +229,6 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
         return 500;
     }
 
-    const config_t *cfg = ctx->cfg;
-    const char     *lu = cfg->cpu_load_chart_unit;
-    const char     *mu = cfg->memory_chart_unit;
-    const char     *du = cfg->disk_chart_unit;
-    const char     *nu = cfg->net_chart_unit;
-    int             pct_mu = (mu[0] == '%');
-    int             pct_du = (du[0] == '%');
-    double          tref =
-        temp_ref(ctx->temp_critical_valid, ctx->temp_critical, cfg->temp_critical_fallback);
-
     /* Stream response without buffering the full body. */
     mg_printf(conn,
               "HTTP/1.1 200 OK\r\n"
@@ -467,57 +239,11 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
 
     char pt[512];
     for (int i = 0; i < cnt; i++) {
-        const db_row_t *r = &rows[i];
-        jbuf_t          j;
+        jbuf_t j;
         jbuf_init(&j, pt, sizeof(pt));
         jbuf_begin(&j);
-
-        jbuf_long(&j, "t", r->unix_time);
-
-        jbuf_real(&j, "l1", load_convert(r->load_1m, ctx->num_cores, lu));
-        jbuf_real(&j, "l5", load_convert(r->load_5m, ctx->num_cores, lu));
-        jbuf_real(&j, "l15", load_convert(r->load_15m, ctx->num_cores, lu));
-
-        if (r->cpu_valid) {
-            jbuf_real(&j, "cu", r->cpu_user_percent);
-            jbuf_real(&j, "cs", r->cpu_system_percent);
-            jbuf_real(&j, "ci", r->cpu_idle_percent);
-        } else {
-            jbuf_null(&j, "cu");
-            jbuf_null(&j, "cs");
-            jbuf_null(&j, "ci");
-        }
-
-        if (!pct_mu) {
-            jbuf_real(&j, "mu", mem_convert(r->mem_used_mb, mu));
-            jbuf_real(&j, "ma", mem_convert(r->mem_available_mb, mu));
-            jbuf_real(&j, "mt", mem_convert(r->mem_total_mb, mu));
-        }
-        jbuf_real(&j, "mp", r->mem_percent);
-
-        if (!pct_du) {
-            jbuf_real(&j, "du", disk_convert(r->disk_used_gb, du));
-            jbuf_real(&j, "dt", disk_convert(r->disk_total_gb, du));
-            jbuf_real(&j, "df", disk_convert(r->disk_free_gb, du));
-        }
-        jbuf_real(&j, "dp", r->disk_percent);
-
-        if (cfg_has(cfg->charts, cfg->chart_count, "temp")) {
-            if (r->temp_valid)
-                jbuf_real(&j, "tp", temp_convert(r->temp_celsius, cfg->temp_chart_unit, tref));
-            else
-                jbuf_null(&j, "tp");
-        }
-
-        if (r->net_valid) {
-            jbuf_real(&j, "nr", net_convert(r->net_rx_bps, nu));
-            jbuf_real(&j, "nt", net_convert(r->net_tx_bps, nu));
-        } else {
-            jbuf_null(&j, "nr");
-            jbuf_null(&j, "nt");
-        }
-
-        jbuf_real(&j, "up", r->uptime_seconds);
+        json_serialize_point(&j, &rows[i], ctx->cfg, ctx->num_cores, ctx->temp_critical_valid,
+                             ctx->temp_critical);
         jbuf_end(&j);
 
         if (i > 0)
@@ -548,7 +274,8 @@ static int handler_stream(struct mg_connection *conn, void *cbdata)
             jbuf_t j;
             jbuf_init(&j, buf, sizeof(buf));
             jbuf_begin(&j);
-            serialize_current(&j, &row, ctx);
+            json_serialize_current(&j, &row, ctx->cfg, ctx->num_cores, ctx->temp_critical_valid,
+                                   ctx->temp_critical);
             jbuf_end(&j);
 
             int w = mg_printf(conn, "data: %.*s\n\n", (int)j.pos, buf);

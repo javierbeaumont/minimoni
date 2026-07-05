@@ -292,7 +292,7 @@ int config_load(config_t *cfg, const char *path)
         } else {
             /* User explicitly defined `ranges` but every entry was invalid or
              * shorter than `interval`. Refusing instead of silently falling
-             * back to defaults is the honest behaviour - a config that ships
+             * back to defaults is the honest behaviour: a config that ships
              * to production with bogus ranges should fail loud. */
             fprintf(stderr, "config: dashboard.ranges has no valid entries (all rejected or "
                             "< interval); aborting\n");
@@ -389,5 +389,17 @@ int config_open(config_t *cfg, const char *explicit_path)
     if (access("/etc/minimoni/config.toml", R_OK) == 0)
         return config_load(cfg, "/etc/minimoni/config.toml");
 
+    return 0;
+}
+
+int config_has(const char list[][16], int count, const char *name)
+{
+    if (count == 0)
+        return 1; /* default: show all */
+    if (count < 0)
+        return 0; /* explicit empty list: hide all */
+    for (int i = 0; i < count; i++)
+        if (strcmp(list[i], name) == 0)
+            return 1;
     return 0;
 }

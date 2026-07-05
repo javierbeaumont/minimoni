@@ -91,4 +91,9 @@ int config_load(config_t *cfg, const char *path);
  * then silently keeps defaults. Always returns 0 when explicit_path is NULL. */
 int config_open(config_t *cfg, const char *explicit_path);
 
+/* Membership test for the charts/cards visibility lists: 1 if `name` is
+ * configured (or the list is the default show-all, count==0), 0 otherwise
+ * (including count<0, an explicit empty list = hide all). */
+int config_has(const char list[][16], int count, const char *name);
+
 #endif /* MINIMONI_CONFIG_H */

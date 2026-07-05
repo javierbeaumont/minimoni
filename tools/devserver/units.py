@@ -15,7 +15,8 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Unit conversions for the minimoni dev server, mirroring src/http.c exactly.
+Unit conversions and /api serialization for the minimoni dev server, mirroring
+the C server (src/units.c, src/json.c, src/http.c) exactly.
 
 Raw base-unit metrics (from mock_data) are converted to the configured display
 units: /api/current uses the *_card_unit values, /api/metrics uses *_chart_unit.
@@ -28,8 +29,8 @@ from typing import cast
 
 from mock_data import JSON
 
-# The real server reads the core count from sysfs; the dashboard assumes 4 when
-# normalising load client-side, so the dev server uses the same assumption.
+# The real server reads the core count from sysfs; the mock has no real CPU to
+# measure, so it fixes 4 cores for load normalisation and the load thresholds.
 CORES = 4
 
 
@@ -79,11 +80,22 @@ def load_convert(load: float, cores: int, unit: str) -> float:
     return load
 
 
+def config_has(cards: object, name: str) -> bool:
+    """Mirror config_has(): true when the list is absent (show-all default)
+    or explicitly contains the name."""
+    return cards is None or (isinstance(cards, list) and name in cards)
+
+
 def to_current(raw: JSON, f: JSON, fallback: float) -> JSON:
-    """Serialize a raw snapshot for /api/current using the CARD units."""
+    """Serialize a raw snapshot for /api/current using the CARD units.
+
+    Mirrors src/json.c json_serialize_current(): each metric group is emitted only
+    when its card is configured (absent fields => card not configured), and
+    per-card [warn, crit] thresholds are computed server-side."""
     # The metric values are numeric at runtime; the str/int passthroughs
     # (timestamp, uptime) are read from `raw` directly.
     m = cast(dict[str, float], raw)
+    cards = f["cards"]
     lu, mu = str(f["cpu_load_card_unit"]), str(f["mem_card_unit"])
     du, nu, tu = (
         str(f["disk_card_unit"]),
@@ -91,37 +103,60 @@ def to_current(raw: JSON, f: JSON, fallback: float) -> JSON:
         str(f["temp_card_unit"]),
     )
 
-    out: JSON = {
-        "timestamp": raw["timestamp"],
-        "load_1m": round(load_convert(m["load_1m"], CORES, lu), 2),
-        "load_5m": round(load_convert(m["load_5m"], CORES, lu), 2),
-        "load_15m": round(load_convert(m["load_15m"], CORES, lu), 2),
-        "cpu_user_percent": round(m["cpu_user"], 1),
-        "cpu_system_percent": round(m["cpu_system"], 1),
-        "cpu_idle_percent": round(m["cpu_idle"], 1),
-    }
-    if mu[0] != "%":
-        out["mem_used"] = round(mem_convert(m["mem_used_mb"], mu), 2)
-        out["mem_available"] = round(mem_convert(m["mem_avail_mb"], mu), 2)
-        out["mem_total"] = round(mem_convert(m["mem_total_mb"], mu), 2)
-    out["mem_percent"] = round(m["mem_percent"], 1)
-    if du[0] != "%":
-        out["disk_used"] = round(disk_convert(m["disk_used_gb"], du), 2)
-        out["disk_total"] = round(disk_convert(m["disk_total_gb"], du), 2)
-        out["disk_free"] = round(disk_convert(m["disk_free_gb"], du), 2)
-    out["disk_percent"] = round(m["disk_percent"], 1)
+    out: JSON = {"timestamp": raw["timestamp"]}
+    if config_has(cards, "cpu_load"):
+        out["load_1m"] = round(load_convert(m["load_1m"], CORES, lu), 2)
+        out["load_5m"] = round(load_convert(m["load_5m"], CORES, lu), 2)
+        out["load_15m"] = round(load_convert(m["load_15m"], CORES, lu), 2)
+    if config_has(cards, "cpu_usage"):
+        out["cpu_user_percent"] = round(m["cpu_user"], 1)
+        out["cpu_system_percent"] = round(m["cpu_system"], 1)
+        out["cpu_idle_percent"] = round(m["cpu_idle"], 1)
+    if config_has(cards, "memory"):
+        if mu[0] != "%":
+            out["mem_used"] = round(mem_convert(m["mem_used_mb"], mu), 2)
+            out["mem_available"] = round(mem_convert(m["mem_avail_mb"], mu), 2)
+            out["mem_total"] = round(mem_convert(m["mem_total_mb"], mu), 2)
+        out["mem_percent"] = round(m["mem_percent"], 1)
+    if config_has(cards, "disk"):
+        if du[0] != "%":
+            out["disk_used"] = round(disk_convert(m["disk_used_gb"], du), 2)
+            out["disk_total"] = round(disk_convert(m["disk_total_gb"], du), 2)
+            out["disk_free"] = round(disk_convert(m["disk_free_gb"], du), 2)
+        out["disk_percent"] = round(m["disk_percent"], 1)
 
     tc = m.get("temp_c")
     crit = m.get("temp_critical_c")
     ref = temp_ref(crit, fallback)
-    out["temp"] = round(temp_convert(tc, tu, ref), 1) if tc is not None else None
-    out["temp_critical"] = (
-        round(temp_convert(crit, tu, ref), 1) if crit is not None else None
-    )
+    if config_has(cards, "temp"):
+        out["temp"] = round(temp_convert(tc, tu, ref), 1) if tc is not None else None
+        out["temp_critical"] = (
+            round(temp_convert(crit, tu, ref), 1) if crit is not None else None
+        )
+    if config_has(cards, "net"):
+        out["net_rx"] = round(net_convert(m["net_rx_bps"], nu), 2)
+        out["net_tx"] = round(net_convert(m["net_tx_bps"], nu), 2)
+    if config_has(cards, "uptime"):
+        out["uptime_seconds"] = raw["uptime"]
 
-    out["net_rx"] = round(net_convert(m["net_rx_bps"], nu), 2)
-    out["net_tx"] = round(net_convert(m["net_tx_bps"], nu), 2)
-    out["uptime_seconds"] = raw["uptime"]
+    # Thresholds, mirroring the C server (computed server-side, [warn, crit]).
+    if config_has(cards, "cpu_load"):
+        if lu[0] == "%":
+            out["thresh_load"] = [70.0, 90.0]
+        else:
+            out["thresh_load"] = [0.75 * CORES, 1.0 * CORES]
+    if config_has(cards, "cpu_usage"):
+        out["thresh_cpu"] = [70.0, 90.0]
+    if config_has(cards, "memory"):
+        out["thresh_mem"] = [70.0, 90.0]
+    if config_has(cards, "disk"):
+        out["thresh_disk"] = [80.0, 90.0]
+    if config_has(cards, "temp"):
+        base = (crit - 20.0, crit - 10.0) if crit is not None else (70.0, 80.0)
+        out["thresh_temp"] = [
+            round(temp_convert(base[0], tu, ref), 4),
+            round(temp_convert(base[1], tu, ref), 4),
+        ]
     return out
 
 
@@ -159,7 +194,8 @@ def to_point(raw: JSON, f: JSON, fallback: float) -> JSON:
 
     tc = m.get("temp_c")
     ref = temp_ref(m.get("temp_critical_c"), fallback)
-    out["tp"] = round(temp_convert(tc, tu, ref), 1) if tc is not None else None
+    if config_has(f["charts"], "temp"):
+        out["tp"] = round(temp_convert(tc, tu, ref), 1) if tc is not None else None
 
     out["nr"] = round(net_convert(m["net_rx_bps"], nu), 2)
     out["nt"] = round(net_convert(m["net_tx_bps"], nu), 2)
