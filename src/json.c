@@ -287,33 +287,42 @@ void json_serialize_point(jbuf_t *j, const db_row_t *r, const config_t *cfg, int
 
     jbuf_long(j, "t", r->unix_time);
 
-    jbuf_real(j, "l1", load_convert(r->load_1m, num_cores, lu));
-    jbuf_real(j, "l5", load_convert(r->load_5m, num_cores, lu));
-    jbuf_real(j, "l15", load_convert(r->load_15m, num_cores, lu));
-
-    if (r->cpu_valid) {
-        jbuf_real(j, "cu", r->cpu_user_percent);
-        jbuf_real(j, "cs", r->cpu_system_percent);
-        jbuf_real(j, "ci", r->cpu_idle_percent);
-    } else {
-        jbuf_null(j, "cu");
-        jbuf_null(j, "cs");
-        jbuf_null(j, "ci");
+    /* Each metric group is emitted only when its chart is in the charts config. */
+    if (config_has(cfg->charts, cfg->chart_count, "cpu_load")) {
+        jbuf_real(j, "l1", load_convert(r->load_1m, num_cores, lu));
+        jbuf_real(j, "l5", load_convert(r->load_5m, num_cores, lu));
+        jbuf_real(j, "l15", load_convert(r->load_15m, num_cores, lu));
     }
 
-    if (mu[0] != '%') {
-        jbuf_real(j, "mu", mem_convert(r->mem_used_mb, mu));
-        jbuf_real(j, "ma", mem_convert(r->mem_available_mb, mu));
-        jbuf_real(j, "mt", mem_convert(r->mem_total_mb, mu));
+    if (config_has(cfg->charts, cfg->chart_count, "cpu_usage")) {
+        if (r->cpu_valid) {
+            jbuf_real(j, "cu", r->cpu_user_percent);
+            jbuf_real(j, "cs", r->cpu_system_percent);
+            jbuf_real(j, "ci", r->cpu_idle_percent);
+        } else {
+            jbuf_null(j, "cu");
+            jbuf_null(j, "cs");
+            jbuf_null(j, "ci");
+        }
     }
-    jbuf_real(j, "mp", r->mem_percent);
 
-    if (du[0] != '%') {
-        jbuf_real(j, "du", disk_convert(r->disk_used_gb, du));
-        jbuf_real(j, "dt", disk_convert(r->disk_total_gb, du));
-        jbuf_real(j, "df", disk_convert(r->disk_free_gb, du));
+    if (config_has(cfg->charts, cfg->chart_count, "memory")) {
+        if (mu[0] != '%') {
+            jbuf_real(j, "mu", mem_convert(r->mem_used_mb, mu));
+            jbuf_real(j, "ma", mem_convert(r->mem_available_mb, mu));
+            jbuf_real(j, "mt", mem_convert(r->mem_total_mb, mu));
+        }
+        jbuf_real(j, "mp", r->mem_percent);
     }
-    jbuf_real(j, "dp", r->disk_percent);
+
+    if (config_has(cfg->charts, cfg->chart_count, "disk")) {
+        if (du[0] != '%') {
+            jbuf_real(j, "du", disk_convert(r->disk_used_gb, du));
+            jbuf_real(j, "dt", disk_convert(r->disk_total_gb, du));
+            jbuf_real(j, "df", disk_convert(r->disk_free_gb, du));
+        }
+        jbuf_real(j, "dp", r->disk_percent);
+    }
 
     if (config_has(cfg->charts, cfg->chart_count, "temp")) {
         if (r->temp_valid)
@@ -322,12 +331,14 @@ void json_serialize_point(jbuf_t *j, const db_row_t *r, const config_t *cfg, int
             jbuf_null(j, "tp");
     }
 
-    if (r->net_valid) {
-        jbuf_real(j, "nr", net_convert(r->net_rx_bps, nu));
-        jbuf_real(j, "nt", net_convert(r->net_tx_bps, nu));
-    } else {
-        jbuf_null(j, "nr");
-        jbuf_null(j, "nt");
+    if (config_has(cfg->charts, cfg->chart_count, "net")) {
+        if (r->net_valid) {
+            jbuf_real(j, "nr", net_convert(r->net_rx_bps, nu));
+            jbuf_real(j, "nt", net_convert(r->net_tx_bps, nu));
+        } else {
+            jbuf_null(j, "nr");
+            jbuf_null(j, "nt");
+        }
     }
 
     jbuf_real(j, "up", r->uptime_seconds);

@@ -378,6 +378,45 @@ static int test_point_temp_gated_out_by_charts(void)
     return !has(b, "\"tp\"") ? 0 : 1;
 }
 
+static int test_point_gates_excluded_charts(void)
+{
+    char     b[1024];
+    db_row_t r = sample_row();
+    config_t c = base_cfg();
+    strcpy(c.charts[0], "cpu_load");
+    c.chart_count = 1; /* only cpu_load charted -> the other groups gated out */
+    emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
+    return (has(b, "\"l1\":") && !has(b, "\"mp\"") && !has(b, "\"cu\"") && !has(b, "\"nr\"")) ? 0
+                                                                                              : 1;
+}
+
+static int test_point_hides_all_charts(void)
+{
+    char     b[1024];
+    db_row_t r = sample_row();
+    config_t c = base_cfg();
+    c.chart_count = -1; /* explicit empty charts list -> every chart group gated out */
+    emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
+    return (!has(b, "\"l1\"") && !has(b, "\"cu\"") && !has(b, "\"mp\"") && !has(b, "\"dp\"") &&
+            !has(b, "\"tp\"") && !has(b, "\"nr\"") && has(b, "\"t\":") && has(b, "\"up\":"))
+               ? 0
+               : 1;
+}
+
+static int test_point_gates_net_only(void)
+{
+    char     b[1024];
+    db_row_t r = sample_row();
+    config_t c = base_cfg();
+    strcpy(c.charts[0], "net");
+    c.chart_count = 1; /* only net charted -> gating is symmetric across groups */
+    emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
+    return (has(b, "\"nr\":") && has(b, "\"nt\":") && !has(b, "\"l1\"") && !has(b, "\"cu\"") &&
+            !has(b, "\"mp\""))
+               ? 0
+               : 1;
+}
+
 static int test_point_temp_null_when_invalid(void)
 {
     char     b[1024];
@@ -454,6 +493,9 @@ static const test_t ALL_TESTS[] = {
     T(point_emits_short_keys),
     T(point_temp_shown_when_chart_enabled),
     T(point_temp_gated_out_by_charts),
+    T(point_gates_excluded_charts),
+    T(point_hides_all_charts),
+    T(point_gates_net_only),
     T(point_temp_null_when_invalid),
     T(point_cpu_null_when_invalid),
     T(point_net_null_when_invalid),

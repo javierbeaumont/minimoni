@@ -31,7 +31,8 @@ const assert = require('assert');
 const path = require('path');
 
 const {
-  fmtY, fmtX, fmtNet, fmtTempVal, cardLevel, metricsUrl, clampPoints
+  fmtY, fmtX, fmtTip, fmtXFull, fmtNet, fmtTempVal, cardLevel, metricsUrl, clampPoints,
+  niceTicks, timeTicks
 } = require(path.join(__dirname, '..', 'dashboard', 'app.js'));
 
 /* UI glyphs the formatters emit, built from code points so this test stays
@@ -46,6 +47,14 @@ const TESTS = [
     assert.strictEqual(fmtY(50, '%'), '50%');
     assert.strictEqual(fmtY(45, 'C'), '45' + DEG);
   }],
+  ['fmtTip: precision by unit', function () {
+    assert.strictEqual(fmtTip(50.5, '%'), '50.5%');
+    assert.strictEqual(fmtTip(45.5, 'C'), '45.5' + DEG);
+    assert.strictEqual(fmtTip(45.5, 'F'), '45.5' + DEG);
+    /* Unitless: two decimals below 10, one at or above. */
+    assert.strictEqual(fmtTip(2.5, ''), '2.50');
+    assert.strictEqual(fmtTip(42.3, ''), '42.3');
+  }],
   ['fmtX picks granularity from span', function () {
     const t = 1700000000;            /* 2023-11-14 22:13:20 UTC */
     assert.strictEqual(fmtX(t, 3600), '13:20');
@@ -53,7 +62,20 @@ const TESTS = [
     assert.strictEqual(fmtX(t, 86400 * 30), 'Nov 14');
     assert.strictEqual(fmtX(t, 86400 * 365), "Nov '23");
     assert.strictEqual(fmtX(t, 86400 * 800), '2023');
+    /* Inclusive thresholds: one second past a boundary drops to the next granularity. */
+    assert.strictEqual(fmtX(t, 3601), '22:13'); /* 3600 is the last MM:SS second */
+    assert.strictEqual(fmtX(t, 86400 * 2 + 1), 'Nov 14'); /* 2d is the last HH:MM span */
     assert.strictEqual(fmtX(0, 3600), '');
+  }],
+  ['fmtXFull: full timestamp by span', function () {
+    const t = 1700000000;            /* 2023-11-14 22:13:20 UTC */
+    assert.strictEqual(fmtXFull(t, 3600), '22:13:20');
+    assert.strictEqual(fmtXFull(t, 86400 * 2), 'Nov 14 22:13');
+    assert.strictEqual(fmtXFull(t, 86400 * 30), 'Nov 14, 2023');
+    /* Inclusive thresholds, one second past each boundary. */
+    assert.strictEqual(fmtXFull(t, 3601), 'Nov 14 22:13'); /* 3600 is the last HH:MM:SS */
+    assert.strictEqual(fmtXFull(t, 86400 * 2 + 1), 'Nov 14, 2023'); /* past the 2d window */
+    assert.strictEqual(fmtXFull(0, 3600), '');
   }],
   ['fmtNet: fixed unit, adaptive precision', function () {
     assert.strictEqual(fmtNet(null, 'kb'), EMD);
@@ -100,6 +122,22 @@ const TESTS = [
   ['clampPoints clamps to [120, 1440]', function () {
     assert.strictEqual(clampPoints(100, 1), 120);
     assert.strictEqual(clampPoints(100000, 1), 1440);
+  }],
+  ['niceTicks rounds the axis to round values', function () {
+    assert.deepStrictEqual(niceTicks(1883, 5), [0, 500, 1000, 1500, 2000]);
+    assert.deepStrictEqual(niceTicks(100, 5), [0, 20, 40, 60, 80, 100]);
+    assert.deepStrictEqual(niceTicks(0, 5), [0, 1]);   /* no data yet */
+    const load = niceTicks(0.4, 5);                    /* fractional step */
+    assert.strictEqual(load[0], 0);
+    assert.strictEqual(load[load.length - 1], 0.4);
+    assert.strictEqual(load.length, 5);
+  }],
+  ['timeTicks lands on round, midnight-aligned times', function () {
+    const t0 = 1700006400;                       /* 2023-11-15 00:00:00 UTC */
+    const ticks = timeTicks(t0, t0 + 86400, 7);  /* 1-day span -> 4h step */
+    assert.strictEqual(ticks[0], t0);            /* first tick on local midnight */
+    assert.strictEqual(ticks.length >= 5, true);
+    ticks.forEach(function(tk) { assert.strictEqual((tk - t0) % 3600, 0); });
   }],
 ];
 

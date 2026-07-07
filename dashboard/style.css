@@ -163,15 +163,21 @@ button.act {
 
 /* --- Metric cards --- */
 
-/* Responsive grid: cards shrink to ~130 px minimum, then grow to fill */
+/* Responsive grid: cards shrink to ~162 px minimum, then grow to fill. 162 px
+ * fits the widest value the 4-significant-digit formatter produces (e.g.
+ * "99999 Mbps") plus padding, so the 0.001..99999 range never crops. */
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(162px, 1fr));
   gap: 10px;
   margin-bottom: 18px;
 }
 
 .card {
+  /* Flex column: header at top, value centred in the middle, sub-values at the
+   * bottom. Height is natural; the grid stretches a row to its tallest card. */
+  display: flex;
+  flex-direction: column;
   background: var(--surf);
   border: 1px solid var(--brd);
   border-radius: 8px;
@@ -179,40 +185,71 @@ button.act {
 }
 .card.hide { display: none; }
 
-/* Small all-caps metric label at the top of each card */
+/* Header row: title on the left, active-unit chip on the right */
 .clabel {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
   font-size: 11px;
   color: var(--mut);
   text-transform: uppercase;
   letter-spacing: .05em;
-  margin-bottom: 5px;
+  /* Keep the title on one line; the space-between split looks broken wrapped. */
+  white-space: nowrap;
+  overflow: hidden;
 }
 
-/* Large primary value */
+/* Large primary value, centred and growing to fill the middle row */
 .cval {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 22px;
   font-weight: 700;
+  /* Tabular digits so the value keeps width as it changes; nowrap + overflow
+   * clip so a long unit string never breaks the grid layout. */
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: center;
+  overflow: hidden;
 }
 
-/* Secondary value shown below the primary */
+/* Footer row: sub-values aligned right. min-height reserves one line even when
+ * empty (temperature card) so the value above stays vertically centred. */
 .csub {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  justify-content: flex-end;
   font-size: 11px;
   color: var(--mut);
-  margin-top: 2px;
+  min-height: 1.5em;
 }
 
 /* Active sub-metric label shown inline in .clabel (e.g. "1m", "user") */
 .card-unit      { font-size: 10px; }
 .card-unit.hide { display: none; }
 
-/* Each clickable secondary metric inside .csub */
-.card-sub       { display: inline-flex; gap: 2px; align-items: baseline; cursor: pointer; }
+/* Each clickable secondary metric inside .csub. Negative margin compensates the
+ * padding so the layout does not shift; on hover a subtle chip appears. */
+.card-sub {
+  display: inline-flex;
+  gap: 2px;
+  align-items: baseline;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 1px 4px;
+  margin: -1px -4px;
+  transition: background 0.12s;
+}
 .card-sub.hide  { display: none; }
+.card-sub:hover { background: var(--brd); }
 
-/* Status colour on the secondary value - mirrors .card.g/y/r on .cval */
+/* Status colour on the secondary value: mirrors .card.g/y/r on .cval. Base is
+ * --txt so values stay readable when no status class applies. */
+.card-sub-val   { color: var(--txt); }
 .card-sub-val.g { color: var(--grn); }
 .card-sub-val.y { color: var(--ylw); }
 .card-sub-val.r { color: var(--red); }
@@ -287,7 +324,14 @@ button.act {
   color: var(--mut);
   cursor: pointer;
   user-select: none;
+  /* Chip hover affordance, same as .card-sub: negative margin compensates the
+   * padding so the legend layout does not shift on hover. */
+  border-radius: 4px;
+  padding: 1px 4px;
+  margin: -1px -4px;
+  transition: background 0.12s;
 }
+.leg-item:hover { background: var(--brd); }
 
 .leg-dot {
   width: 8px;
@@ -308,6 +352,7 @@ button.act {
 canvas {
   display: block;
   height: 160px;
+  cursor: crosshair;  /* hints the chart is interactive (hover + click-to-pin) */
 }
 
 @media (min-width: 900px) {
@@ -331,6 +376,54 @@ canvas {
 .s-net-rx { --c: var(--clr-net-rx); }
 .card-unit, .card-sub-lbl { color: var(--c); }
 .leg-dot { background: var(--c); }
+
+/* --- Canvas tooltip --- */
+
+/* Floating tooltip: anchored to the page (not the viewport) so it travels with
+ * its chart point on scroll. When the crosshair is locked, its contents read the
+ * locked timestamp on the chart being hovered. */
+#tt {
+  position: absolute;
+  z-index: 100;
+  min-width: 80px;
+  padding: 6px 10px;
+  background: var(--surf);
+  border: 1px solid var(--brd);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .15);
+  font-size: 11px;
+  pointer-events: none;
+}
+#tt.hide { display: none; }
+
+.tt-time {
+  margin-bottom: 4px;
+  color: var(--mut);
+  font-size: 10px;
+}
+
+.tt-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.tt-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tt-lbl {
+  flex: 1;
+  color: var(--mut);
+}
+
+.tt-val {
+  color: var(--txt);
+  font-weight: 600;
+}
 
 /* --- Footer --- */
 
