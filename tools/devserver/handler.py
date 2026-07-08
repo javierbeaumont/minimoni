@@ -25,6 +25,7 @@ metrics are converted to the configured units by units.py.
 
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler
+from itertools import count
 from json import dumps
 from logging import getLogger
 from os import sep
@@ -54,10 +55,21 @@ class AppState:
     config_fields: JSON
     temp_critical_fallback: float
     scenario: str
+    flaky: bool = False
+
+
+def stream_should_drop(flaky: bool, seq: int) -> bool:
+    """Flaky mode (opt-in via --flaky): drop every other /stream connection so the
+    dashboard cycles live -> reconnecting -> live and the SSE connection indicator
+    can be exercised without hand-forcing it. Deterministic by connection sequence
+    (not random), so it is testable and predictable; off by default, so normal use
+    is never interrupted."""
+    return flaky and seq % 2 == 1
 
 
 def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
     """Build a request handler bound to the given app state."""
+    stream_seq = count()  # per-server /stream connection counter (next() is atomic)
 
     def current() -> JSON:
         # converted mocked metrics + version + real config fields
@@ -126,12 +138,16 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._send(404, "text/plain", "dashboard not found")
 
         def _stream(self) -> None:
+            seq = next(stream_seq)
             try:
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
                 self.send_header("Cache-Control", "no-cache")
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
+                if stream_should_drop(state.flaky, seq):
+                    log.debug("flaky: dropping /stream connection %d", seq)
+                    return  # close with no data: the browser EventSource errors
                 for _ in range(3):
                     self.wfile.write(f"data: {dumps(current())}\n\n".encode())
                     self.wfile.flush()

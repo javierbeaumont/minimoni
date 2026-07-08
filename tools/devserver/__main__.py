@@ -17,7 +17,7 @@
 
 """
 Mock HTTP server for iterating on dashboard/index.html without compiling.
-Usage: python3 tools/devserver/ [port] [config] [--scenario S] [-v]
+Usage: python3 tools/devserver/ [port] [config] [--scenario S] [--flaky] [-v]
 Metric values are mocked (mock_data.py); presentation settings come from a real
 minimoni config (config.py); the HTTP serving lives in handler.py.
 Requires Python 3.11+ (uses tomllib).
@@ -81,6 +81,11 @@ def main() -> None:
         help="card stress level (default: cycle, sweeps good->critical over time)",
     )
     parser.add_argument(
+        "--flaky",
+        action="store_true",
+        help="drop every other /stream connection, to exercise the SSE indicator",
+    )
+    parser.add_argument(
         "-v", "--verbose", action="store_true", help="log every request"
     )
     args = parser.parse_args()
@@ -97,6 +102,7 @@ def main() -> None:
         config_fields=config_fields(dashboard),
         temp_critical_fallback=dashboard_temp_critical_fallback(dashboard),
         scenario=args.scenario,
+        flaky=args.flaky,
     )
     log.info("config loaded from %s (scenario=%s)", args.config, args.scenario)
 

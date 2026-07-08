@@ -1154,19 +1154,54 @@ function buildTabs() {
 
 /* --- SSE live stream --- */
 
+/* Exponential reconnect backoff: 1s -> 2s -> 4s -> 8s -> 16s -> 32s -> 64s, then
+ * stays at 64s. Resets to 1s as soon as a message lands on the newly opened
+ * connection, so a quick server hiccup recovers fast but a permanently down
+ * server is not hammered. */
+let sseBackoffMs = 1000;
+const SSE_BACKOFF_MAX = 64000;
+let sseCountdownTimer = null;
+
+/* Live-tick the aria-label on the .conn dot so the hover tooltip (rendered via
+ * content: attr(aria-label)) shows a per-second countdown to the next reconnect
+ * attempt. Without it the user sees a static "in 32s" for 32 seconds with no
+ * sign of progress. */
+function startReconnectCountdown(targetMs) {
+  clearInterval(sseCountdownTimer);
+  const c = document.getElementById('conn');
+  const tick = function() {
+    const remaining = Math.max(0, Math.ceil((targetMs - Date.now()) / 1000));
+    c.setAttribute('aria-label', 'Connection lost, reconnecting in ' + remaining + 's');
+    if (remaining <= 0) clearInterval(sseCountdownTimer);
+  };
+  tick();
+  sseCountdownTimer = setInterval(tick, 1000);
+}
+
 function connectSSE() {
+  const c = document.getElementById('conn');
+  /* A (re)connect attempt is in flight: stop the countdown and show a generic
+   * Connecting label until the first message lands (or we error). */
+  clearInterval(sseCountdownTimer);
+  c.setAttribute('aria-label', 'Connecting...');
+
   const es = new EventSource('/stream');
   es.onmessage = function(e) {
+    clearInterval(sseCountdownTimer);   /* data landed: stop any countdown tick */
+    sseBackoffMs = 1000;                /* successful message: reset for next time */
+    c.className = 'conn live';
+    c.setAttribute('aria-label', 'Live: receiving updates');
     try {
       updateCards(JSON.parse(e.data));
       loadMetrics();
     } catch (e) { /* ignore a malformed SSE frame */ }
   };
-  /* On any error (network drop, server restart) close and reconnect
-   * after 5 seconds to avoid hammering the server */
   es.onerror = function() {
     es.close();
-    setTimeout(connectSSE, 5000);
+    c.className = 'conn down';
+    startReconnectCountdown(Date.now() + sseBackoffMs);
+    setTimeout(connectSSE, sseBackoffMs);
+    sseBackoffMs = Math.min(sseBackoffMs * 2, SSE_BACKOFF_MAX);
   };
 }
 

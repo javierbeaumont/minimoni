@@ -26,6 +26,7 @@ from sys import exit, path
 path.insert(0, join(dirname(abspath(__file__)), "..", "tools", "devserver"))
 
 from config import config_fields  # noqa: E402
+from handler import stream_should_drop  # noqa: E402
 from mock_data import _range_seconds, clamp_points, current_snapshot  # noqa: E402
 from units import temp_convert, temp_ref, to_current, to_point  # noqa: E402
 
@@ -59,6 +60,21 @@ def test_clamp_points_empty_defaults():
 
 def test_clamp_points_non_numeric_defaults():
     assert clamp_points("abc") == 240
+
+
+# --- stream_should_drop: flaky-mode /stream failure pattern (opt-in) ---
+
+
+def test_stream_should_drop_off_by_default():
+    assert stream_should_drop(False, 0) is False
+    assert stream_should_drop(False, 1) is False
+
+
+def test_stream_should_drop_every_other_when_flaky():
+    assert stream_should_drop(True, 0) is False  # even seq: serve normally
+    assert stream_should_drop(True, 1) is True  # odd seq: drop (simulate failure)
+    assert stream_should_drop(True, 2) is False
+    assert stream_should_drop(True, 3) is True
 
 
 # --- _range_seconds: range string -> seconds (m, h, d) ---
