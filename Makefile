@@ -62,8 +62,12 @@ all: embed minimoni minimoni-migrate
 # tools/bundle.sh inlines dashboard/style.css, app.js, and favicon.svg into index.html,
 # then xxd converts the result to a C byte array included by the HTTP handler.
 # Not tracked in git; run "make embed" before the first build or after editing the dashboard.
+# MINIFY: opt-in HTML minification (no-op when `minify` is not on PATH). The
+# release/release-linux targets set MINIFY=1; plain `make` leaves it unset so
+# dev builds keep readable source for browser DevTools. See ADR-0007.
+MINIFY ?=
 embed: | build
-	sh tools/bundle.sh | xxd -i -n dashboard_index_html - > build/embed.h
+	MINIFY=$(MINIFY) sh tools/bundle.sh | xxd -i -n dashboard_index_html - > build/embed.h
 
 build:
 	mkdir -p build
@@ -84,6 +88,7 @@ minimoni-migrate: $(MIGRATE_SRC)
 	$(CC) $(CFLAGS) -O2 -Isrc/migrate -o $@ $(MIGRATE_SRC) -static
 
 release: OPT = -Os -flto=auto
+release: MINIFY = 1
 release: embed $(VENDOR_OBJ) $(BEARSSL_LIB)
 	$(CC) $(CFLAGS) -Os -flto=auto $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
 	  -Ivendor -Isrc -Ibuild -o minimoni $(SRC) $(VENDOR_OBJ) \
@@ -98,7 +103,7 @@ ci-image:
 
 release-linux: ci-image
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
-	  sh -c "apk add --quiet gcc musl-dev make xxd git && make release"
+	  sh -c "apk add --quiet gcc musl-dev make xxd git minify && make release"
 
 debug: OPT = -O0 -g -fsanitize=address,undefined
 debug: embed $(VENDOR_OBJ) $(BEARSSL_LIB)
@@ -147,7 +152,7 @@ test-unit: ci-image \
 # fixtures with the sqlite3 CLI). One build serves both.
 test-integration: ci-image
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
-	  sh -c "apk add --quiet gcc musl-dev make xxd git sqlite && make release && \
+	  sh -c "apk add --quiet gcc musl-dev make xxd git sqlite minify && make release && \
 	    sh tests/cli.sh && sh tests/migrate.sh"
 
 # Run every test suite the project has.

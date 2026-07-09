@@ -23,7 +23,12 @@
 #   <link ... href="favicon.svg">             -> replaced with inline data URI
 #   <link rel="stylesheet" href="style.css">  -> replaced with <style>...</style>
 #   <script src="app.js"></script>            -> replaced with <script>...</script>
+#
+# Set MINIFY=1 to pipe the bundled HTML through `minify --type=html`. No-op
+# (with a one-line warning to stderr) when `minify` is not on PATH, so `make`
+# keeps working for contributors who have not installed it. See ADR-0007.
 
+bundle() {
 awk '
   /href="favicon.svg"/ {
     svg = ""
@@ -52,3 +57,13 @@ awk '
   }
   { print }
 ' dashboard/index.html
+}
+
+if [ "${MINIFY:-0}" = "1" ] && command -v minify >/dev/null 2>&1; then
+  bundle | minify --type=html
+elif [ "${MINIFY:-0}" = "1" ]; then
+  echo "bundle.sh: MINIFY=1 set but 'minify' not on PATH; emitting unminified" >&2
+  bundle
+else
+  bundle
+fi

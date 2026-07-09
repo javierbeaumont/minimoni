@@ -69,7 +69,7 @@ jobs:
             minimoni-toolchain \
             sh -c '
               set -e
-              apk add --quiet --no-cache gcc musl-dev make xxd git
+              apk add --quiet --no-cache gcc musl-dev make xxd git minify
               git config --global --add safe.directory /work
               make release
             '

@@ -572,6 +572,7 @@ consequences, so future contributors understand not just what was chosen but why
 | [0004](docs/adr/0004-bearssl.md)              | BearSSL for HTTPS webhook delivery |
 | [0005](docs/adr/0005-tiered-consolidation.md) | Tiered write-time consolidation    |
 | [0006](docs/adr/0006-minimoni-migrate.md)     | Separate minimoni-migrate binary   |
+| [0007](docs/adr/0007-html-minification.md)    | Optional HTML minification         |
 
 ## Roadmap
 
