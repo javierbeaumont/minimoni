@@ -1095,7 +1095,7 @@ function attachHover(id) {
 /* --- Data fetchers --- */
 
 function loadCurrent() {
-  fetch('/api/current').then(function(r) {
+  fetch('api/current').then(function(r) {
     if (r.ok) r.json().then(updateCards);
   }).catch(function() {});
 }
@@ -1103,7 +1103,7 @@ function loadCurrent() {
 /* Build the /api/metrics URL. points is computed by the caller from the canvas
  * width (see clampPoints / loadMetrics); the server caps it at 1440. */
 function metricsUrl(range, points) {
-  return '/api/metrics?range=' + range + '&points=' + points;
+  return 'api/metrics?range=' + range + '&points=' + points;
 }
 
 /* Points the canvas can resolve: 1 point per 4 backing pixels (the threshold
@@ -1185,7 +1185,7 @@ function connectSSE() {
   clearInterval(sseCountdownTimer);
   c.setAttribute('aria-label', 'Connecting...');
 
-  const es = new EventSource('/stream');
+  const es = new EventSource('stream');
   es.onmessage = function(e) {
     clearInterval(sseCountdownTimer);   /* data landed: stop any countdown tick */
     sseBackoffMs = 1000;                /* successful message: reset for next time */

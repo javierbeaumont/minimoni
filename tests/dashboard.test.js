@@ -107,13 +107,13 @@ const TESTS = [
     assert.strictEqual(cardLevel(95, [70, 90]), 'r');
   }],
   ['metricsUrl basic', function () {
-    assert.strictEqual(metricsUrl('7d', 480), '/api/metrics?range=7d&points=480');
+    assert.strictEqual(metricsUrl('7d', 480), 'api/metrics?range=7d&points=480');
   }],
   ['metricsUrl other values', function () {
-    assert.strictEqual(metricsUrl('1d', 100), '/api/metrics?range=1d&points=100');
+    assert.strictEqual(metricsUrl('1d', 100), 'api/metrics?range=1d&points=100');
   }],
   ['metricsUrl 90d', function () {
-    assert.strictEqual(metricsUrl('90d', 1440), '/api/metrics?range=90d&points=1440');
+    assert.strictEqual(metricsUrl('90d', 1440), 'api/metrics?range=90d&points=1440');
   }],
   ['clampPoints scales by width and dpr', function () {
     assert.strictEqual(clampPoints(800, 1), 200);
