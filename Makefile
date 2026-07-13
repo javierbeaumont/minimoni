@@ -44,8 +44,8 @@ VENDOR = vendor/civetweb.c vendor/sqlite3.c vendor/tomlc17.c
 
 # minimoni-migrate: standalone binary that calls `minimoni db exec` for
 # every SQL statement, so it links no vendored libs.
-MIGRATE_SRC = src/migrate/main.c src/migrate/exec.c src/migrate/migrations.c \
-  src/migrate/preflight.c src/migrate/snapshot.c
+MIGRATE_SRC = src/migrate/main.c src/migrate/consolidate.c src/migrate/exec.c \
+  src/migrate/migrations.c src/migrate/preflight.c src/migrate/snapshot.c
 
 # Vendored amalgamations carry upstream warnings we don't own (e.g. civetweb's
 # unused-but-set variables). Compile them as separate objects with that one

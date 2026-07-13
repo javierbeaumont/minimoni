@@ -72,11 +72,14 @@ CREATE TABLE IF NOT EXISTS metrics (
 CREATE INDEX IF NOT EXISTS idx_metrics_ts ON metrics(timestamp);
 CREATE TABLE IF NOT EXISTS alert_log (alert_name TEXT NOT NULL, fired_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_alert_log_name ON alert_log(alert_name);
+-- Aged rows relative to now (never a fixed date), so they always read as old.
 INSERT INTO metrics VALUES
-    ('2026-06-23T10:00:00Z', 0.5,0.4,0.3, 10,5,85, 1000,400,600,40,
+    (strftime('%Y-%m-%dT%H:%M:%SZ','now','-10 days'),
+     0.5,0.4,0.3, 10,5,85, 1000,400,600,40,
      10,5,5,50, 45, 100000, 50000, 3600);
 INSERT INTO metrics VALUES
-    ('2026-06-23T10:01:00Z', 0.6,0.5,0.4, 12,6,82, 1000,410,590,41,
+    (strftime('%Y-%m-%dT%H:%M:%SZ','now','-10 days','+60 seconds'),
+     0.6,0.5,0.4, 12,6,82, 1000,410,590,41,
      10,5,5,50, 46, 106000, 53000, 3660);
 PRAGMA application_id = 1836019305;
 SQL
@@ -196,9 +199,18 @@ t_schema_after_migration() {
 t_bps_computed_from_byte_deltas() {
     db=$TMP/bps.db
     make_v01_db "$db"
+    # Make the two rows recent (single shell epoch, so the 60 s gap is exact and
+    # there are no fixed dates): the closing consolidation then leaves them raw,
+    # isolating the bps delta calc from the fold (compaction is covered separately).
+    now=$(date +%s)
+    sqlite3 "$db" \
+        "UPDATE metrics SET timestamp=strftime('%Y-%m-%dT%H:%M:%SZ',$((now - 120)),'unixepoch')
+           WHERE net_rx_bytes=100000;
+         UPDATE metrics SET timestamp=strftime('%Y-%m-%dT%H:%M:%SZ',$((now - 60)),'unixepoch')
+           WHERE net_rx_bytes=106000;"
     "$MIG" --use "$MIN" "$db" >/dev/null 2>&1
-    # First row: no predecessor -> bps NULL.
-    # Second row: (106000-100000)/60 = 100.0 rx; (53000-50000)/60 = 50.0 tx.
+    # Row 1 has no predecessor -> bps NULL; row 2 -> (106000-100000)/60 = 100.0 rx,
+    # (53000-50000)/60 = 50.0 tx.
     bps=$(sqlite3 "$db" "SELECT COALESCE(net_rx_bps,'NULL')||'|'||COALESCE(net_tx_bps,'NULL')
         FROM metrics ORDER BY timestamp")
     expected="NULL|NULL
@@ -524,6 +536,51 @@ t_auto_resolve_minimoni() {
     fi
 }
 
+# --- migration compaction (v0.1 -> v0.2 folds the raw backlog and VACUUMs) ---
+
+t_migration_consolidates_and_compacts() {
+    db=$TMP/compact.db
+    make_v01_db "$db"
+    "$MIG" --use "$MIN" --no-backup "$db" >/dev/null 2>&1 || {
+        report "migration folds the backlog and compacts" "exit code != 0"
+        return
+    }
+    uv=$(sqlite3 "$db" 'PRAGMA user_version')
+    if [ "$uv" != 1 ]; then
+        report "migration folds the backlog and compacts" "user_version=$uv (want 1)"
+        return
+    fi
+    # Every aged row was folded into a tier: none left raw (bucket_sec NULL).
+    raw=$(sqlite3 "$db" 'SELECT COUNT(*) FROM metrics WHERE bucket_sec IS NULL' 2>/dev/null)
+    if [ "$raw" != 0 ]; then
+        report "migration folds the backlog and compacts" "$raw rows left un-consolidated"
+        return
+    fi
+    # The closing VACUUM returns the freed pages to the filesystem: free list empty.
+    fl=$(sqlite3 "$db" 'PRAGMA freelist_count' 2>/dev/null)
+    if [ "$fl" != 0 ]; then
+        report "migration folds the backlog and compacts" "freelist_count=$fl (want 0)"
+        return
+    fi
+    report "migration folds the backlog and compacts" ok
+}
+
+t_remigrate_is_noop() {
+    db=$TMP/compact-noop.db
+    make_v01_db "$db"
+    "$MIG" --use "$MIN" --no-backup "$db" >/dev/null 2>&1
+    # Re-running on an already-migrated DB must be a no-op: exit 0, no work.
+    out=$("$MIG" --use "$MIN" --no-backup "$db" 2>&1) && rc=0 || rc=$?
+    if [ "$rc" != 0 ]; then
+        report "re-migrate on an up-to-date DB is a no-op" "exit=$rc (want 0)"
+        return
+    fi
+    case "$out" in
+        *"already at the latest"*) report "re-migrate on an up-to-date DB is a no-op" ok ;;
+        *) report "re-migrate on an up-to-date DB is a no-op" "no 'already at latest' message" ;;
+    esac
+}
+
 # --- Runner --------------------------------------------------------------
 
 t_basic_v01_to_v1
@@ -549,6 +606,8 @@ t_force_migrates_past_fingerprint
 t_force_rejects_no_backup
 t_help_and_version
 t_auto_resolve_minimoni
+t_migration_consolidates_and_compacts
+t_remigrate_is_noop
 
 echo
 echo "  $pass passed, $fail failed"

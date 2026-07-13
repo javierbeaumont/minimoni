@@ -18,6 +18,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include "consolidate.h"
 #include "exec.h"
 #include "migrations.h"
 #include "preflight.h"
@@ -234,6 +235,14 @@ static int do_migrate(const char *minimoni_exec, const char *db_path, int do_bac
 
     if (rc_apply != 0)
         return rc_apply;
+
+    /* Close the upgrade with a consolidation + VACUUM: v0.1 stored only raw rows,
+     * so the daemon's first consolidation would DELETE the backlog and leave the
+     * freed pages bloating the file. Doing it here hands the daemon a compacted DB.
+     * Reached only after a real migration, so it runs once, never on a re-run. */
+    int rc_compact = migrate_consolidate_and_vacuum(minimoni_exec, db_path);
+    if (rc_compact != 0)
+        return rc_compact;
 
     fprintf(stderr, "migrate: success, database at user_version=%d\n", current);
     return 0;

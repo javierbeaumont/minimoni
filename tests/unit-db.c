@@ -642,7 +642,7 @@ static int make_db_v01(const char *path)
     snprintf(sql, sizeof(sql),
              "PRAGMA application_id = %d;"
              "CREATE TABLE metrics (timestamp TEXT NOT NULL, load_1m REAL);"
-             "INSERT INTO metrics VALUES ('2026-01-01T00:00:00Z', 0.5);",
+             "INSERT INTO metrics VALUES (strftime('%%Y-%%m-%%dT%%H:%%M:%%SZ','now'), 0.5);",
              MINIMONI_APPLICATION_ID);
     return sql_exec(path, sql);
 }
