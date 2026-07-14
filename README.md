@@ -116,11 +116,25 @@ and the original Pi Zero / Zero W). The armv6 build is published for completenes
 not been tested on real ARMv6 hardware.
 
 The release binaries carry SLSA build provenance (SLSA Build Level 2): each is built on
-GitHub-hosted runners with a signed, verifiable attestation. Verify a download with:
+GitHub-hosted runners with a signed, verifiable attestation. Verifying a download is
+optional; to check the binary you installed:
 
 ```sh
-gh attestation verify minimoni-linux-$ARCH --repo javierbeaumont/minimoni
+gh attestation verify /usr/local/bin/minimoni --repo javierbeaumont/minimoni
 ```
+
+Every release also ships a `checksums.txt` manifest. Without `gh`, check your binary
+against the line for your architecture (`sha256sum` reports `OK` or `FAILED`):
+
+```sh
+curl -fsSL $BASE/checksums.txt -o checksums.txt
+grep " minimoni-linux-$ARCH$" checksums.txt \
+  | sed "s|minimoni-linux-$ARCH|/usr/local/bin/minimoni|" \
+  | sha256sum -c
+```
+
+Releases are immutable (assets and the tag are locked once published), and each ships a
+CycloneDX SBOM (`sbom.cdx.json`) listing the vendored dependencies compiled into the binary.
 
 ## Building
 

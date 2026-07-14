@@ -8,6 +8,9 @@ minimoni-migrate-linux-*
 # (embed.h, minimoni-debug) goes into build/.
 build/
 
+# CI release staging dir (the release job assembles the release assets here).
+dist/
+
 # Vendored library build tree (BearSSL sub-make's output)
 vendor/bearssl/build/
 

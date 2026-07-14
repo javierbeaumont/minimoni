@@ -102,18 +102,26 @@ jobs:
         with:
           merge-multiple: true
 
+      - name: Stage release artifacts
+        run: |
+          mkdir dist
+          cp \
+            minimoni-linux-* \
+            minimoni-migrate-linux-* \
+            config.example.toml \
+            sbom.cdx.json \
+            contrib/systemd/*.service \
+            contrib/systemd/*.timer \
+            dist/
+
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum * > checksums.txt
+
       - name: Attest build provenance
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
-          subject-path: |
-            minimoni-linux-amd64
-            minimoni-linux-arm64
-            minimoni-linux-armv7
-            minimoni-linux-armv6
-            minimoni-migrate-linux-amd64
-            minimoni-migrate-linux-arm64
-            minimoni-migrate-linux-armv7
-            minimoni-migrate-linux-armv6
+          subject-checksums: dist/checksums.txt
 
       - name: Create GitHub Release
         env:
@@ -124,15 +132,4 @@ jobs:
           gh release create ${{ github.ref_name }} \
             --title "$TITLE" \
             --notes-file /tmp/release-body.md \
-            minimoni-linux-amd64 \
-            minimoni-linux-arm64 \
-            minimoni-linux-armv7 \
-            minimoni-linux-armv6 \
-            minimoni-migrate-linux-amd64 \
-            minimoni-migrate-linux-arm64 \
-            minimoni-migrate-linux-armv7 \
-            minimoni-migrate-linux-armv6 \
-            config.example.toml \
-            contrib/systemd/minimoni.service \
-            contrib/systemd/minimoni-collect.service \
-            contrib/systemd/minimoni-collect.timer
+            dist/*
