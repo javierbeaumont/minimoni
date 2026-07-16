@@ -23,7 +23,7 @@ for downsampling.
 
 ## Decision
 
-Use the **SQLite amalgamation** (`sqlite3.c` + `sqlite3.h`, version 3.53.1, public domain).
+Use the **SQLite amalgamation** (`sqlite3.c` + `sqlite3.h`, public domain).
 Compiles directly into the binary. WAL mode enables concurrent readers with a single writer
 without application-level mutexes.
 

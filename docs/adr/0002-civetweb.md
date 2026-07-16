@@ -23,7 +23,7 @@ making the two licenses impossible to satisfy simultaneously in a combined work.
 
 ## Decision
 
-Use **civetweb 1.16** (MIT). It is the MIT-licensed continuation of the original mongoose
+Use **civetweb** (MIT). It is the MIT-licensed continuation of the original mongoose
 codebase, maintained by the same original author (Sergey Lyubka), with 15+ years of
 battle-tested HTTP handling. Vendored as `civetweb.c` + `civetweb.h` + `.inl` files.
 

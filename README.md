@@ -562,9 +562,9 @@ All four compile directly into the binary; no runtime dependencies, no package m
 
 | Library              | Version | Purpose                                 | License       |
 |----------------------|---------|-----------------------------------------|---------------|
-| [SQLite][SQLite]     | 3.53.1  | Single-file metric database             | Public domain |
+| [SQLite][SQLite]     | 3.53.3  | Single-file metric database             | Public domain |
 | [civetweb][civetweb] | 1.16    | Embedded HTTP server, JSON API          | MIT           |
-| [tomlc17][tomlc17]   | R260517 | TOML configuration parser               | MIT           |
+| [tomlc17][tomlc17]   | R260618 | TOML configuration parser               | MIT           |
 | [BearSSL][BearSSL]   | 0.6     | TLS client for HTTPS webhook delivery   | MIT           |
 
 [SQLite]: https://www.sqlite.org/

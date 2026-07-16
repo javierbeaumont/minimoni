@@ -32,7 +32,7 @@ as a self-contained static archive.
 
 ## Decision
 
-Vendor **BearSSL 0.6** (MIT) in `vendor/bearssl/`. BearSSL is built as a static archive
+Vendor **BearSSL** (MIT) in `vendor/bearssl/`. BearSSL is built as a static archive
 (`libbearssl.a`) via its own Makefile as a prerequisite step; it cannot be amalgamated
 into a single `.c` file because it ships multiple independent implementations of the same
 algorithms (e.g. `ec_prime_i15.c` and `ec_prime_i31.c` both define `static api_generator`)
