@@ -30,6 +30,7 @@ from json import dumps
 from logging import getLogger
 from os import sep
 from os.path import abspath, basename, dirname, isfile, join, realpath
+from re import sub
 from time import sleep
 from urllib.parse import parse_qs, urlparse
 
@@ -72,11 +73,10 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
     stream_seq = count()  # per-server /stream connection counter (next() is atomic)
 
     def current() -> JSON:
-        # converted mocked metrics + version + real config fields
+        # converted mocked metrics + real config fields
         raw = current_snapshot(state.scenario)
         return {
             **to_current(raw, state.config_fields, state.temp_critical_fallback),
-            "version": state.version,
             **state.config_fields,
         }
 
@@ -132,10 +132,19 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
         def _serve_dashboard(self) -> None:
             try:
                 with open(DASHBOARD, "rb") as f:
-                    self._send(200, "text/html; charset=utf-8", f.read())
+                    html = f.read()
             except FileNotFoundError:
                 log.error("dashboard not found: %s", DASHBOARD)
                 self._send(404, "text/plain", "dashboard not found")
+                return
+            # Mirror bundle.sh: substitute the build-time version placeholders so the
+            # footer is not literal in dev. release = version without the git-describe
+            # "-N-gHASH" suffix, so its release link resolves.
+            release = sub(r"-\d+-g[0-9a-f]+$", "", state.version)
+            html = html.replace(b"{{VERSION}}", state.version.encode()).replace(
+                b"{{RELEASE}}", release.encode()
+            )
+            self._send(200, "text/html; charset=utf-8", html)
 
         def _stream(self) -> None:
             seq = next(stream_seq)

@@ -43,7 +43,7 @@
     </div>
     <div class="hdr-right">
       <div class="ranges" id="rngs"></div>
-      <button id="thm">&#9728; Light</button>
+      <button id="thm" aria-label="Toggle light/dark theme"><svg class="ico-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg><svg class="ico-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
     </div>
   </header>
   <!-- --- Metric cards (visibility and order driven by server config) --- -->
@@ -64,23 +64,23 @@
     <div class="card hide" id="c-cpu">
       <div class="clabel">CPU Usage
         <span class="card-unit s-cpu-user" data-series="0">user</span>
-        <span class="card-unit hide s-cpu-sys" data-series="1">sys</span>
+        <span class="card-unit hide s-cpu-sys" data-series="1">system</span>
       </div>
       <div class="cval">&#8212;</div>
       <div class="csub">
         <span class="card-sub hide" data-card="cpu" data-idx="0"><span class="card-sub-lbl s-cpu-user">user</span> <span class="card-sub-val"></span></span>
-        <span class="card-sub" data-card="cpu" data-idx="1"><span class="card-sub-lbl s-cpu-sys">sys</span> <span class="card-sub-val"></span></span>
+        <span class="card-sub" data-card="cpu" data-idx="1"><span class="card-sub-lbl s-cpu-sys">system</span> <span class="card-sub-val"></span></span>
       </div>
     </div>
     <div class="card hide" id="c-mem">
       <div class="clabel">Memory
         <span class="card-unit s-mem-used" data-series="0">used</span>
-        <span class="card-unit hide s-mem-avail" data-series="1">avail</span>
+        <span class="card-unit hide s-mem-avail" data-series="1">available</span>
       </div>
       <div class="cval">&#8212;</div>
       <div class="csub">
         <span class="card-sub hide" data-card="mem" data-idx="0"><span class="card-sub-lbl s-mem-used">used</span> <span class="card-sub-val"></span></span>
-        <span class="card-sub" data-card="mem" data-idx="1"><span class="card-sub-lbl s-mem-avail">avail</span> <span class="card-sub-val"></span></span>
+        <span class="card-sub" data-card="mem" data-idx="1"><span class="card-sub-lbl s-mem-avail">available</span> <span class="card-sub-val"></span></span>
       </div>
     </div>
     <div class="card hide" id="c-disk">
@@ -99,19 +99,19 @@
          .csub keeps the row structure identical to the other cards so the
          value lines up vertically with its neighbours. -->
     <div class="card hide" id="c-temp">
-      <div class="clabel">Temp</div>
+      <div class="clabel">Temperature</div>
       <div class="cval">&#8212;</div>
       <div class="csub"></div>
     </div>
     <div class="card hide" id="c-net">
       <div class="clabel">Network
-        <span class="card-unit s-net-tx" data-series="0">&#8593;</span>
-        <span class="card-unit hide s-net-rx" data-series="1">&#8595;</span>
+        <span class="card-unit s-net-tx" data-series="0">upload</span>
+        <span class="card-unit hide s-net-rx" data-series="1">download</span>
       </div>
       <div class="cval">&#8212;</div>
       <div class="csub">
-        <span class="card-sub hide" data-card="net" data-idx="0"><span class="card-sub-lbl s-net-tx">&#8593;</span> <span class="card-sub-val"></span></span>
-        <span class="card-sub" data-card="net" data-idx="1"><span class="card-sub-lbl s-net-rx">&#8595;</span> <span class="card-sub-val"></span></span>
+        <span class="card-sub hide" data-card="net" data-idx="0"><span class="card-sub-lbl s-net-tx">upload</span> <span class="card-sub-val"></span></span>
+        <span class="card-sub" data-card="net" data-idx="1"><span class="card-sub-lbl s-net-rx">download</span> <span class="card-sub-val"></span></span>
       </div>
     </div>
   </div>
@@ -133,7 +133,7 @@
         <span class="ctitle">CPU Usage</span>
         <div class="legend" id="leg-g-cpu" data-chart="g-cpu">
           <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="user series" data-series="0"><span class="leg-dot s-cpu-user"></span>user</span>
-          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="sys series" data-series="1"><span class="leg-dot s-cpu-sys"></span>sys</span>
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="system series" data-series="1"><span class="leg-dot s-cpu-sys"></span>system</span>
         </div>
       </div>
       <canvas id="g-cpu" role="img" aria-label="CPU Usage history chart"></canvas>
@@ -143,7 +143,7 @@
         <span class="ctitle">Memory</span>
         <div class="legend" id="leg-g-mem" data-chart="g-mem">
           <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="used series" data-series="0"><span class="leg-dot s-mem-used"></span>used</span>
-          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="avail series" data-series="1"><span class="leg-dot s-mem-avail"></span>avail</span>
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="available series" data-series="1"><span class="leg-dot s-mem-avail"></span>available</span>
         </div>
       </div>
       <canvas id="g-mem" role="img" aria-label="Memory history chart"></canvas>
@@ -168,8 +168,8 @@
       <div class="chdr">
         <span class="ctitle">Network</span>
         <div class="legend" id="leg-g-net" data-chart="g-net">
-          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="rx series" data-series="0"><span class="leg-dot s-net-rx"></span>&#8595;</span>
-          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="tx series" data-series="1"><span class="leg-dot s-net-tx"></span>&#8593;</span>
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="upload series" data-series="0"><span class="leg-dot s-net-tx"></span>upload</span>
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="download series" data-series="1"><span class="leg-dot s-net-rx"></span>download</span>
         </div>
       </div>
       <canvas id="g-net" role="img" aria-label="Network history chart"></canvas>
@@ -177,14 +177,25 @@
   </div>
   <!-- --- Footer: shown only when show_footer=true in server config --- -->
   <footer id="ftr" class="hide">
-    <a href="https://github.com/javierbeaumont/minimoni"
+    <a href="https://javier.beaumont.eus/minimoni/"
        target="_blank" rel="noopener noreferrer">minimoni</a>
-    <span id="ftr-ver"></span> - zero-dependency system monitoring
+    <!-- {{VERSION}} (full git tag) and {{RELEASE}} (tag trimmed to the release, no
+         -N-gHASH suffix) are substituted at build by bundle.sh and in dev by the devserver. -->
+    <a class="ver" href="https://github.com/javierbeaumont/minimoni/releases/tag/{{RELEASE}}"
+       target="_blank" rel="noopener noreferrer">{{VERSION}}</a>
   </footer>
 
   <!-- Tooltip panel: follows the cursor over a chart. When locked, the values
        come from the locked timestamp on whichever chart is hovered. -->
   <div id="tt" class="hide" aria-hidden="true"></div>
+  <!-- Row structure cloned per series by showTooltip() to fill #tt -->
+  <template id="tt-row">
+    <div class="tt-row">
+      <span class="tt-dot"></span>
+      <span class="tt-lbl"></span>
+      <span class="tt-val"></span>
+    </div>
+  </template>
 
   <!-- Replaced with inline <script> by tools/bundle.sh at build time -->
   <script src="app.js"></script>

@@ -177,8 +177,8 @@ function drawChart(id, series, opts) {
   let dataMax = opts.yMax != null ? opts.yMax : 0;
   if (opts.yMax == null) {
     /* Auto-scale: the largest value across all series drives the axis bound. */
-    series.forEach(function(s) {
-      s.v.forEach(function(v) {
+    series.forEach((s) => {
+      s.v.forEach((v) => {
         if (v != null && v > dataMax) dataMax = v;
       });
     });
@@ -192,8 +192,8 @@ function drawChart(id, series, opts) {
   const n  = (series[0] ? series[0].v.length : 0) || 1;
 
   /* Map a data-space index/value to canvas pixel coordinates */
-  const tx = function(i) { return Pl + (i / Math.max(n - 1, 1)) * cw; };
-  const ty = function(v) { return Pt + (1 - (v - yMn) / yr) * ch; };
+  const tx = (i) => Pl + (i / Math.max(n - 1, 1)) * cw;
+  const ty = (v) => Pt + (1 - (v - yMn) / yr) * ch;
 
   const ts   = opts.ts || [];
   const span = ts.length > 1 ? ts[ts.length - 1] - ts[0] : 0;
@@ -208,20 +208,20 @@ function drawChart(id, series, opts) {
   ctx.fillStyle   = cssv('--mut');
   ctx.font        = '10px system-ui';
   ctx.textAlign   = 'right';
-  yticks.forEach(function(tv) {
+  yticks.forEach((tv) => {
     const gy = ty(tv);
     ctx.beginPath();
     ctx.moveTo(Pl, gy);
     ctx.lineTo(Pl + cw, gy);
     ctx.stroke();
-    ctx.fillText(fmtY(tv, opts.unit, yDecimals), Pl - 3, gy + 3);
+    ctx.fillText(fmtY(tv, yDecimals), Pl - 3, gy + 3);
   });
 
   /* Vertical grid lines + X-axis labels at nice, round timestamps (00:00, 04:00,
    * ...) positioned by time within the range, not at raw sample indices. */
   if (ts.length > 1 && span > 0) {
     const t0 = ts[0], t1 = ts[ts.length - 1];
-    timeTicks(t0, t1, lblCount).forEach(function(tk) {
+    timeTicks(t0, t1, lblCount).forEach((tk) => {
       const px = Pl + (tk - t0) / (t1 - t0) * cw;
       ctx.strokeStyle = cssv('--brd');
       ctx.beginPath();
@@ -233,30 +233,14 @@ function drawChart(id, series, opts) {
     });
   }
 
-  /* Series: stroke only (no fill). `ok` resets on null entries so gaps in the
-   * data render as breaks instead of straight lines. */
-  series.forEach(function(s) {
-    if (!s.v.length) return;
-    ctx.strokeStyle = s.c;
-    ctx.lineWidth   = 1.5;
-    ctx.beginPath();
-    let ok = false;
-    s.v.forEach(function(v, i) {
-      if (v == null) { ok = false; return; }
-      if (!ok) { ctx.moveTo(tx(i), ty(v)); ok = true; }
-      else     { ctx.lineTo(tx(i), ty(v)); }
-    });
-    ctx.stroke();
-  });
-
   /* Reference lines: explicit opts.refLines (e.g. the sysfs temp trip point,
    * dashed) plus opts.thresh-derived thin solid warn/crit lines, drawn only
    * when the data actually crossed them. */
   const refLines = (opts.refLines || []).slice();
   if (opts.thresh) {
     let thMax = -Infinity;
-    series.forEach(function(s) {
-      s.v.forEach(function(v) {
+    series.forEach((s) => {
+      s.v.forEach((v) => {
         if (v != null && v > thMax) thMax = v;
       });
     });
@@ -265,7 +249,7 @@ function drawChart(id, series, opts) {
     if (thMax >= opts.thresh[1])
       refLines.push({ v: opts.thresh[1], c: cssv('--red'), dashed: false });
   }
-  refLines.forEach(function(rl) {
+  refLines.forEach((rl) => {
     const ry = ty(rl.v);
     if (ry < Pt || ry > Pt + ch) return;  /* out of visible range */
     ctx.save();
@@ -283,6 +267,22 @@ function drawChart(id, series, opts) {
     ctx.restore();
   });
 
+  /* Series: stroke only (no fill). `ok` resets on null entries so gaps in the
+   * data render as breaks instead of straight lines. */
+  series.forEach((s) => {
+    if (!s.v.length) return;
+    ctx.strokeStyle = s.c;
+    ctx.lineWidth   = 1.5;
+    ctx.beginPath();
+    let ok = false;
+    s.v.forEach((v, i) => {
+      if (v == null) { ok = false; return; }
+      if (!ok) { ctx.moveTo(tx(i), ty(v)); ok = true; }
+      else     { ctx.lineTo(tx(i), ty(v)); }
+    });
+    ctx.stroke();
+  });
+
   /* Hover crosshair + series dots, on top. The only visual difference between
    * hover and locked: hover is dashed, locked is solid. */
   if (opts.hoverIdx != null && opts.hoverIdx >= 0 && opts.hoverIdx < n) {
@@ -297,7 +297,7 @@ function drawChart(id, series, opts) {
     ctx.lineTo(hx, Pt + ch);
     ctx.stroke();
     ctx.setLineDash([]);
-    series.forEach(function(s) {
+    series.forEach((s) => {
       const v = s.v[hi];
       if (v == null) return;
       ctx.beginPath();
@@ -311,11 +311,11 @@ function drawChart(id, series, opts) {
 
 /* --- Format helpers --- */
 
-/* Format a Y-axis tick label according to the chart unit */
-function fmtY(v, u, decimals) {
+/* Format a Y-axis tick label. The axis is unitless: the unit lives in the chart
+ * title (e.g. "Memory (MB)", "CPU Usage (%)"), so ticks are bare numbers and are
+ * never repeated with a suffix. The tooltip carries the unit instead (fmtTip). */
+function fmtY(v, decimals) {
   const d = decimals != null ? decimals : (v < 10 ? 1 : 0);
-  if (u === '%')              return v.toFixed(d) + '%';
-  if (u === 'C' || u === 'F') return v.toFixed(d) + '°';
   return v.toFixed(d);
 }
 
@@ -430,7 +430,7 @@ function swapCard(id, idx) {
  * and legend items, keeping the two wiring sites free of repeated plumbing. */
 function activate(el, handler) {
   el.addEventListener('click', handler);
-  el.addEventListener('keydown', function(e) {
+  el.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       handler();
@@ -441,12 +441,12 @@ function activate(el, handler) {
 /* Wire click + keyboard handlers onto the pre-declared .card-sub elements.
  * tabindex="-1" on the primary (hidden) sub keeps it out of the tab order. */
 function wireCards() {
-  document.querySelectorAll('.card-sub[data-card]').forEach(function(el) {
+  document.querySelectorAll('.card-sub[data-card]').forEach((el) => {
     const cardId = el.dataset.card;
     const idx    = parseInt(el.dataset.idx, 10);
     el.setAttribute('role', 'button');
     el.setAttribute('tabindex', el.classList.contains('hide') ? '-1' : '0');
-    activate(el, function() { swapCard(cardId, idx); });
+    activate(el, () => { swapCard(cardId, idx); });
   });
 }
 
@@ -465,12 +465,12 @@ function updateNumericCard(cardId, primaryKey, values, fmt, cardLvl, subLvl) {
   if (!card) return;
   const pi = cardPrimary[primaryKey];
   card.className = 'card' + (cardLvl ? ' ' + cardLvl : '');
-  card.querySelectorAll('.card-unit').forEach(function(u, i) {
+  card.querySelectorAll('.card-unit').forEach((u, i) => {
     u.classList.toggle('hide', i !== pi);
   });
   const pv = values[pi];
   card.querySelector('.cval').textContent = pv != null ? fmt(pv) : '—';
-  values.forEach(function(v, i) {
+  values.forEach((v, i) => {
     const sub = card.querySelector('.card-sub[data-idx="' + i + '"]');
     if (!sub) return;
     const valEl = sub.querySelector('.card-sub-val');
@@ -514,12 +514,11 @@ function updateCards(d) {
   if (d.show_footer !== undefined) {
     const ftr = document.getElementById('ftr');
     ftr.classList.toggle('hide', !d.show_footer);
-    if (d.version) document.getElementById('ftr-ver').textContent = d.version;
   }
   /* When theme is fixed server-side, apply it and hide the toggle button */
   if (d.theme && d.theme !== 'auto') {
     document.documentElement.dataset.theme = d.theme;
-    document.getElementById('thm').style.display = 'none';
+    document.getElementById('thm').classList.add('hide');
   }
 
   /* Uptime */
@@ -542,7 +541,7 @@ function updateCards(d) {
       temp:      'b-temp',
       net:       'b-net',
     };
-    Object.keys(CHART_BOX).forEach(function(nm) {
+    Object.keys(CHART_BOX).forEach((nm) => {
       const el  = document.getElementById(CHART_BOX[nm]);
       if (!el) return;
       const idx = cfgVisCharts !== null ? cfgVisCharts.indexOf(nm) : -1;
@@ -565,7 +564,7 @@ function updateCards(d) {
       net:       'c-net',
       uptime:    'upt',
     };
-    Object.keys(CARD_ORDER).forEach(function(nm) {
+    Object.keys(CARD_ORDER).forEach((nm) => {
       const el  = document.getElementById(CARD_ORDER[nm]);
       if (!el) return;
       const idx = cfgVisCards !== null ? cfgVisCards.indexOf(nm) : -1;
@@ -584,7 +583,7 @@ function updateCards(d) {
     ['c-disk', 'disk',      'disk_percent'],
     ['c-temp', 'temp',      'temp'],
     ['c-net',  'net',       'net_rx'],
-  ].forEach(function(c) {
+  ].forEach((c) => {
     const el = document.getElementById(c[0]);
     if (!el) return;
     const excluded = cfgVisCards !== null && cfgVisCards.indexOf(c[1]) === -1;
@@ -595,31 +594,32 @@ function updateCards(d) {
   /* CPU Load (per-sub colour): each load value gets its own threshold level */
   if ('load_1m' in d) {
     const loadFmt = cfgCardUnits.load === '%'
-      ? function(v) { return v.toFixed(1) + '%'; }
-      : function(v) { return v.toFixed(2); };
+      ? (v) => v.toFixed(1) + '%'
+      : (v) => v.toFixed(2);
     updateNumericCard('c-load', 'load',
       [d.load_1m, d.load_5m, d.load_15m], loadFmt,
       cardLevel(d.load_1m, THRESH.load),
-      function(v) { return cardLevel(v, THRESH.load); });
+      (v) => cardLevel(v, THRESH.load));
   }
 
-  /* CPU Usage: overall card colour only; sub-values stay neutral */
+  /* CPU Usage: card and each sub coloured by its own value vs the cpu threshold */
   if ('cpu_user_percent' in d) {
-    const pctFmt = function(v) { return v.toFixed(1) + '%'; };
+    const pctFmt = (v) => v.toFixed(1) + '%';
     updateNumericCard('c-cpu', 'cpu',
       [d.cpu_user_percent, d.cpu_system_percent], pctFmt,
-      cardLevel(d.cpu_user_percent, THRESH.cpu));
+      cardLevel(d.cpu_user_percent, THRESH.cpu),
+      (v) => cardLevel(v, THRESH.cpu));
   }
 
   /* Memory: sub-colour shared (every sub takes the overall mem level) */
   if ('mem_percent' in d) {
     const memIsAbs = cfgCardUnits.mem !== '%';
     const memFmt = memIsAbs
-      ? function(v) {
+      ? (v) => {
           if (cfgCardUnits.mem === 'gb') return (v / 1024).toFixed(2) + ' GB';
           return v.toFixed(0) + ' MB';
         }
-      : function(v) { return v.toFixed(1) + '%'; };
+      : (v) => v.toFixed(1) + '%';
     const memV = memIsAbs
       ? [d.mem_used, d.mem_available]
       : [d.mem_percent, d.mem_percent != null ? 100 - d.mem_percent : null];
@@ -631,11 +631,11 @@ function updateCards(d) {
   if ('disk_percent' in d) {
     const diskIsAbs = cfgCardUnits.disk !== '%';
     const diskFmt = diskIsAbs
-      ? function(v) {
+      ? (v) => {
           if (cfgCardUnits.disk === 'tb') return (v / 1000).toFixed(2) + ' TB';
           return v.toFixed(1) + ' GB';
         }
-      : function(v) { return v.toFixed(1) + '%'; };
+      : (v) => v.toFixed(1) + '%';
     const diskV = diskIsAbs
       ? [d.disk_used, d.disk_free]
       : [d.disk_percent, d.disk_percent != null ? 100 - d.disk_percent : null];
@@ -661,7 +661,7 @@ function updateCards(d) {
    * may be null on the first collect before a delta exists (rendered as the
    * dash). No threshold levels (network has no semaphore). */
   if ('net_rx' in d) {
-    const netFmt = function(v) { return fmtNet(v, cfgCardUnits.net); };
+    const netFmt = (v) => fmtNet(v, cfgCardUnits.net);
     updateNumericCard('c-net', 'net', [d.net_tx, d.net_rx], netFmt, '');
   }
 
@@ -674,7 +674,7 @@ function updateCards(d) {
 /* --- Render all charts --- */
 
 function renderAll() {
-  const ts = pts.map(function(p) { return p.t; });
+  const ts = pts.map((p) => p.t);
 
   /* If the user pinned a moment (click-to-lock), re-derive lockedIdx against
    * the new pts window so the marker tracks the timestamp, not an array slot. */
@@ -705,7 +705,6 @@ function renderAll() {
   /* Derive display labels and axis unit keys from the configured units */
   const memUL  = { 'mb': 'MB', 'gb': 'GB', '%': '%' }[cfgChartUnits.mem]  || 'MB';
   const dskUL  = { 'gb': 'GB', 'tb': 'TB', '%': '%' }[cfgChartUnits.disk] || 'GB';
-  const tmpUK  = cfgChartUnits.temp[0] === '%' ? '%' : 'C';  /* axis key for fmtY */
   const tmpSym = cfgChartUnits.temp[0] === 'f' ? '°F'
              : cfgChartUnits.temp[0] === '%' ? '%' : '°C';
   const netUL  = {
@@ -721,18 +720,23 @@ function renderAll() {
   if (cfgChartUnits.load === cfgCardUnits.load) loadOpts.thresh = THRESH.load;
 
   if (chartVisible('cpu_load', 'l1', 'b-load')) {
+    /* Load average is dimensionless in abs mode, so no unit then; only the
+     * percent mode has a unit to show. */
+    document.getElementById('b-load').querySelector('.ctitle').textContent =
+      cfgChartUnits.load === '%' ? 'CPU Load (%)' : 'CPU Load';
     drawChart('g-load', [
-      { c: CLR.load1,  v: pts.map(function(p) { return p.l1;  }), label: '1m'  },
-      { c: CLR.load5,  v: pts.map(function(p) { return p.l5;  }), label: '5m'  },
-      { c: CLR.load15, v: pts.map(function(p) { return p.l15; }), label: '15m' },
-    ].filter(function(_, i) { return !seriesHidden['g-load'][i]; }), loadOpts);
+      { c: CLR.load1,  k: 'load1',  v: pts.map((p) => { return p.l1;  }), label: '1m'  },
+      { c: CLR.load5,  k: 'load5',  v: pts.map((p) => { return p.l5;  }), label: '5m'  },
+      { c: CLR.load15, k: 'load15', v: pts.map((p) => p.l15), label: '15m' },
+    ].filter((_, i) => !seriesHidden['g-load'][i]), loadOpts);
   }
 
   if (chartVisible('cpu_usage', 'cu', 'b-cpu')) {
+    document.getElementById('b-cpu').querySelector('.ctitle').textContent = 'CPU Usage (%)';
     drawChart('g-cpu', [
-      { c: CLR.user, v: pts.map(function(p) { return p.cu; }), label: 'user' },
-      { c: CLR.sys,  v: pts.map(function(p) { return p.cs; }), label: 'sys'  },
-    ].filter(function(_, i) { return !seriesHidden['g-cpu'][i]; }),
+      { c: CLR.user, k: 'cpu-user', v: pts.map((p) => p.cu), label: 'user' },
+      { c: CLR.sys,  k: 'cpu-sys',  v: pts.map((p) => p.cs), label: 'system' },
+    ].filter((_, i) => !seriesHidden['g-cpu'][i]),
       { yMin: 0, unit: '%', ts: ts, thresh: THRESH.cpu });
   }
 
@@ -743,25 +747,25 @@ function renderAll() {
     const memOpts  = { yMin: 0, ts: ts, unit: memIsPct ? '%' : null };
     if (memIsPct) memOpts.thresh = THRESH.mem;
     /* Tooltip suffix so a "512" reading does not strand the user on MB vs GB. */
-    if (!memIsPct) memOpts.fmtFn = function(v) { return fmtTip(v, null) + ' ' + memUL; };
+    if (!memIsPct) memOpts.fmtFn = (v) => fmtTip(v, null) + ' ' + memUL;
     drawChart('g-mem', [
       {
-        c: CLR.mem, label: 'used',
-        v: pts.map(function(p) {
+        c: CLR.mem, k: 'mem-used', label: 'used',
+        v: pts.map((p) => {
           if (cfgChartUnits.mem === '%')  return p.mp;
           if (cfgChartUnits.mem === 'gb') return p.mu / 1024;
           return p.mu;
         }),
       },
       {
-        c: CLR.memAvail, label: 'avail',
-        v: pts.map(function(p) {
+        c: CLR.memAvail, k: 'mem-avail', label: 'available',
+        v: pts.map((p) => {
           if (cfgChartUnits.mem === '%')  return 100 - p.mp;
           if (cfgChartUnits.mem === 'gb') return p.ma / 1024;
           return p.ma;
         }),
       },
-    ].filter(function(_, i) { return !seriesHidden['g-mem'][i]; }), memOpts);
+    ].filter((_, i) => !seriesHidden['g-mem'][i]), memOpts);
   }
 
   if (chartVisible('disk', 'dp', 'b-disk')) {
@@ -770,25 +774,25 @@ function renderAll() {
     const diskIsPct = cfgChartUnits.disk === '%';
     const diskOpts  = { yMin: 0, ts: ts, unit: diskIsPct ? '%' : null };
     if (diskIsPct) diskOpts.thresh = THRESH.disk;
-    if (!diskIsPct) diskOpts.fmtFn = function(v) { return fmtTip(v, null) + ' ' + dskUL; };
+    if (!diskIsPct) diskOpts.fmtFn = (v) => fmtTip(v, null) + ' ' + dskUL;
     drawChart('g-disk', [
       {
-        c: CLR.disk, label: 'used',
-        v: pts.map(function(p) {
+        c: CLR.disk, k: 'disk-used', label: 'used',
+        v: pts.map((p) => {
           if (cfgChartUnits.disk === '%')  return p.dp;
           if (cfgChartUnits.disk === 'tb') return p.du / 1000;
           return p.du;
         }),
       },
       {
-        c: CLR.diskFree, label: 'free',
-        v: pts.map(function(p) {
+        c: CLR.diskFree, k: 'disk-free', label: 'free',
+        v: pts.map((p) => {
           if (cfgChartUnits.disk === '%')  return 100 - p.dp;
           if (cfgChartUnits.disk === 'tb') return p.df / 1000;
           return p.df;
         }),
       },
-    ].filter(function(_, i) { return !seriesHidden['g-disk'][i]; }), diskOpts);
+    ].filter((_, i) => !seriesHidden['g-disk'][i]), diskOpts);
   }
 
   if (chartVisible('temp', 'tp', 'b-temp')) {
@@ -797,7 +801,6 @@ function renderAll() {
     const tempUnitsMatch = (cfgChartUnits.temp || 'c')[0] === (cfgCardUnits.temp || 'c')[0];
     const tempOpts = {
       yMin: 0,
-      unit: tmpUK,
       ts:   ts,
       /* Dashed red line at the sysfs critical trip-point (hardware limit) */
       refLines: (tempUnitsMatch && tempCritical != null)
@@ -805,11 +808,11 @@ function renderAll() {
         : [],
       /* Tooltip shows the actual unit symbol; fmtTip alone collapses C and F to
        * a bare degree, ambiguous when the user picked Fahrenheit. */
-      fmtFn: function(v) { return v.toFixed(1) + tmpSym; },
+      fmtFn: (v) => v.toFixed(1) + tmpSym,
     };
     if (tempUnitsMatch) tempOpts.thresh = THRESH.temp;
     drawChart('g-temp',
-      [{ c: CLR.temp, v: pts.map(function(p) { return p.tp; }), label: 'temp' }],
+      [{ c: CLR.temp, k: 'temp', v: pts.map((p) => p.tp), label: 'temperature' }],
       tempOpts);
   }
 
@@ -817,10 +820,10 @@ function renderAll() {
     document.getElementById('b-net').querySelector('.ctitle').textContent =
       'Network (' + netUL + ')';
     drawChart('g-net', [
-      { c: CLR.rx, v: pts.map(function(p) { return p.nr; }), label: '&#8595;' },
-      { c: CLR.tx, v: pts.map(function(p) { return p.nt; }), label: '&#8593;' },
-    ].filter(function(_, i) { return !seriesHidden['g-net'][i]; }),
-      { yMin: 0, ts: ts, fmtFn: function(v) { return fmtNet(v, cfgChartUnits.net); } });
+      { c: CLR.tx, k: 'net-tx', v: pts.map((p) => p.nt), label: 'upload' },
+      { c: CLR.rx, k: 'net-rx', v: pts.map((p) => p.nr), label: 'download' },
+    ].filter((_, i) => !seriesHidden['g-net'][i]),
+      { yMin: 0, ts: ts, fmtFn: (v) => fmtNet(v, cfgChartUnits.net) });
   }
 
   /* Fresh drawChart calls above rewrote clean opts to the cache; without this
@@ -832,19 +835,16 @@ function renderAll() {
 
 /* Wire handlers onto the pre-declared .leg-item elements in the HTML */
 function buildLegends() {
-  document.querySelectorAll('.legend[data-chart] .leg-item').forEach(function(s) {
+  document.querySelectorAll('.legend[data-chart] .leg-item').forEach((s) => {
     const id  = s.closest('.legend').dataset.chart;
     const idx = parseInt(s.dataset.series, 10);
-    /* IIFE captures idx so each closure refers to its own series index */
-    s.onclick = (function(i) { return function() { toggleSeries(id, i); }; })(idx);
-    s.addEventListener('keydown', (function(i) {
-      return function(e) {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          toggleSeries(id, i);
-        }
-      };
-    })(idx));
+    s.onclick = () => toggleSeries(id, idx);
+    s.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleSeries(id, idx);
+      }
+    });
   });
 }
 
@@ -860,11 +860,17 @@ function toggleSeries(id, idx) {
 /* --- Theme toggle --- */
 
 function toggleTheme() {
-  const html    = document.documentElement;
-  const goLight = html.dataset.theme !== 'light';
-  html.dataset.theme = goLight ? 'light' : 'dark';
-  document.getElementById('thm').textContent = goLight ? '🌙 Dark' : '☀ Light';
-  /* Theme variables changed: drop the cached values so cssv() re-reads them. */
+  const html = document.documentElement;
+  /* Resolve the EFFECTIVE current theme, not just data-theme: on first load
+   * data-theme is unset and the theme comes from prefers-color-scheme, so
+   * flipping the raw attribute would set it to what is already shown (no visible
+   * change on the first click). Fall back to the OS preference when unset. */
+  const current = html.dataset.theme
+    || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  html.dataset.theme = current === 'dark' ? 'light' : 'dark';
+  /* The sun/moon icon follows the theme in CSS (see #thm .ico-*); JS only flips
+   * data-theme. Theme variables changed: drop the cached values so cssv()
+   * re-reads them. */
   invalidateCssCache();
   /* Redraw charts so canvas colors update to the new theme variables */
   renderAll();
@@ -880,20 +886,28 @@ function showTooltip(idx, mx, my, cached) {
   const span = cached.opts.ts && cached.opts.ts.length > 1
     ? cached.opts.ts[cached.opts.ts.length - 1] - cached.opts.ts[0]
     : 0;
-  const fmt  = cached.opts.fmtFn || function(v) { return fmtTip(v, cached.opts.unit); };
-  let html = ts ? '<div class="tt-time">' + fmtXFull(ts, span) + '</div>' : '';
-  cached.series.forEach(function(s) {
+  const fmt  = cached.opts.fmtFn || ((v) => fmtTip(v, cached.opts.unit));
+  const tpl = document.getElementById('tt-row');
+  tt.textContent = '';
+  if (ts) {
+    const time = document.createElement('div');
+    time.className = 'tt-time';
+    time.textContent = fmtXFull(ts, span);
+    tt.appendChild(time);
+  }
+  cached.series.forEach((s) => {
     const v = s.v[idx];
     /* Show every series, falling back to the em dash placeholder when a point
      * has no value (e.g. a temp chart with no sensor), matching the cards. */
-    html += '<div class="tt-row">'
-      + '<span class="tt-dot" style="background:' + s.c + '"></span>'
-      + (s.label ? '<span class="tt-lbl">' + s.label + '</span>' : '')
-      + '<span class="tt-val">' + (v == null ? '—' : fmt(v)) + '</span>'
-      + '</div>';
+    const row = tpl.content.cloneNode(true);
+    row.querySelector('.tt-dot').className = 'tt-dot tt-dot--' + s.k;
+    const lbl = row.querySelector('.tt-lbl');
+    if (s.label) lbl.textContent = s.label;
+    else lbl.remove();
+    row.querySelector('.tt-val').textContent = v == null ? '—' : fmt(v);
+    tt.appendChild(row);
   });
-  if (!html) { tt.classList.add('hide'); return; }
-  tt.innerHTML = html;
+  if (!tt.hasChildNodes()) { tt.classList.add('hide'); return; }
   /* Measure first so we can flip sides if the tip would clip the viewport */
   tt.style.visibility = 'hidden';
   tt.classList.remove('hide');
@@ -947,12 +961,12 @@ function refreshLockedIdx() {
 function scheduleHoverDraw() {
   if (hoverRafScheduled) return;
   hoverRafScheduled = true;
-  requestAnimationFrame(function() {
+  requestAnimationFrame(() => {
     hoverRafScheduled = false;
     /* Lock wins over transient hover. */
     const activeIdx = lockedIdx != null ? lockedIdx : hoverIdxPending;
     const locked    = lockedIdx != null;
-    Object.keys(chartCache).forEach(function(id) {
+    Object.keys(chartCache).forEach((id) => {
       const c = chartCache[id];
       if (!c) return;
       if (activeIdx == null)
@@ -1026,7 +1040,7 @@ function attachHover(id) {
     return rect.left + Pl + (lockedIdx / Math.max(n - 1, 1)) * cw;
   }
 
-  cv.addEventListener('mousemove', function(e) {
+  cv.addEventListener('mousemove', (e) => {
     const idx    = idxFromEvent(e);
     const cached = chartCache[id];
     if (idx == null) {
@@ -1047,12 +1061,12 @@ function attachHover(id) {
     }
   });
 
-  cv.addEventListener('mouseleave', function() {
+  cv.addEventListener('mouseleave', () => {
     if (lockedIdx != null) hideTooltip();  /* keep the locked crosshair */
     else                   clearAllHovers();
   });
 
-  cv.addEventListener('click', function(e) {
+  cv.addEventListener('click', (e) => {
     /* Keep the document-level clear (see init) from firing for on-chart taps. */
     e.stopPropagation();
     const idx    = idxFromEvent(e);
@@ -1095,9 +1109,9 @@ function attachHover(id) {
 /* --- Data fetchers --- */
 
 function loadCurrent() {
-  fetch('api/current').then(function(r) {
+  fetch('api/current').then((r) => {
     if (r.ok) r.json().then(updateCards);
-  }).catch(function() {});
+  }).catch(() => {});
 }
 
 /* Build the /api/metrics URL. points is computed by the caller from the canvas
@@ -1119,14 +1133,14 @@ function loadMetrics() {
   const cv     = document.getElementById('g-load');
   const w      = cv ? cv.parentElement.clientWidth - 24 : 800;
   const points = clampPoints(w, devicePixelRatio);
-  fetch(metricsUrl(curRange, points)).then(function(r) {
+  fetch(metricsUrl(curRange, points)).then((r) => {
     if (!r.ok) return;
-    r.json().then(function(d) {
+    r.json().then((d) => {
       if (myId !== metricsRequestId) return;   /* discard stale responses */
       pts = d.points || [];
       renderAll();
     });
-  }).catch(function() {});
+  }).catch(() => {});
 }
 
 /* --- Range tabs --- */
@@ -1136,20 +1150,21 @@ function buildTabs() {
   el.innerHTML = '';
   /* If the previously selected range is no longer in the list, fall back */
   if (cfgRanges.indexOf(curRange) === -1) curRange = cfgRanges[0];
-  cfgRanges.forEach(function(r) {
-    const b = document.createElement('button');
-    b.textContent = r;
-    if (r === curRange) b.classList.add('act');
-    b.onclick = function() {
-      curRange = r;
-      document.querySelectorAll('#rngs button').forEach(function(x) {
-        x.classList.remove('act');
-      });
-      b.classList.add('act');
-      loadMetrics();
-    };
-    el.appendChild(b);
+  const sel = document.createElement('select');
+  sel.className = 'range-select';
+  sel.setAttribute('aria-label', 'Time range');
+  cfgRanges.forEach((r) => {
+    const o = document.createElement('option');
+    o.value = r;
+    o.textContent = r;
+    if (r === curRange) o.selected = true;
+    sel.appendChild(o);
   });
+  sel.onchange = () => {
+    curRange = sel.value;
+    loadMetrics();
+  };
+  el.appendChild(sel);
 }
 
 /* --- SSE live stream --- */
@@ -1169,7 +1184,7 @@ let sseCountdownTimer = null;
 function startReconnectCountdown(targetMs) {
   clearInterval(sseCountdownTimer);
   const c = document.getElementById('conn');
-  const tick = function() {
+  const tick = () => {
     const remaining = Math.max(0, Math.ceil((targetMs - Date.now()) / 1000));
     c.setAttribute('aria-label', 'Connection lost, reconnecting in ' + remaining + 's');
     if (remaining <= 0) clearInterval(sseCountdownTimer);
@@ -1186,7 +1201,7 @@ function connectSSE() {
   c.setAttribute('aria-label', 'Connecting...');
 
   const es = new EventSource('stream');
-  es.onmessage = function(e) {
+  es.onmessage = (e) => {
     clearInterval(sseCountdownTimer);   /* data landed: stop any countdown tick */
     sseBackoffMs = 1000;                /* successful message: reset for next time */
     c.className = 'conn live';
@@ -1196,7 +1211,7 @@ function connectSSE() {
       loadMetrics();
     } catch (e) { /* ignore a malformed SSE frame */ }
   };
-  es.onerror = function() {
+  es.onerror = () => {
     es.close();
     c.className = 'conn down';
     startReconnectCountdown(Date.now() + sseBackoffMs);
@@ -1211,14 +1226,10 @@ function connectSSE() {
  * so the test harness (node) can require this file for its pure helpers without
  * a DOM present. */
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-  /* Set the correct initial button label based on the OS preference */
-  if (!window.matchMedia('(prefers-color-scheme: dark)').matches) {
-    document.getElementById('thm').textContent = '🌙 Dark';
-  }
   document.getElementById('thm').addEventListener('click', toggleTheme);
   /* OS-level theme changes (prefers-color-scheme) swap the CSS variables when no
    * explicit data-theme is set: invalidate the cache and redraw. */
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function() {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     invalidateCssCache();
     renderAll();
   });
@@ -1238,7 +1249,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
 
   /* Debounce canvas redraws on window resize to avoid per-pixel storms */
   let resizeTimer;
-  window.addEventListener('resize', function() {
+  window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(renderAll, 100);
   });

@@ -21,13 +21,11 @@
  *   make test
  *
  * json.c is `#include`d directly, together with units.c (the *_convert helpers
- * it calls) and config.c (config_has). MINIMONI_VERSION is normally a -D build
- * flag, so a stub is defined here. Each test returns 0 on pass / 1 on fail; the
- * shared harness lives in runner.h.
+ * it calls) and config.c (config_has). Each test returns 0 on pass / 1 on fail;
+ * the shared harness lives in runner.h.
  */
 
 #define _POSIX_C_SOURCE 200809L
-#define MINIMONI_VERSION "test"
 
 #include <string.h>
 
@@ -203,9 +201,9 @@ static int test_hide_all_emits_no_metrics(void)
     config_t c = base_cfg();
     c.card_count = -1; /* explicit empty list -> hide all */
     emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
-    /* no metric fields, but the config block (version, units) still ships */
+    /* no metric fields, but the config block (theme, units) still ships */
     return (!has(b, "\"load_1m\"") && !has(b, "\"mem_percent\"") && !has(b, "\"temp\"") &&
-            has(b, "\"version\""))
+            has(b, "\"theme\""))
                ? 0
                : 1;
 }
@@ -323,15 +321,6 @@ static int test_mem_absolute_emits_used(void)
     strcpy(c.memory_card_unit, "gb");
     emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
     return (has(b, "\"mem_used\"") && has(b, "\"mem_percent\"")) ? 0 : 1;
-}
-
-static int test_version_field_emitted(void)
-{
-    char     b[2048];
-    db_row_t r = sample_row();
-    config_t c = base_cfg();
-    emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
-    return has(b, "\"version\":\"test\"") ? 0 : 1;
 }
 
 static int test_disk_absolute_emits_used(void)
@@ -488,7 +477,6 @@ static const test_t ALL_TESTS[] = {
     T(cpu_null_when_invalid),
     T(mem_percent_only_when_pct_unit),
     T(mem_absolute_emits_used),
-    T(version_field_emitted),
     T(disk_absolute_emits_used),
     T(point_emits_short_keys),
     T(point_temp_shown_when_chart_enabled),

@@ -29,7 +29,11 @@
 # keeps working for contributors who have not installed it. See ADR-0007.
 
 bundle() {
-awk '
+  version="${VERSION:-unknown}"
+  # Release tag: the version with git-describe's "-N-gHASH" suffix stripped, so the
+  # footer link resolves to a real release tag even on a dev build.
+  release=$(printf '%s' "$version" | sed -E 's/-[0-9]+-g[0-9a-f]+$//')
+  awk '
   /href="favicon.svg"/ {
     svg = ""
     while ((getline line < "dashboard/favicon.svg") > 0) {
@@ -56,7 +60,8 @@ awk '
     next
   }
   { print }
-' dashboard/index.html
+' dashboard/index.html \
+    | sed -e "s|{{VERSION}}|$version|g" -e "s|{{RELEASE}}|$release|g"
 }
 
 if [ "${MINIFY:-0}" = "1" ] && command -v minify >/dev/null 2>&1; then

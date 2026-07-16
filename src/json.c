@@ -188,7 +188,6 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
     jbuf_str(j, "cpu_load_chart_unit", cfg->cpu_load_chart_unit);
 
     jbuf_str(j, "title", cfg->title);
-    jbuf_str(j, "version", MINIMONI_VERSION);
     jbuf_str(j, "theme", cfg->theme);
     jbuf_sep(j);
     jbuf_raw(j, cfg->show_footer ? "\"show_footer\":true" : "\"show_footer\":false");

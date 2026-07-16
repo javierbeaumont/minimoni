@@ -67,7 +67,8 @@ all: embed minimoni minimoni-migrate
 # dev builds keep readable source for browser DevTools. See ADR-0007.
 MINIFY ?=
 embed: | build
-	MINIFY=$(MINIFY) sh tools/bundle.sh | xxd -i -n dashboard_index_html - > build/embed.h
+	MINIFY=$(MINIFY) VERSION=$(VERSION) sh tools/bundle.sh \
+	    | xxd -i -n dashboard_index_html - > build/embed.h
 
 build:
 	mkdir -p build

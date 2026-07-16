@@ -41,11 +41,12 @@ const DEG = String.fromCharCode(0x00B0); /* degree sign */
 const EMD = String.fromCharCode(0x2014); /* em dash (null placeholder) */
 
 const TESTS = [
-  ['fmtY by magnitude and unit', function () {
-    assert.strictEqual(fmtY(8, ''), '8.0');
-    assert.strictEqual(fmtY(50, ''), '50');
-    assert.strictEqual(fmtY(50, '%'), '50%');
-    assert.strictEqual(fmtY(45, 'C'), '45' + DEG);
+  ['fmtY: bare numeric ticks (unit lives in the title)', function () {
+    assert.strictEqual(fmtY(8), '8.0');       /* < 10 -> 1 decimal */
+    assert.strictEqual(fmtY(50), '50');       /* >= 10 -> 0 decimals */
+    assert.strictEqual(fmtY(1234), '1234');
+    assert.strictEqual(fmtY(8, 0), '8');      /* explicit decimals override */
+    assert.strictEqual(fmtY(8.25, 2), '8.25');
   }],
   ['fmtTip: precision by unit', function () {
     assert.strictEqual(fmtTip(50.5, '%'), '50.5%');

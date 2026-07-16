@@ -19,67 +19,140 @@
 /* --- CSS custom properties (design tokens) --- */
 
 :root {
-  /* Dark theme defaults: Tailwind zinc scale for neutrals */
-  --bg:   #09090b;  /* zinc-950: page background */
-  --surf: #18181b;  /* zinc-900: card / panel surface */
-  --brd:  #27272a;  /* zinc-800: borders */
-  --txt:  #fafafa;  /* zinc-50: primary text, 17.9:1 on --bg, WCAG AAA */
-  --mut:  #a1a1aa;  /* zinc-400: muted text, 8.2:1 on --bg, WCAG AAA */
-  /* Semantic status colors (Tailwind *-400 for dark bg) */
-  --grn:  #4ade80;  /* green-400: good / active data */
-  --ylw:  #facc15;  /* yellow-400: warning, 11.5:1 on --surf */
-  --red:  #f87171;  /* red-400: critical */
-  --acc:  #4ade80;  /* accent unified with green */
-  --act-txt: #09090b;  /* dark text on the light --acc fill (active tab) */
+  /* Radix colour primitives (dark scale): each colour once, referenced by the
+   * semantic aliases below so a hex is never repeated. */
+  --sage-1: #101211;
+  --sage-2: #171918;
+  --sage-4: #272a29;
+  --sage-11: #adb5b2;
+  --sage-12: #eceeed;
+  --green-9: #30a46c;
+  --green-11: #33b074;
+  --amber-11: #ffc53d;
+  --red-9: #e5484d;
+  --cyan-9: #00a2c7;
+  --violet-9: #6e56cf;
+  --slate-9: #696e77;
 
-  /* Chart series identification colours - override here to customise line/dot
-   * colours. Fixed across light/dark themes (identification, not semantics).
-   * C1 sky-400 (#38bdf8): load1, cpu user, mem used, disk used, net tx, temp
-   * C2 violet-400 (#a78bfa): load5, cpu sys, mem avail, disk free, net rx
-   * C3 slate-400 (#94a3b8): load15 */
-  --clr-load1:     #38bdf8;
-  --clr-load5:     #a78bfa;
-  --clr-load15:    #94a3b8;
-  --clr-cpu-user:  #38bdf8;
-  --clr-cpu-sys:   #a78bfa;
-  --clr-mem-used:  #38bdf8;
-  --clr-mem-avail: #a78bfa;
-  --clr-disk-used: #38bdf8;
-  --clr-disk-free: #a78bfa;
-  --clr-temp:      #38bdf8;
-  --clr-net-rx:    #a78bfa;
-  --clr-net-tx:    #38bdf8;
+  /* Semantic aliases */
+  --bg: var(--sage-1);
+  --surf: var(--sage-2);
+  --brd: var(--sage-4);
+  --mut: var(--sage-11);
+  --txt: var(--sage-12);
+  --grn: var(--green-11);
+  --ylw: var(--amber-11);
+  --red: var(--red-9);
+  --acc: var(--green-9);
+  --clr-load1: var(--cyan-9);
+  --clr-load5: var(--violet-9);
+  --clr-load15: var(--slate-9);
+  --clr-cpu-user: var(--cyan-9);
+  --clr-cpu-sys: var(--violet-9);
+  --clr-mem-used: var(--cyan-9);
+  --clr-mem-avail: var(--violet-9);
+  --clr-disk-used: var(--cyan-9);
+  --clr-disk-free: var(--violet-9);
+  --clr-temp: var(--cyan-9);
+  --clr-net-rx: var(--violet-9);
+  --clr-net-tx: var(--cyan-9);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-7: 28px;
+  --text-sm: 12px;
+  --text-base: 0.875rem;
+  --text-lg: 18px;
+  --text-xl: 22px;
+  --text-2xl: 34px;
+  /* Theme-independent black overlay (Radix blackA3), used by the tooltip shadow. */
+  --black-a3: rgba(0, 0, 0, 0.15);
+  /* One shadow for both tooltips: with the borders gone it does the separating. */
+  --shadow: 0 2px 8px var(--black-a3);
 }
 
-/* Explicit light theme via data attribute set by the toggle button */
 [data-theme="light"] {
-  --bg:   #fafafa;  /* zinc-50  */
-  --surf: #ffffff;
-  --brd:  #e4e4e7;  /* zinc-200 */
-  --txt:  #09090b;  /* zinc-950 */
-  --mut:  #52525b;  /* zinc-600: 6.8:1 on --bg, WCAG AAA */
-  /* Semantic status colors (Tailwind *-700/*-600 for light bg) */
-  --grn:  #15803d;  /* green-700: 4.6:1 on --bg, WCAG AA */
-  --ylw:  #ca8a04;  /* yellow-600: 2.81:1 on --bg, status indicator only */
-  --red:  #dc2626;  /* red-600: 4.6:1 on --bg, WCAG AA */
-  --acc:  #15803d;
-  --act-txt: #fafafa;  /* light text on the dark --acc fill (active tab) */
+  /* Radix colour primitives (light scale) */
+  --sage-2: #f7f9f8;
+  --sage-3: #eef1f0;
+  --sage-5: #dfe2e0;
+  --sage-11: #5f6563;
+  --sage-12: #1a211e;
+  --green-9: #30a46c;
+  --green-11: #218358;
+  --amber-8: #e2a336;
+  --red-11: #ce2c31;
+  --cyan-11: #107d98;
+  --violet-11: #6550b9;
+  --slate-11: #60646c;
+
+  /* Semantic aliases */
+  --bg: var(--sage-3);
+  --surf: var(--sage-2);
+  --brd: var(--sage-5);
+  --mut: var(--sage-11);
+  --txt: var(--sage-12);
+  --grn: var(--green-11);
+  --ylw: var(--amber-8);
+  --red: var(--red-11);
+  --acc: var(--green-9);
+  --clr-load1: var(--cyan-11);
+  --clr-load5: var(--violet-11);
+  --clr-load15: var(--slate-11);
+  --clr-cpu-user: var(--cyan-11);
+  --clr-cpu-sys: var(--violet-11);
+  --clr-mem-used: var(--cyan-11);
+  --clr-mem-avail: var(--violet-11);
+  --clr-disk-used: var(--cyan-11);
+  --clr-disk-free: var(--violet-11);
+  --clr-temp: var(--cyan-11);
+  --clr-net-rx: var(--violet-11);
+  --clr-net-tx: var(--cyan-11);
 }
 
-/* Automatic light theme when the OS preference is light and no explicit
- * theme has been set yet (i.e. the user hasn't clicked the toggle) */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
-    --bg:   #fafafa;
-    --surf: #ffffff;
-    --brd:  #e4e4e7;
-    --txt:  #09090b;
-    --mut:  #52525b;
-    --grn:  #15803d;
-    --ylw:  #ca8a04;
-    --red:  #dc2626;
-    --acc:  #15803d;
-    --act-txt: #fafafa;
+    /* Radix colour primitives (light scale) */
+    --sage-2: #f7f9f8;
+    --sage-3: #eef1f0;
+    --sage-5: #dfe2e0;
+    --sage-11: #5f6563;
+    --sage-12: #1a211e;
+    --green-9: #30a46c;
+    --green-11: #218358;
+    --amber-8: #e2a336;
+    --red-11: #ce2c31;
+    --cyan-11: #107d98;
+    --violet-11: #6550b9;
+    --slate-11: #60646c;
+
+    /* Semantic aliases */
+    --bg: var(--sage-3);
+    --surf: var(--sage-2);
+    --brd: var(--sage-5);
+    --mut: var(--sage-11);
+    --txt: var(--sage-12);
+    --grn: var(--green-11);
+    --ylw: var(--amber-8);
+    --red: var(--red-11);
+    --acc: var(--green-9);
+    --clr-load1: var(--cyan-11);
+    --clr-load5: var(--violet-11);
+    --clr-load15: var(--slate-11);
+    --clr-cpu-user: var(--cyan-11);
+    --clr-cpu-sys: var(--violet-11);
+    --clr-mem-used: var(--cyan-11);
+    --clr-mem-avail: var(--violet-11);
+    --clr-disk-used: var(--cyan-11);
+    --clr-disk-free: var(--violet-11);
+    --clr-temp: var(--cyan-11);
+    --clr-net-rx: var(--violet-11);
+    --clr-net-tx: var(--cyan-11);
   }
 }
 
@@ -93,13 +166,25 @@
   padding: 0;
 }
 
+/* Respect the OS "reduce motion" setting: near-instant transitions and no
+ * looping animations (e.g. the connection-down pulse stays solid). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* --- Base layout --- */
 
 body {
   background: var(--bg);
   color: var(--txt);
-  font: 0.875rem/1.5 system-ui, sans-serif;
-  padding: 16px;
+  font: var(--text-base)/1.5 system-ui, sans-serif;
+  padding: var(--space-4);
   overflow-x: clip;
 }
 
@@ -107,21 +192,21 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 20px;
+  margin-bottom: var(--space-4);
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 /* Right-hand header cluster: range tabs + theme toggle */
 .hdr-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   flex-wrap: wrap;
 }
 
 h1 {
-  font-size: 18px;
+  font-size: var(--text-lg);
   font-weight: 600;
 }
 
@@ -129,43 +214,36 @@ h1 {
 .sub-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 /* Uptime text */
 .sub {
   color: var(--mut);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
-/* --- Buttons (range tabs + theme toggle) --- */
+/* --- Buttons (theme toggle) --- */
 
 button {
   background: var(--surf);
-  border: 1px solid var(--brd);
+  border: 1px solid transparent;
   color: var(--txt);
-  border-radius: 5px;
-  padding: 4px 10px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-1) var(--space-3);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
-button:hover:not(.act) {
+button:hover {
   border-color: var(--acc);
-}
-
-/* Active/selected range tab */
-button.act {
-  background: var(--acc);
-  border-color: var(--acc);
-  color: var(--act-txt);
 }
 
 /* Keyboard focus indicator: only shown for keyboard navigation */
 :focus-visible {
   outline: 2px solid var(--acc);
   outline-offset: 2px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 
 /* --- Metric cards --- */
@@ -176,8 +254,8 @@ button.act {
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(162px, 1fr));
-  gap: 10px;
-  margin-bottom: 18px;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
 }
 
 .card {
@@ -186,19 +264,24 @@ button.act {
   display: flex;
   flex-direction: column;
   background: var(--surf);
-  border: 1px solid var(--brd);
-  border-radius: 8px;
-  padding: 12px;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  /* Query container so .cval can scale its font-size with the card's width. */
+  container-type: inline-size;
 }
-.card.hide { display: none; }
+
+.card.hide {
+  display: none;
+}
 
 /* Header row: title on the left, active-unit chip on the right */
 .clabel {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 6px;
-  font-size: 11px;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
   color: var(--mut);
   text-transform: uppercase;
   letter-spacing: .05em;
@@ -213,8 +296,11 @@ button.act {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
-  font-weight: 700;
+  /* Scales with the card width via a container query: pinned at --text-xl (22px)
+   * in the 162px minimum card, where the longest value still fits (verified), and
+   * grows up to --text-2xl in wider cards. The clamp min preserves that floor. */
+  font-size: clamp(var(--text-xl), 13.5cqi, var(--text-2xl));
+  font-weight: 400;
   /* Tabular digits so the value keeps width as it changes; nowrap + overflow
    * clip so a long unit string never breaks the grid layout. */
   font-variant-numeric: tabular-nums;
@@ -228,50 +314,178 @@ button.act {
 .csub {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-2);
   justify-content: flex-end;
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--mut);
   min-height: 1.5em;
 }
 
 /* Active sub-metric label shown inline in .clabel (e.g. "1m", "user") */
-.card-unit      { font-size: 10px; }
-.card-unit.hide { display: none; }
+/* The active-series unit is a lowercase token (1m, user, used), matching the
+ * chart legend; keep the uppercase transform only for the metric name. */
+.card-unit {
+  font-size: var(--text-sm);
+  text-transform: none;
+}
+
+.card-unit.hide {
+  display: none;
+}
 
 /* Each clickable secondary metric inside .csub. Negative margin compensates the
  * padding so the layout does not shift; on hover a subtle chip appears. */
 .card-sub {
   display: inline-flex;
-  gap: 2px;
+  gap: var(--space-1);
   align-items: baseline;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 1px 4px;
   margin: -1px -4px;
   transition: background 0.12s;
 }
-.card-sub.hide  { display: none; }
-.card-sub:hover { background: var(--brd); }
+
+.card-sub.hide {
+  display: none;
+}
+
+.card-sub:hover {
+  background: var(--brd);
+}
 
 /* Status colour on the secondary value: mirrors .card.g/y/r on .cval. Base is
  * --txt so values stay readable when no status class applies. */
-.card-sub-val   { color: var(--txt); }
-.card-sub-val.g { color: var(--grn); }
-.card-sub-val.y { color: var(--ylw); }
-.card-sub-val.r { color: var(--red); }
+.card-sub-val {
+  color: var(--txt);
+}
+
+.card-sub-val.g {
+  color: var(--grn);
+}
+
+.card-sub-val.y {
+  color: var(--ylw);
+}
+
+.card-sub-val.r {
+  color: var(--red);
+}
 
 /* Color the primary value according to the status level */
-.card.g .cval { color: var(--grn); }
-.card.y .cval { color: var(--ylw); }
-.card.r .cval { color: var(--red); }
+.card.g .cval {
+  color: var(--grn);
+}
+
+.card.y .cval {
+  color: var(--ylw);
+}
+
+.card.r .cval {
+  color: var(--red);
+}
 
 /* --- Range tab strip --- */
 
 .ranges {
   display: flex;
-  gap: 6px;
+  gap: var(--space-2);
   flex-wrap: wrap;
+  position: relative;
+}
+
+/* Dropdown chevron: an SVG mask tinted with a palette token, so the colour is
+ * --mut (theme-aware) rather than a hex baked into a background data-URI. The
+ * mask stroke colour is irrelevant (only its coverage is used). A <select>
+ * cannot host ::after, so it hangs off the container. */
+.ranges::after {
+  background-color: var(--mut);
+  content: "";
+  height: 6px;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='white' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>") no-repeat center;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='white' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>") no-repeat center;
+  pointer-events: none;
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+}
+
+.range-select {
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--surf);
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  box-sizing: border-box;
+  color: var(--txt);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-sm);
+  height: 30px;
+  margin: 0;
+  padding: 0 var(--space-7) 0 var(--space-3);
+}
+
+.range-select:hover,
+.range-select:focus {
+  border-color: var(--acc);
+}
+
+.range-select:focus {
+  outline: none;
+}
+
+#thm {
+  align-items: center;
+  box-sizing: border-box;
+  color: var(--mut);
+  display: inline-flex;
+  height: 30px;
+  justify-content: center;
+  padding: 0 var(--space-2);
+}
+
+#thm svg {
+  display: block;
+}
+
+/* Toggle shows the opposite theme's icon (sun in dark, moon in light). Pure CSS
+ * so it also follows the OS in auto mode with no JS touching the icon. */
+#thm .ico-moon {
+  display: none;
+}
+
+[data-theme="light"] #thm .ico-sun {
+  display: none;
+}
+
+[data-theme="light"] #thm .ico-moon {
+  display: block;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) #thm .ico-sun {
+    display: none;
+  }
+
+  :root:not([data-theme]) #thm .ico-moon {
+    display: block;
+  }
+}
+
+#thm:hover {
+  color: var(--txt);
+}
+
+#thm:focus-visible {
+  border-color: var(--acc);
+  outline: none;
+}
+
+#thm.hide {
+  display: none;
 }
 
 /* --- Chart panels --- */
@@ -279,7 +493,7 @@ button.act {
 .charts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(650px, 1fr));
-  gap: 14px;
+  gap: var(--space-4);
 }
 
 /* Single column on screens too narrow for the 650px minimum */
@@ -291,9 +505,9 @@ button.act {
 
 .cbox {
   background: var(--surf);
-  border: 1px solid var(--brd);
-  border-radius: 8px;
-  padding: 12px;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
 }
 
 /* Hidden chart box (used for temperature when no sensor is present) */
@@ -306,19 +520,20 @@ button.act {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .ctitle {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-base);
+  text-transform: uppercase;
+  letter-spacing: .05em;
 }
 
 /* --- Chart legend --- */
 
 .legend {
   display: flex;
-  gap: 10px;
+  gap: var(--space-3);
   flex-wrap: wrap;
 }
 
@@ -326,19 +541,22 @@ button.act {
 .leg-item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 11px;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
   color: var(--mut);
   cursor: pointer;
   user-select: none;
   /* Chip hover affordance, same as .card-sub: negative margin compensates the
    * padding so the legend layout does not shift on hover. */
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 1px 4px;
   margin: -1px -4px;
   transition: background 0.12s;
 }
-.leg-item:hover { background: var(--brd); }
+
+.leg-item:hover {
+  background: var(--brd);
+}
 
 .leg-dot {
   width: 8px;
@@ -370,19 +588,57 @@ canvas {
 
 /* Series colour via class: card labels use it as text colour,
  * legend dots as their background. */
-.s-load1 { --c: var(--clr-load1); }
-.s-load5 { --c: var(--clr-load5); }
-.s-load15 { --c: var(--clr-load15); }
-.s-cpu-user { --c: var(--clr-cpu-user); }
-.s-cpu-sys { --c: var(--clr-cpu-sys); }
-.s-mem-used { --c: var(--clr-mem-used); }
-.s-mem-avail { --c: var(--clr-mem-avail); }
-.s-disk-used { --c: var(--clr-disk-used); }
-.s-disk-free { --c: var(--clr-disk-free); }
-.s-net-tx { --c: var(--clr-net-tx); }
-.s-net-rx { --c: var(--clr-net-rx); }
-.card-unit, .card-sub-lbl { color: var(--c); }
-.leg-dot { background: var(--c); }
+.s-load1 {
+  --c: var(--clr-load1);
+}
+
+.s-load5 {
+  --c: var(--clr-load5);
+}
+
+.s-load15 {
+  --c: var(--clr-load15);
+}
+
+.s-cpu-user {
+  --c: var(--clr-cpu-user);
+}
+
+.s-cpu-sys {
+  --c: var(--clr-cpu-sys);
+}
+
+.s-mem-used {
+  --c: var(--clr-mem-used);
+}
+
+.s-mem-avail {
+  --c: var(--clr-mem-avail);
+}
+
+.s-disk-used {
+  --c: var(--clr-disk-used);
+}
+
+.s-disk-free {
+  --c: var(--clr-disk-free);
+}
+
+.s-net-tx {
+  --c: var(--clr-net-tx);
+}
+
+.s-net-rx {
+  --c: var(--clr-net-rx);
+}
+
+.card-unit, .card-sub-lbl {
+  color: var(--c);
+}
+
+.leg-dot {
+  background: var(--c);
+}
 
 /* --- Connection status indicator --- */
 
@@ -398,18 +654,31 @@ canvas {
   flex-shrink: 0;
   position: relative;
 }
+
 .conn::before {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: 50%;
 }
-.conn.live::before { background: var(--grn); }
-.conn.down::before { background: var(--ylw); animation: conn-pulse 1.2s ease-in-out infinite; }
+
+.conn.live::before {
+  background: var(--grn);
+}
+
+.conn.down::before {
+  background: var(--ylw);
+  animation: conn-pulse 1.2s ease-in-out infinite;
+}
 
 @keyframes conn-pulse {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.35; }
+  0%, 100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
+  }
 }
 
 /* Immediate tooltip on hover: the native title attribute has a ~1s delay that
@@ -423,17 +692,18 @@ canvas {
   transform: translateY(-50%);
   background: var(--surf);
   border: 1px solid var(--brd);
-  border-radius: 4px;
-  padding: 3px 8px;
-  font-size: 11px;
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
   color: var(--txt);
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.15s;
   z-index: 10;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, .10);
+  box-shadow: var(--shadow);
 }
+
 .conn:hover::after,
 .conn:focus-visible::after {
   opacity: 1;
@@ -448,26 +718,29 @@ canvas {
   position: absolute;
   z-index: 100;
   min-width: 80px;
-  padding: 6px 10px;
+  padding: var(--space-2) var(--space-3);
   background: var(--surf);
   border: 1px solid var(--brd);
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, .15);
-  font-size: 11px;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  font-size: var(--text-sm);
   pointer-events: none;
 }
-#tt.hide { display: none; }
+
+#tt.hide {
+  display: none;
+}
 
 .tt-time {
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
   color: var(--mut);
-  font-size: 10px;
+  font-size: var(--text-sm);
 }
 
 .tt-row {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--space-1);
 }
 
 .tt-dot {
@@ -475,6 +748,56 @@ canvas {
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
+}
+
+/* Per-series dot colour, keyed by the series' --clr-* token. app.js sets the
+ * modifier class (tt-dot--<token suffix>) so the colour stays in CSS. */
+.tt-dot--load1 {
+  background: var(--clr-load1);
+}
+
+.tt-dot--load5 {
+  background: var(--clr-load5);
+}
+
+.tt-dot--load15 {
+  background: var(--clr-load15);
+}
+
+.tt-dot--cpu-user {
+  background: var(--clr-cpu-user);
+}
+
+.tt-dot--cpu-sys {
+  background: var(--clr-cpu-sys);
+}
+
+.tt-dot--mem-used {
+  background: var(--clr-mem-used);
+}
+
+.tt-dot--mem-avail {
+  background: var(--clr-mem-avail);
+}
+
+.tt-dot--disk-used {
+  background: var(--clr-disk-used);
+}
+
+.tt-dot--disk-free {
+  background: var(--clr-disk-free);
+}
+
+.tt-dot--temp {
+  background: var(--clr-temp);
+}
+
+.tt-dot--net-rx {
+  background: var(--clr-net-rx);
+}
+
+.tt-dot--net-tx {
+  background: var(--clr-net-tx);
 }
 
 .tt-lbl {
@@ -489,14 +812,16 @@ canvas {
 
 /* --- Footer --- */
 
-footer.hide { display: none; }
+footer.hide {
+  display: none;
+}
 
 footer {
   text-align: center;
-  margin-top: 28px;
-  padding: 10px;
+  margin-top: var(--space-4);
+  padding: var(--space-3);
   color: var(--mut);
-  font-size: 11px;
+  font-size: var(--text-sm);
 }
 
 footer a {
@@ -506,4 +831,9 @@ footer a {
 
 footer a:hover {
   text-decoration: underline;
+}
+
+footer a.ver {
+  font-size: var(--text-sm);
+  opacity: 0.6;
 }
