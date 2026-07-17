@@ -19,19 +19,17 @@
 #ifndef MINIMONI_DOWNSAMPLE_H
 #define MINIMONI_DOWNSAMPLE_H
 
-/*
- * Choose the query downsampling bucket for /api/metrics.
+/* Choose the query downsampling bucket for /api/metrics.
  *
  *   range_sec     requested time span in seconds
  *   interval_sec  collect interval in seconds
- *   points        target data points per chart; <= 0 uses the default (480)
+ *   points        target data points per chart; <= 0 uses the default (240)
  *   actual_count  rows available for the range, or < 0 if unknown
  *
  * Returns the bucket size in seconds to aggregate into, or 0 for raw (no
  * aggregation) when the range already has fewer rows than the target or the
  * ideal bucket is at or below the collect interval. The chosen bucket is
- * always a multiple of interval_sec (or interval_sec itself as a fallback).
- */
+ * always a multiple of interval_sec (or interval_sec itself as a fallback). */
 int pick_bucket(long range_sec, int interval_sec, int points, int actual_count);
 
 #endif /* MINIMONI_DOWNSAMPLE_H */

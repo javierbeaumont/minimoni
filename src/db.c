@@ -701,5 +701,10 @@ int db_consolidate(db_t *db)
         sqlite3_exec(db->handle, "ROLLBACK", NULL, NULL, NULL);
         return -1;
     }
+    /* No db_release_memory() here: the metrics handler already releases after
+     * heavy range queries, and the musl release build trims on its own, so a
+     * release in the write path would be redundant. Under glibc no placement
+     * escapes the arena retention anyway (PSS holds ~13 MB under load). See
+     * ADR-0008. */
     return 0;
 }

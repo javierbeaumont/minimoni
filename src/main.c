@@ -63,7 +63,7 @@ static const char *parse_config_flag(int argc, char **argv, int start)
 }
 
 /* Convert a range string ("1d", "24h", "30m", ...) to days (ceiling).
- * Sub-day ranges (m, h<24) clamp to 1 day for retention purposes - the
+ * Sub-day ranges (m, h<24) clamp to 1 day for retention purposes: the
  * dashboard tab still shows the sub-day range, but db_prune granularity
  * is days, so we keep at least one. */
 static int range_to_days(const char *r)
@@ -92,7 +92,7 @@ static int retention_days(const config_t *cfg)
     return max > 0 ? max : 90;
 }
 
-/* --- collect: oneshot - seed CPU snapshot, sleep 250 ms, collect, insert --- */
+/* --- collect: oneshot, seed CPU snapshot, sleep 250 ms, collect, insert --- */
 
 static int run_collect(const char *config_path)
 {
@@ -138,7 +138,7 @@ static int run_collect(const char *config_path)
     return ret;
 }
 
-/* --- serve: daemon - HTTP server + drift-free collect loop --- */
+/* --- serve: daemon, HTTP server + drift-free collect loop --- */
 
 static int run_serve(const char *config_path)
 {

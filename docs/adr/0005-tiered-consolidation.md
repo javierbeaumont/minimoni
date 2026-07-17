@@ -127,13 +127,24 @@ corresponding threshold.
 
 ### Disk
 
-Measured on Alpine/musl with no VACUUM, the way the daemon runs; the extreme is the
-modelled steady state (its 315 M raw rows cannot be populated directly).
+The retained rows are only ~5.3 MB of actual data, but that is not what the
+running daemon occupies. Measured on the live production daemon (Alpine/musl, ~90
+days of default-config data), the file is **~23 MB**. Consolidation deletes raw
+rows once they are folded into coarser tiers, and SQLite keeps those freed pages
+in its free list instead of returning them to the filesystem; the daemon does not
+VACUUM, because a periodic rebuild would roughly double the daily write volume,
+and minimoni trades abundant SD-card space for scarce write cycles. The freed
+pages are reused by later inserts, so the file settles at a bounded high-water
+mark, about four times the logical data size, rather than growing without end.
 
-| Configuration                                 | Total rows | Disk    |
-|-----------------------------------------------|------------|---------|
-| Default (`interval = 60`, `retention = 90 d`) | ~23,850    | ~2.6 MB |
-| Extreme (`interval = 1`, `retention = 10 y`)  | ~63,672    | ~7.7 MB |
+| Configuration                                 | Total rows | Data (logical) | On disk (daemon)  |
+|-----------------------------------------------|------------|----------------|-------------------|
+| Default (`interval = 60`, `retention = 90 d`) | ~23,760    | ~5.3 MB        | ~23 MB (measured) |
+| Extreme (`interval = 1`, `retention = 10 y`)  | ~63,672    | ~14.3 MB       | modelled only     |
+
+The extreme config cannot be populated directly (its 315 M raw rows are a modelled
+steady state), so only its logical estimate exists; a real run would carry the
+same free-list overhead as the default.
 
 The 6-tier ladder uses more disk than a coarser ladder would, in exchange for gap-free
 coverage at every range and smoother resolution across tier boundaries:

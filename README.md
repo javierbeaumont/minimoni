@@ -19,15 +19,15 @@ and homelab servers) where every MB counts.
 - SQLite storage with configurable retention
 - Webhook and command alerts with per-alert cooldown
 - TOML configuration, sensible defaults, works with zero config
-- Runs comfortably on small arm64 boards (Raspberry Pi 3B, Zero 2 W, 512 MB RAM); 32-bit
+- Runs comfortably on small arm64 boards (a Raspberry Pi 3B, or a 512 MB Pi Zero 2 W); 32-bit
   ARMv7 and ARMv6 binaries are published too, down to the original Pi Zero
 
-![minimoni dashboard, dark theme (7d range)](docs/screenshot-dark.png)
+![minimoni dashboard, dark theme (7d range)](docs/screenshot-dark.webp)
 
 <details>
 <summary>Light theme</summary>
 
-![minimoni dashboard, light theme (30d range)](docs/screenshot-light.png)
+![minimoni dashboard, light theme (30d range)](docs/screenshot-light.webp)
 
 </details>
 
@@ -45,7 +45,7 @@ at build time, so there are no files to deploy alongside the binary.
 
 |                    | minimoni            | [Beszel][b]           | [Netdata][n]       |
 |--------------------|---------------------|-----------------------|--------------------|
-| RAM (daemon)       | ~1.6 MB [1]         | ~5-10 MB + ~75 MB hub | ~150-200 MB        |
+| RAM (daemon)       | ~1.7 MB [1]         | ~5-10 MB + ~75 MB hub | ~150-200 MB        |
 | Architecture       | single binary       | agent + hub           | agent (complex)    |
 | Runtime deps       | none                | none                  | many               |
 | Dashboard          | yes (canvas)        | yes (web UI)          | yes (web UI)       |
@@ -53,13 +53,13 @@ at build time, so there are no files to deploy alongside the binary.
 | Alerts             | yes (webhook + cmd) | yes                   | yes                |
 | License            | GPLv3+              | MIT                   | GPLv3+ / NCUL1 [2] |
 
-[1] Measured on a Raspberry Pi 3B (Raspberry Pi OS, kernel 6.18, arm64): ~1.6 MB PSS at idle
-and under sustained query load. The static musl build keeps a flat memory profile; it
-self-trims under query pressure rather than accumulating, and never touches swap.
+[1] Measured on a Raspberry Pi 3B (Raspberry Pi OS, kernel 6.18, arm64): ~1.7 MB PSS at idle,
+trimming to ~1.6 MB under sustained query load. The static musl build keeps a flat memory
+profile; it self-trims under query pressure rather than accumulating, and never touches swap.
 [2] Netdata agent is GPLv3+; the v2 dashboard is under NCUL1, a proprietary licence.
 
-RAM sources: Beszel - [HowToGeek (2026)][s1], [instapods (2026)][s2].
-Netdata - [official docs][s3], [instapods (2026)][s2].
+RAM sources. Beszel: [HowToGeek (2026)][s1], [instapods (2026)][s2].
+Netdata: [official docs][s3], [instapods (2026)][s2].
 
 [b]: https://github.com/henrygd/beszel
 [n]: https://github.com/netdata/netdata
@@ -70,23 +70,24 @@ Netdata - [official docs][s3], [instapods (2026)][s2].
 ## Performance
 
 Measured on a Raspberry Pi 3B (Cortex-A53, 1 GB RAM, Raspberry Pi OS, kernel 6.18, arm64)
-with the CI-built static musl binary (`-Os -flto`), against a continuous ~50-day database
-(~72k rows at a 1-minute interval):
+with the CI-built static musl binary (`-Os -flto`), against a live production database
+(~24k consolidated rows, ~23 MB):
 
 | Metric                          |                                                         Value |
 |---------------------------------|--------------------------------------------------------------:|
 | Binary size                     |                                                       1.24 MB |
-| PSS (idle and under query load) |                                                 ~1.6 MB, flat |
+| PSS (idle and under query load) |                                     ~1.7 MB, trims under load |
 | CPU per collect cycle           | ~11 ms (excl. the 250 ms intentional sleep for the CPU delta) |
 | Disk writes per 1-min cycle     |                                           24 KiB (SQLite WAL) |
-| `/api/metrics?range=1d`         |                                                       ~100 ms |
-| `/api/metrics?range=7d`         |                                                       ~460 ms |
-| `/api/metrics?range=30d`        |                                                        ~1.7 s |
-| `/api/metrics?range=90d`        |                                                        ~3.0 s |
+| `/api/metrics?range=1d`         |                                                        ~50 ms |
+| `/api/metrics?range=7d`         |                                                       ~150 ms |
+| `/api/metrics?range=30d`        |                                                       ~270 ms |
+| `/api/metrics?range=90d`        |                                                       ~430 ms |
 | `/api/current`, `/api/health`   |                                                  ~2 ms, ~1 ms |
 
 PSS does not grow under query load; the daemon self-trims rather than accumulating, and
-Swap stays at 0 throughout. Long-range query time scales with the number of rows in range.
+Swap stays at 0 throughout. Tiered write-time consolidation keeps 30d and 90d queries
+flat in the hundreds of ms rather than scaling with the row count.
 
 ## Installation
 
@@ -254,8 +255,8 @@ are preserved.
 
 `/api/metrics` takes two query parameters, e.g. `GET /api/metrics?range=1d&points=480`:
 
-- **`range`** - one of `[dashboard].ranges` (default `1d`, `7d`, `30d`, `90d`).
-- **`points`** - optional; how many buckets to group the history into. The server caps it
+- **`range`**: one of `[dashboard].ranges` (default `1d`, `7d`, `30d`, `90d`).
+- **`points`**: optional; how many buckets to group the history into. The server caps it
   at `1440` (one point per minute over a 24h window, the design point of the tiered
   consolidation ladder; see [ADR-0005](docs/adr/0005-tiered-consolidation.md)) and
   defaults to `240` when omitted. The bundled dashboard computes it from the canvas
@@ -416,11 +417,11 @@ Repeats and custom ordering are valid (e.g. `["4h", "2d", "45d", "2d"]` shows fo
 that order with 45-day retention). Sub-day ranges round up to 1 day for retention purposes
 (prune granularity is days). Default: `["1d", "7d", "30d", "90d"]`.
 
-The number of data points per chart is no longer a per-install setting - the dashboard
+The number of data points per chart is no longer a per-install setting: the dashboard
 JS asks for what it can render, via the `points` query parameter on `/api/metrics`
-(see [HTTP endpoints](#http-endpoints)). The server caps it at `1440` - one point per
+(see [HTTP endpoints](#http-endpoints)). The server caps it at `1440`: one point per
 minute over a 24h window, which is also the design point of the tiered consolidation
-ladder (see [ADR-0005](docs/adr/0005-tiered-consolidation.md)) - and defaults to `240`
+ladder (see [ADR-0005](docs/adr/0005-tiered-consolidation.md)), and defaults to `240`
 if the parameter is missing.
 
 ### Alerts
@@ -587,11 +588,12 @@ consequences, so future contributors understand not just what was chosen but why
 | [0005](docs/adr/0005-tiered-consolidation.md) | Tiered write-time consolidation    |
 | [0006](docs/adr/0006-minimoni-migrate.md)     | Separate minimoni-migrate binary   |
 | [0007](docs/adr/0007-html-minification.md)    | Optional HTML minification         |
+| [0008](docs/adr/0008-musl-static-pie.md)      | Static musl-PIE build toolchain    |
 
 ## Roadmap
 
-**v0.2.0 (Eddystone)**: tiered write-time consolidation to flatten long-range
-(30d / 90d) query latency.
+**v0.3.0 (Bellrock)**: swap and memory-pressure metrics to surface memory thrashing
+before it shows up as unexplained load spikes.
 
 ## Contributing
 

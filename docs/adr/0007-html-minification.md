@@ -16,15 +16,15 @@ shrinks the embedded HTML and is a no-op when the chosen tool is not on
 `PATH`. Two hard constraints follow from minimoni's project promise:
 
 - **No runtime dependencies.** The tool must distribute as a standalone
-  binary: no Node.js, no npm, no Python runtime. The same constraint we
-  apply to minimoni itself applies to its build path.
+  binary: no Node.js, no npm, no Python runtime. The same constraint that
+  applies to minimoni itself applies to its build path.
 - **Same Alpine container as the rest of the release build.** Whatever
-  tool we pick must be installable with `apk add` or one `curl | tar`
+  tool is chosen must be installable with `apk add` or one `curl | tar`
   in the CI workflow, no exotic setup.
 
 A naive solution would have been to require `terser`+`csso` via Node, but
-that breaks the constraint. We pick from tools that produce, or can be
-distributed as, a single static binary.
+that breaks the constraint. The candidates are drawn from tools that produce,
+or can be distributed as, a single static binary.
 
 ## Candidates considered
 
@@ -49,7 +49,7 @@ Rejected because they require Node.js / npm in the build path:
 - **oxc-minify**: no standalone CLI; only available as a library / npm package.
 - **terser**, **UglifyJS**: JS-runtime-only.
 
-Rejected because they don't fit our build flow:
+Rejected because they don't fit the build flow:
 
 - **html-minifier-terser**, **htmlnano**: Node.js; same constraint.
 - **Closure Compiler**: Java runtime; heavy.
@@ -114,7 +114,7 @@ build time, dwarfed by the LTO and strip steps.
 ## Decision
 
 **Use [tdewolff/minify](https://github.com/tdewolff/minify).** It wins on
-every axis we measured:
+every axis measured:
 
 - Smallest output of the viable tools (35,072 B vs 39,198 for esbuild).
 - Adds negligible build time, dwarfed by the LTO and strip steps.
@@ -128,7 +128,7 @@ every axis we measured:
   future use (e.g., minifying the SVG favicon).
 
 minify-html is ruled out structurally: its prebuilt binary is glibc-only
-(`linux-gnu`) and would not run in our musl Alpine release container without
+(`linux-gnu`) and would not run in the musl Alpine release container without
 rebuilding from source, so it cannot enter the release path. It also produced
 the largest output of the three (49,992 B); its JS minifier, `oxc_minifier`
 since v0.17.0 (2025), compressed this dashboard's JS less than tdewolff and

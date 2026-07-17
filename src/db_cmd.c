@@ -287,7 +287,7 @@ int db_cmd_info(const char *db_path)
                     printf("  NULL: %5ld %s\n", n, unit);
                 } else {
                     long b = (long)sqlite3_column_int64(stmt, 0);
-                    char label[16];
+                    char label[24];
                     format_bucket_label(b, label, sizeof(label));
                     printf("  %3s: %5ld %s\n", label, n, unit);
                 }
@@ -387,7 +387,7 @@ int db_cmd_exec(const char *db_path, const char *sql)
             sqlite3_close(db);
             return 1;
         }
-        /* prepare on whitespace/comment-only tail returns NULL stmt - skip */
+        /* prepare on whitespace/comment-only tail returns NULL stmt; skip */
         if (!stmt) {
             tail = next;
             continue;

@@ -3,6 +3,10 @@
 **Date:** 2026-06-01
 **Status:** Accepted
 
+> **Note:** the downsampling strategy and DB-size figures below describe the original
+> design. [ADR-0005](0005-tiered-consolidation.md) moved consolidation to write time;
+> see it for the current behaviour and on-disk sizes.
+
 ## Context
 
 minimoni needs persistent metric storage compiled into a single static binary with zero
@@ -29,7 +33,7 @@ without application-level mutexes.
 
 Compiled with four tuning flags; dead code removal is delegated to LTO and linker stripping
 rather than `SQLITE_OMIT_*` flags. LTO alone reduces the vendor contribution more effectively
-(748 KB vs 889 KB with OMIT flags) and avoids hard-to-debug linker issues.
+than the OMIT flags would, and avoids hard-to-debug linker issues.
 
 ```
 -DSQLITE_THREADSAFE=0
@@ -42,7 +46,7 @@ At runtime: `PRAGMA journal_mode=WAL` and `PRAGMA cache_size=-256` (256 KB cap).
 
 ## Consequences
 
-- Vendor binary contribution: ~600 KB stripped (largest of the three vendors).
+- Vendor binary contribution: ~600 KB stripped (largest of the vendors).
 - DB size at 90-day retention (1 row/min): ~25 MB + 1-4 MB WAL.
 - Downsampling at query time (GROUP BY + AVG); raw 1-minute data always preserved.
 - Single-file backup: `cp metrics.db metrics.db.bak`.
