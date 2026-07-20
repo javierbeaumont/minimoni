@@ -115,18 +115,18 @@ debug: embed $(VENDOR_OBJ) $(BEARSSL_LIB)
 tidy:
 	pre-commit run clang-tidy --all-files --hook-stage pre-push
 
-# Unit tests: pure logic across C, Python and JS, all run inside Docker.
+# Unit tests: pure logic across C and JS, all run inside Docker.
 # C suites (one per module) use the shared harness in tests/runner.h and
 # include the module under test directly so static helpers are exercisable;
-# unit-config and unit-json link tomlc17. The devserver (Python) and dashboard
-# (JS) pure helpers each get one suite; app.js guards its browser entry point so
-# node can require it for the pure helpers without a DOM.
+# unit-config and unit-json link tomlc17. The devserver and dashboard (JS) pure
+# helpers each get one suite; app.js guards its browser entry point so node can
+# require it for the pure helpers without a DOM.
 test-unit: ci-image \
       tests/unit-config.c tests/unit-db.c tests/unit-db_cmd.c tests/unit-downsample.c \
       tests/unit-json.c tests/unit-metrics.c tests/unit-migrate.c tests/unit-units.c \
-      tests/runner.h tests/test_devserver.py tests/dashboard.test.js
+      tests/runner.h tests/devserver.test.js tests/dashboard.test.js
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
-	  sh -c "apk add --quiet gcc musl-dev nodejs python3 && mkdir -p build && \
+	  sh -c "apk add --quiet gcc musl-dev nodejs && mkdir -p build && \
 	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Itests \
 	      tests/unit-config.c vendor/tomlc17.c -o build/unit-config-test && \
 	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Itests $(SQLITE_FLAGS) \
@@ -146,7 +146,7 @@ test-unit: ci-image \
 	    ./build/unit-config-test && ./build/unit-db-test && ./build/unit-db_cmd-test && \
 	    ./build/unit-downsample-test && ./build/unit-json-test && ./build/unit-metrics-test && \
 	    ./build/unit-migrate-test && ./build/unit-units-test && \
-	    python3 tests/test_devserver.py && node tests/dashboard.test.js"
+	    node --test tests/dashboard.test.js tests/devserver.test.js"
 
 # Integration: build the release binaries once, then run both black-box suites:
 # the minimoni CLI (cli.sh) and minimoni-migrate (migrate.sh, which builds its DB

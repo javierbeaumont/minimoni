@@ -63,7 +63,7 @@ pre-commit install --hook-type pre-push   # clang-tidy runs here
 To run the checks on demand:
 
 ```sh
-pre-commit run --all-files   # format, ruff, eslint, shellcheck, gitleaks, ...
+pre-commit run --all-files   # format, eslint, shellcheck, gitleaks, codespell, ...
 make tidy                    # clang-tidy over src/ in Docker
 ```
 
@@ -94,17 +94,17 @@ To iterate on `dashboard/` without recompiling, run the mock dev server. It
 serves the dashboard files directly (no build needed):
 
 ```sh
-python3 tools/devserver/          # http://localhost:9090
+node tools/devserver/             # http://localhost:9090
 ```
 
 It serves `dashboard/index.html` with mocked metrics, taking the presentation
 settings (units, theme, charts/cards, etc.) from a real minimoni config so unit
-and layout changes show on reload. Requires Python 3.11+ (uses tomllib).
+and layout changes show on reload.
 
 Full options:
 
 ```
-python3 tools/devserver/ [port] [config] [--scenario {normal,warn,critical,cycle}] [-v]
+node tools/devserver/ [port] [config] [--scenario {normal,warn,critical,cycle}] [-v]
 ```
 
 `--scenario` drives the values so the warning/critical states can be exercised:
