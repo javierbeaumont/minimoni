@@ -20,9 +20,8 @@
 # generated first because src/http.c includes it.
 set -eu
 
-docker build -q -t minimoni-toolchain tools >/dev/null
-docker run --rm -v "$PWD":/work -w /work minimoni-toolchain sh -c '
-  apk add --quiet clang clang-extra-tools musl-dev xxd >/dev/null
+docker build -q --target tidy -t minimoni-toolchain-tidy tools >/dev/null
+docker run --rm -v "$PWD":/work -w /work minimoni-toolchain-tidy sh -c '
   mkdir -p build
   sh tools/bundle.sh | xxd -i -n dashboard_index_html - > build/embed.h
   clang-tidy src/*.c -- \

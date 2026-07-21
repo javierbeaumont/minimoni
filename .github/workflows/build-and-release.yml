@@ -62,14 +62,14 @@ jobs:
       # amd64 and arm64 run natively; armv7 and armv6 run under QEMU.
       - name: Build (musl)
         run: |
-          docker build -q --platform ${{ matrix.platform }} -t minimoni-toolchain tools
+          docker build -q --platform ${{ matrix.platform }} --target base \
+            -t minimoni-toolchain tools
           docker run --rm --platform ${{ matrix.platform }} \
             -v "$PWD":/work \
             -w /work \
             minimoni-toolchain \
             sh -c '
               set -e
-              apk add --quiet --no-cache gcc musl-dev make xxd git minify
               git config --global --add safe.directory /work
               make release
             '

@@ -22,7 +22,7 @@ LDFLAGS_DEBUG = -lpthread
 
 CLANG_FORMAT ?= clang-format
 
-# Pinned toolchain image (tools/Dockerfile).
+# Pinned toolchain image (test stage of tools/Dockerfile).
 CI_IMAGE = minimoni-toolchain
 
 # SQLite: minimal tuning (dead code removed by LTO, not OMIT flags)
@@ -104,11 +104,11 @@ release: embed $(VENDOR_OBJ_RELEASE) $(BEARSSL_LIB)
 	strip minimoni-migrate
 
 ci-image:
-	docker build -q -t $(CI_IMAGE) tools >/dev/null
+	docker build -q --target test -t $(CI_IMAGE) tools >/dev/null
 
 release-linux: ci-image
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
-	  sh -c "apk add --quiet gcc musl-dev make xxd git minify && make release"
+	  sh -c "make release"
 
 debug: embed $(VENDOR_OBJ_DEBUG) $(BEARSSL_LIB)
 	$(CC) $(CFLAGS) $(OPT_DEBUG) \
@@ -125,7 +125,7 @@ test-unit: ci-image \
       tests/unit-json.c tests/unit-metrics.c tests/unit-migrate.c tests/unit-units.c \
       tests/runner.h tests/devserver.test.js tests/dashboard.test.js
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
-	  sh -c "apk add --quiet gcc musl-dev nodejs && mkdir -p build && \
+	  sh -c "mkdir -p build && \
 	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Itests \
 	      tests/unit-config.c vendor/tomlc17.c -o build/unit-config-test && \
 	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Itests $(SQLITE_FLAGS) \
@@ -150,7 +150,7 @@ test-unit: ci-image \
 # Integration (Docker): build release once, then the black-box suites cli.sh + migrate.sh.
 test-integration: ci-image
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
-	  sh -c "apk add --quiet gcc musl-dev make xxd git sqlite minify && make release && \
+	  sh -c "make release && \
 	    sh tests/cli.sh && sh tests/migrate.sh"
 
 test: test-unit test-integration
