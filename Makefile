@@ -22,80 +22,84 @@ LDFLAGS_DEBUG = -lpthread
 
 CLANG_FORMAT ?= clang-format
 
-# Pinned toolchain image (tools/Dockerfile) shared.
+# Pinned toolchain image (tools/Dockerfile).
 CI_IMAGE = minimoni-toolchain
 
 # SQLite: minimal tuning (dead code removed by LTO, not OMIT flags)
 SQLITE_FLAGS = -DSQLITE_THREADSAFE=1 -DSQLITE_DEFAULT_MEMSTATUS=0 \
   -DSQLITE_DEFAULT_WAL_SYNCHRONOUS=1 -DSQLITE_LIKE_DOESNT_MATCH_BLOBS
 
-# civetweb: HTTP-only, strip unused features
+# civetweb: HTTP-only.
 CIVETWEB_FLAGS = -DNO_SSL -DNO_CGI -DNO_CACHING \
   -DUSE_WEBSOCKET=0 -DUSE_IPV6=0 -DNO_FILES -DNDEBUG
 
-# BearSSL: vendored TLS library for HTTPS webhook support
+# BearSSL: vendored TLS for the HTTPS webhook.
 BEARSSL_LIB = vendor/bearssl/build/libbearssl.a
 BEARSSL_INC = -Ivendor/bearssl/inc
 
-# SRC expands as modules are implemented
 SRC = src/main.c src/alerts.c src/config.c src/db.c src/db_cmd.c \
       src/downsample.c src/http.c src/json.c src/metrics.c src/units.c
 VENDOR = vendor/civetweb.c vendor/sqlite3.c vendor/tomlc17.c
 
-# minimoni-migrate: standalone binary that calls `minimoni db exec` for
-# every SQL statement, so it links no vendored libs.
+# minimoni-migrate: standalone, links no vendored libs (calls `minimoni db exec`).
 MIGRATE_SRC = src/migrate/main.c src/migrate/consolidate.c src/migrate/exec.c \
   src/migrate/migrations.c src/migrate/preflight.c src/migrate/snapshot.c
 
-# Vendored amalgamations carry upstream warnings we don't own (e.g. civetweb's
-# unused-but-set variables). Compile them as separate objects with that one
-# check disabled so src/ stays strict under -Wall -Wextra. $(OPT) carries each
-# target's optimisation flags; run "make clean" when switching release/debug.
-VENDOR_OBJ = $(patsubst vendor/%.c,build/%.o,$(VENDOR))
+# Vendored amalgamations as separate objects (upstream warnings silenced, src/ stays
+# strict); one build/<profile>/ dir per profile so release never reuses another -O's objects.
+OPT_DEV     = -O2
+OPT_RELEASE = -Os -flto=auto
+OPT_DEBUG   = -O0 -g -fsanitize=address,undefined
+VENDOR_OBJ_DEV     = $(patsubst vendor/%.c,build/dev/%.o,$(VENDOR))
+VENDOR_OBJ_RELEASE = $(patsubst vendor/%.c,build/release/%.o,$(VENDOR))
+VENDOR_OBJ_DEBUG   = $(patsubst vendor/%.c,build/debug/%.o,$(VENDOR))
+
+# Vendored-object compile; each profile rule below appends its own $(OPT_*).
+VENDOR_CC = $(CC) $(CFLAGS) -Wno-unused-but-set-variable $(SQLITE_FLAGS) \
+  $(CIVETWEB_FLAGS) $(BEARSSL_INC) -Ivendor -Isrc -Ibuild -c
 
 .PHONY: all embed release release-linux ci-image debug tidy \
         test-unit test-integration test fmt clean
 
 all: embed minimoni minimoni-migrate
 
-# embed.h: dashboard bundled (CSS + JS + favicon inlined) and serialised as a C byte array.
-# tools/bundle.sh inlines dashboard/style.css, app.js, and favicon.svg into index.html,
-# then xxd converts the result to a C byte array included by the HTTP handler.
-# Not tracked in git; run "make embed" before the first build or after editing the dashboard.
-# MINIFY: opt-in HTML minification (no-op when `minify` is not on PATH). The
-# release/release-linux targets set MINIFY=1; plain `make` leaves it unset so
-# dev builds keep readable source for browser DevTools. See ADR-0007.
+# embed.h: dashboard (CSS/JS/favicon) inlined by tools/bundle.sh, xxd'd to a C array;
+# untracked, so run "make embed" before the first build or after editing the dashboard.
+# MINIFY=1 (release) minifies via `minify` if present, else readable for DevTools. See ADR-0007.
 MINIFY ?=
 embed: | build
 	MINIFY=$(MINIFY) VERSION=$(VERSION) sh tools/bundle.sh \
 	    | xxd -i -n dashboard_index_html - > build/embed.h
 
-build:
-	mkdir -p build
+build build/dev build/release build/debug:
+	mkdir -p $@
 
-build/%.o: vendor/%.c | build
-	$(CC) $(CFLAGS) -Wno-unused-but-set-variable $(OPT) $(SQLITE_FLAGS) \
-	  $(CIVETWEB_FLAGS) $(BEARSSL_INC) -Ivendor -Isrc -Ibuild -c $< -o $@
+build/dev/%.o: vendor/%.c | build/dev
+	$(VENDOR_CC) $(OPT_DEV) $< -o $@
+
+build/release/%.o: vendor/%.c | build/release
+	$(VENDOR_CC) $(OPT_RELEASE) $< -o $@
+
+build/debug/%.o: vendor/%.c | build/debug
+	$(VENDOR_CC) $(OPT_DEBUG) $< -o $@
 
 $(BEARSSL_LIB):
 	$(MAKE) -C vendor/bearssl lib CC="$(CC)"
 
-minimoni: OPT = -O2
-minimoni: $(SRC) $(VENDOR_OBJ) $(BEARSSL_LIB)
-	$(CC) $(CFLAGS) -O2 $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
-	  -Ivendor -Isrc -Ibuild -o $@ $(SRC) $(VENDOR_OBJ) $(BEARSSL_LIB) $(LDFLAGS)
+minimoni: $(SRC) $(VENDOR_OBJ_DEV) $(BEARSSL_LIB)
+	$(CC) $(CFLAGS) $(OPT_DEV) $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
+	  -Ivendor -Isrc -Ibuild -o $@ $(SRC) $(VENDOR_OBJ_DEV) $(BEARSSL_LIB) $(LDFLAGS)
 
 minimoni-migrate: $(MIGRATE_SRC)
-	$(CC) $(CFLAGS) -O2 -Isrc/migrate -o $@ $(MIGRATE_SRC) -static
+	$(CC) $(CFLAGS) $(OPT_DEV) -Isrc/migrate -o $@ $(MIGRATE_SRC) -static
 
-release: OPT = -Os -flto=auto
 release: MINIFY = 1
-release: embed $(VENDOR_OBJ) $(BEARSSL_LIB)
-	$(CC) $(CFLAGS) -Os -flto=auto $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
-	  -Ivendor -Isrc -Ibuild -o minimoni $(SRC) $(VENDOR_OBJ) \
+release: embed $(VENDOR_OBJ_RELEASE) $(BEARSSL_LIB)
+	$(CC) $(CFLAGS) $(OPT_RELEASE) $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
+	  -Ivendor -Isrc -Ibuild -o minimoni $(SRC) $(VENDOR_OBJ_RELEASE) \
 	  $(BEARSSL_LIB) $(LDFLAGS) -Wl,--gc-sections
 	strip minimoni
-	$(CC) $(CFLAGS) -Os -flto=auto -Isrc/migrate -o minimoni-migrate $(MIGRATE_SRC) \
+	$(CC) $(CFLAGS) $(OPT_RELEASE) -Isrc/migrate -o minimoni-migrate $(MIGRATE_SRC) \
 	  -static -Wl,--gc-sections
 	strip minimoni-migrate
 
@@ -106,21 +110,16 @@ release-linux: ci-image
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
 	  sh -c "apk add --quiet gcc musl-dev make xxd git minify && make release"
 
-debug: OPT = -O0 -g -fsanitize=address,undefined
-debug: embed $(VENDOR_OBJ) $(BEARSSL_LIB)
-	$(CC) $(CFLAGS) -O0 -g -fsanitize=address,undefined \
+debug: embed $(VENDOR_OBJ_DEBUG) $(BEARSSL_LIB)
+	$(CC) $(CFLAGS) $(OPT_DEBUG) \
 	  $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) -Ivendor -Isrc -Ibuild \
-	  -o build/minimoni-debug $(SRC) $(VENDOR_OBJ) $(BEARSSL_LIB) $(LDFLAGS_DEBUG)
+	  -o build/minimoni-debug $(SRC) $(VENDOR_OBJ_DEBUG) $(BEARSSL_LIB) $(LDFLAGS_DEBUG)
 
 tidy:
 	pre-commit run clang-tidy --all-files --hook-stage pre-push
 
-# Unit tests: pure logic across C and JS, all run inside Docker.
-# C suites (one per module) use the shared harness in tests/runner.h and
-# include the module under test directly so static helpers are exercisable;
-# unit-config and unit-json link tomlc17. The devserver and dashboard (JS) pure
-# helpers each get one suite; app.js guards its browser entry point so node can
-# require it for the pure helpers without a DOM.
+# Unit tests (Docker): one C suite per module (shared tests/runner.h; unit-config/json
+# link tomlc17), plus the JS suites via node --test.
 test-unit: ci-image \
       tests/unit-config.c tests/unit-db.c tests/unit-db_cmd.c tests/unit-downsample.c \
       tests/unit-json.c tests/unit-metrics.c tests/unit-migrate.c tests/unit-units.c \
@@ -148,15 +147,12 @@ test-unit: ci-image \
 	    ./build/unit-migrate-test && ./build/unit-units-test && \
 	    node --test tests/dashboard.test.js tests/devserver.test.js"
 
-# Integration: build the release binaries once, then run both black-box suites:
-# the minimoni CLI (cli.sh) and minimoni-migrate (migrate.sh, which builds its DB
-# fixtures with the sqlite3 CLI). One build serves both.
+# Integration (Docker): build release once, then the black-box suites cli.sh + migrate.sh.
 test-integration: ci-image
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
 	  sh -c "apk add --quiet gcc musl-dev make xxd git sqlite minify && make release && \
 	    sh tests/cli.sh && sh tests/migrate.sh"
 
-# Run every test suite the project has.
 test: test-unit test-integration
 
 fmt:
