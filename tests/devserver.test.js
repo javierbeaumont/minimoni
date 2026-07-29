@@ -23,16 +23,20 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const dev = path.join(__dirname, '..', 'tools', 'devserver');
 
 const {
-  configFields, parseDashboard, dashboardTempCriticalFallback,
+  configFields, parseDashboard, dashboardTempCriticalFallback, loadDashboardConfig,
 } = require(path.join(dev, 'config'));
 
 const { streamShouldDrop } = require(path.join(dev, 'handler'));
-const { rangeSeconds, clampPointsParam, currentSnapshot } = require(path.join(dev, 'mock-data'));
+const {
+  rangeSeconds, clampPointsParam, currentSnapshot, makePoints,
+} = require(path.join(dev, 'mock-data'));
 
 const {
   netConvert, memConvert, diskConvert, loadConvert, tempConvert, tempRef, toCurrent, toPoint,
@@ -134,6 +138,7 @@ test('netConvert: byte and bit units', () => {
   assert.strictEqual(netConvert(1e9, 'gbps'), 8);
   assert.strictEqual(netConvert(1000, 'kbps'), 8);
   assert.strictEqual(netConvert(1048576, ''), 1); /* empty unit -> mb */
+  assert.strictEqual(netConvert(1048576, 'x'), 1); /* unknown unit -> mb */
 });
 
 test('memConvert / diskConvert', () => {
@@ -167,6 +172,24 @@ test('toCurrent: gates excluded cards', () => {
   assert.ok(!('net_rx' in out));
 });
 
+test('toCurrent: percent unit omits the raw mem/disk fields', () => {
+  const pct = toCurrent(currentSnapshot('normal'), configFields({}), 85.0);
+
+  assert.ok(!('mem_used' in pct) && !('disk_used' in pct)); /* defaults are '%' */
+  assert.ok('mem_percent' in pct && 'disk_percent' in pct);
+
+  const f = configFields({ memory_card_unit: 'gb', disk_card_unit: 'gb' });
+  const raw = toCurrent(currentSnapshot('normal'), f, 85.0);
+
+  assert.ok('mem_used' in raw && 'mem_total' in raw && 'disk_free' in raw);
+});
+
+test('toCurrent: thresh_temp derives from the sysfs critical point', () => {
+  const out = toCurrent(currentSnapshot('normal'), configFields({}), 85.0);
+
+  assert.deepStrictEqual(out.thresh_temp, [85, 95]); /* mock crit 105 -> [crit-20, crit-10] */
+});
+
 test('toPoint: emits short keys', () => {
   const out = toPoint(point(), configFields({}), 85.0);
 
@@ -177,6 +200,42 @@ test('toPoint: emits short keys', () => {
 test('toPoint: temp gated by charts', () => {
   assert.ok('tp' in toPoint(point(), configFields({}), 85.0));
   assert.ok(!('tp' in toPoint(point(), configFields({ charts: ['cpu_load'] }), 85.0)));
+});
+
+test('toPoint: percent chart unit omits the raw mem/disk keys', () => {
+  const f = configFields({ memory_chart_unit: '%', disk_chart_unit: '%' });
+  const pct = toPoint(point(), f, 85.0);
+
+  assert.ok(!('mu' in pct) && !('du' in pct));
+  assert.ok('mp' in pct && 'dp' in pct);
+
+  const raw = toPoint(point(), configFields({}), 85.0); /* defaults are mb/gb */
+
+  assert.ok('mu' in raw && 'mt' in raw && 'df' in raw);
+});
+
+test('cycle scenario: cards tick with time, charts sweep low-high-low', () => {
+  const snap = currentSnapshot('cycle');
+
+  assert.ok(snap.mem_percent >= 0 && snap.mem_percent <= 99);
+
+  const p = makePoints('1d', 'cycle', 9);
+
+  assert.ok(p[4].cpu_user > p[0].cpu_user + 20); /* mid-sweep well above the edges */
+  assert.ok(p[4].cpu_user > p[8].cpu_user + 20);
+});
+
+test('makePoints: n ascending points spanning the range', () => {
+  const p = makePoints('1d', 'normal', 240);
+
+  assert.strictEqual(p.length, 240);
+
+  const ts = p.map((x) => x.t);
+
+  for (let i = 1; i < ts.length; i++)
+    assert.ok(ts[i] > ts[i - 1], `t not ascending at ${i}`);
+
+  assert.strictEqual(ts[239] - ts[0], 239 * Math.floor(86400 / 240)); /* (n-1)*step */
 });
 
 test('parseDashboard: scalars, comment, # inside string', () => {
@@ -213,11 +272,29 @@ test('parseDashboard: single, multi-line, and empty arrays', () => {
   assert.deepStrictEqual(d.cards, []);
 });
 
+test('parseDashboard: unescapes quotes inside strings', () => {
+  const d = parseDashboard(['[dashboard]', 'title = "a \\"b\\""'].join('\n'));
+
+  assert.strictEqual(d.title, 'a "b"');
+});
+
 test('parseDashboard: ignores non-dashboard tables', () => {
   const d = parseDashboard(['[dashboard]', 'title = "x"', '[[alert]]', 'name = "hot"'].join('\n'));
 
   assert.strictEqual(d.title, 'x');
   assert.ok(!('name' in d));
+});
+
+test('loadDashboardConfig: reads the [dashboard] table from disk', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minimoni-test-'));
+  const file = path.join(dir, 'config.toml');
+
+  try {
+    fs.writeFileSync(file, '[dashboard]\ntitle = "from disk"\n');
+    assert.strictEqual(loadDashboardConfig(file).title, 'from disk');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('dashboardTempCriticalFallback: valid, non-positive, absent', () => {

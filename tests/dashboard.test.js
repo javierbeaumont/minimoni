@@ -29,9 +29,9 @@ const assert = require('node:assert');
 const path = require('path');
 
 const {
-  fmtY, fmtX, fmtTip, fmtXFull, fmtNet, fmtTempVal, cardLevel, metricsUrl, clampPoints,
+  fmtY, fmtX, fmtTip, fmtXFull, fmtUptime, fmtNet, fmtTempVal, cardLevel, metricsUrl, clampPoints,
   niceTicks, timeTicks,
-} = require(path.join(__dirname, '..', 'dashboard', 'app.js'));
+} = require(path.join(__dirname, '..', 'dashboard', 'format.js'));
 
 /* UI glyphs the formatters emit, built from code points so this test stays
  * ASCII (the glyphs themselves live only in the dashboard sources). */
@@ -81,6 +81,14 @@ test('fmtXFull: full timestamp by span', () => {
   assert.strictEqual(fmtXFull(0, 3600), '');
 });
 
+test('fmtUptime by unit', () => {
+  assert.strictEqual(fmtUptime(90000, 'd'), 'up 1.0d');
+  assert.strictEqual(fmtUptime(7200, 'h'), 'up 2h');
+  assert.strictEqual(fmtUptime(90000, 'auto'), 'up 1d 1h'); /* d>0 branch */
+  assert.strictEqual(fmtUptime(7260, 'auto'), 'up 2h 1m'); /* h>0 branch */
+  assert.strictEqual(fmtUptime(300, 'auto'), 'up 5m'); /* minutes branch */
+});
+
 test('fmtNet: fixed unit, adaptive precision', () => {
   assert.strictEqual(fmtNet(null, 'kb'), EMD);
   /* The chosen unit never rescales: a small value keeps its unit
@@ -97,6 +105,7 @@ test('fmtNet: fixed unit, adaptive precision', () => {
   assert.strictEqual(fmtNet(2, 'gb'), '2.000 GB/s');
   assert.strictEqual(fmtNet(2, 'kbps'), '2.000 Kbps');
   assert.strictEqual(fmtNet(2, 'gbps'), '2.000 Gbps');
+  assert.strictEqual(fmtNet(2, 'xyz'), '2.000'); /* unknown unit -> bare number */
 });
 
 test('fmtTempVal by unit', () => {
@@ -139,6 +148,7 @@ test('niceTicks rounds the axis to round values', () => {
   assert.deepStrictEqual(niceTicks(1883, 5), [0, 500, 1000, 1500, 2000]);
   assert.deepStrictEqual(niceTicks(100, 5), [0, 20, 40, 60, 80, 100]);
   assert.deepStrictEqual(niceTicks(0, 5), [0, 1]); /* no data yet */
+  assert.deepStrictEqual(niceTicks(-5, 5), [0, 1]); /* negative never reaches the axis */
 
   const load = niceTicks(0.4, 5); /* fractional step */
 
@@ -155,4 +165,6 @@ test('timeTicks lands on round, midnight-aligned times', () => {
   assert.strictEqual(ticks.length >= 5, true);
 
   ticks.forEach(function (tk) { assert.strictEqual((tk - t0) % 3600, 0); });
+
+  assert.deepStrictEqual(timeTicks(t0, t0, 7), [t0]); /* degenerate span */
 });

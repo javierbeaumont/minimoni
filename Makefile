@@ -119,11 +119,13 @@ tidy:
 	pre-commit run clang-tidy --all-files --hook-stage pre-push
 
 # Unit tests (Docker): one C suite per module (shared tests/runner.h; unit-config/json
-# link tomlc17), plus the JS suites via node --test.
+# link tomlc17), plus the JS suites via node --test with a coverage gate (thresholds
+# apply to the loaded non-DOM JS: dashboard/format.js + tools/devserver; the DOM files
+# are covered by the browser paths and the cli.sh bundle check instead).
 test-unit: ci-image \
       tests/unit-config.c tests/unit-db.c tests/unit-db_cmd.c tests/unit-downsample.c \
       tests/unit-json.c tests/unit-metrics.c tests/unit-migrate.c tests/unit-units.c \
-      tests/runner.h tests/devserver.test.js tests/dashboard.test.js
+      tests/runner.h tests/devserver.test.js tests/devserver-http.test.js tests/dashboard.test.js
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
 	  sh -c "mkdir -p build && \
 	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Itests \
@@ -145,7 +147,14 @@ test-unit: ci-image \
 	    ./build/unit-config-test && ./build/unit-db-test && ./build/unit-db_cmd-test && \
 	    ./build/unit-downsample-test && ./build/unit-json-test && ./build/unit-metrics-test && \
 	    ./build/unit-migrate-test && ./build/unit-units-test && \
-	    node --test tests/dashboard.test.js tests/devserver.test.js"
+	    node --test --experimental-test-coverage --test-coverage-lines=97 \
+      --test-coverage-branches=90 --test-coverage-functions=92 \
+      --test-coverage-exclude='dashboard/app.js' \
+      --test-coverage-exclude='dashboard/cards.js' \
+      --test-coverage-exclude='dashboard/chart.js' \
+      --test-coverage-exclude='dashboard/hover.js' \
+      --test-coverage-exclude='tests/*' \
+      tests/*.test.js"
 
 # Integration (Docker): build release once, then the black-box suites cli.sh + migrate.sh.
 test-integration: ci-image

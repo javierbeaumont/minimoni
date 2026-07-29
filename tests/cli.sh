@@ -56,6 +56,16 @@ check_has() { # DESC HAYSTACK NEEDLE
     fi
 }
 
+check_lacks() { # DESC HAYSTACK NEEDLE
+    if printf '%s' "$2" | grep -qF -- "$3"; then
+        fail=$((fail + 1))
+        printf '  FAIL  %s (found: %s)\n' "$1" "$3"
+    else
+        pass=$((pass + 1))
+        printf '  ok    %s\n' "$1"
+    fi
+}
+
 expect_rc() { # EXPECTED DESC CMD...
     exp=$1
     desc=$2
@@ -128,6 +138,12 @@ current=$(wget -qO- "http://127.0.0.1:$PORT/api/current" 2>/dev/null)
 check_has "serve /api/current serializes a snapshot" "$current" '"thresh_cpu":[70,90]'
 metrics=$(wget -qO- "http://127.0.0.1:$PORT/api/metrics?range=1d" 2>/dev/null)
 check_has "serve /api/metrics serializes points" "$metrics" '"l1":'
+# A dashboard script missing its bundle.sh marker ships as a dangling <script src=>
+# that breaks ONLY the embedded copy (the devserver serves files and hides it).
+home=$(wget -qO- "http://127.0.0.1:$PORT/" 2>/dev/null)
+# minify strips attribute quotes, so match a bare tag rather than id="...".
+check_has "serve / serves the dashboard" "$home" '<canvas'
+check_lacks "dashboard bundle fully inlined" "$home" 'script src='
 kill -TERM "$sv" 2>/dev/null
 wait "$sv"
 rc=$?

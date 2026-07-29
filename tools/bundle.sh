@@ -15,14 +15,14 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# Inline style.css and app.js into index.html.
-# Reads dashboard/index.html and writes the bundled result to stdout.
-# Used by the Makefile embed target to produce build/embed.h.
+# Inline style.css and the dashboard scripts (format.js, chart.js, hover.js,
+# cards.js, app.js) into index.html. Reads dashboard/index.html and writes the
+# bundled result to stdout. Used by the Makefile embed target to produce
+# build/embed.h.
 #
-# Markers in index.html:
-#   <link ... href="favicon.svg">             -> replaced with inline data URI
-#   <link rel="stylesheet" href="style.css">  -> replaced with <style>...</style>
-#   <script src="app.js"></script>            -> replaced with <script>...</script>
+# Markers in index.html: the favicon <link> is replaced with an inline data URI,
+# the style.css <link> with <style>...</style>, and each <script src="X.js">
+# with an inline <script>...</script>.
 #
 # Set MINIFY=1 to pipe the bundled HTML through `minify --type=html`. No-op
 # (with a one-line warning to stderr) when `minify` is not on PATH, so `make`
@@ -51,6 +51,30 @@ bundle() {
     print "  <style>"
     while ((getline line < "dashboard/style.css") > 0) print "  " line
     print "  </style>"
+    next
+  }
+  /src="format.js"/ {
+    print "  <script>"
+    while ((getline line < "dashboard/format.js") > 0) print "  " line
+    print "  </script>"
+    next
+  }
+  /src="chart.js"/ {
+    print "  <script>"
+    while ((getline line < "dashboard/chart.js") > 0) print "  " line
+    print "  </script>"
+    next
+  }
+  /src="hover.js"/ {
+    print "  <script>"
+    while ((getline line < "dashboard/hover.js") > 0) print "  " line
+    print "  </script>"
+    next
+  }
+  /src="cards.js"/ {
+    print "  <script>"
+    while ((getline line < "dashboard/cards.js") > 0) print "  " line
+    print "  </script>"
     next
   }
   /src="app.js"/ {

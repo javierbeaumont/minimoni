@@ -30,8 +30,10 @@ module.exports = [
         },
     },
     {
+        // Browser scripts inlined by bundle.sh (one shared scope), not commonjs:
+        // "script" makes /* exported */ effective for the cross-file interfaces.
         files: ["dashboard/**/*.js"],
-        languageOptions: { globals: { ...globals.browser } },
+        languageOptions: { globals: { ...globals.browser }, sourceType: "script" },
     },
     {
         files: ["tests/**/*.js", "tools/**/*.js", "eslint.config.js"],

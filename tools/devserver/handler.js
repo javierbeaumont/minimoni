@@ -32,6 +32,10 @@ const DASHBOARD = path.join(DASHBOARD_DIR, 'index.html');
 
 const STATIC_FILES = {
   'app.js': 'text/javascript',
+  'cards.js': 'text/javascript',
+  'chart.js': 'text/javascript',
+  'format.js': 'text/javascript',
+  'hover.js': 'text/javascript',
   'style.css': 'text/css',
   'favicon.svg': 'image/svg+xml',
 };
