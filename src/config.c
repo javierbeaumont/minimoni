@@ -28,6 +28,8 @@
 
 /* --- Helpers --- */
 
+/* Per-unit caps = 10 years (the same 3653d ceiling as range_in_bounds), checked
+ * BEFORE the multiply so a 32-bit long cannot overflow. */
 static long parse_duration(const char *s)
 {
     char *end;
@@ -36,13 +38,13 @@ static long parse_duration(const char *s)
         return -1;
     switch (*end) {
     case 's':
-        return n;
+        return n <= 3653L * 86400 ? n : -1;
     case 'm':
-        return n * 60;
+        return n <= 3653L * 1440 ? n * 60 : -1;
     case 'h':
-        return n * 3600;
+        return n <= 3653L * 24 ? n * 3600 : -1;
     case 'd':
-        return n * 86400;
+        return n <= 3653 ? n * 86400 : -1;
     default:
         return -1;
     }
@@ -84,6 +86,166 @@ static int valid_op(const char *s)
 {
     return strcmp(s, ">") == 0 || strcmp(s, "<") == 0 || strcmp(s, ">=") == 0 ||
            strcmp(s, "<=") == 0 || strcmp(s, "==") == 0;
+}
+
+/* --- Unit validation --- */
+
+/* Allowed values per *_unit key, in the order config.example.toml documents. */
+static const char *const MEM_UNITS[] = {"%", "mb", "gb", NULL};
+static const char *const DISK_UNITS[] = {"%", "gb", "tb", NULL};
+static const char *const TEMP_UNITS[] = {"%", "c", "f", NULL};
+static const char *const LOAD_UNITS[] = {"%", "abs", NULL};
+static const char *const NET_UNITS[] = {"kb", "mb", "gb", "kbps", "mbps", "gbps", NULL};
+static const char *const UPTIME_UNITS[] = {"auto", "h", "d", NULL};
+
+/* str_copy, but only when the value is in `allowed`; else warn and keep the
+ * default already in dst (an invalid unit would otherwise silently fall through
+ * the converters in http.c and show raw values). */
+static void unit_copy(char *dst, size_t dsize, toml_datum_t v, const char *key,
+                      const char *const *allowed)
+{
+    if (v.type != TOML_STRING)
+        return;
+    for (int i = 0; allowed[i]; i++) {
+        if (strcmp(v.u.s, allowed[i]) == 0) {
+            snprintf(dst, dsize, "%s", v.u.s);
+            return;
+        }
+    }
+    fprintf(stderr, "config: %s: invalid unit '%s' (use", key, v.u.s);
+    for (int i = 0; allowed[i]; i++)
+        fprintf(stderr, "%s %s", i ? "," : "", allowed[i]);
+    fprintf(stderr, "); using default\n");
+}
+
+/* --- Unknown-key detection --- */
+
+/* Canonical keys per table; a key outside these is a typo the TOML reader would
+ * otherwise silently ignore, leaving the user wondering why their setting did
+ * not take effect. */
+static const char *const SERVER_KEYS[] = {"listen", "sse_keepalive", "threads"};
+static const char *const COLLECT_KEYS[] = {"db", "disk_path", "interval"};
+static const char *const DASHBOARD_KEYS[] = {"cards",
+                                             "charts",
+                                             "cpu_load_card_unit",
+                                             "cpu_load_chart_unit",
+                                             "disk_card_unit",
+                                             "disk_chart_unit",
+                                             "memory_card_unit",
+                                             "memory_chart_unit",
+                                             "net_card_unit",
+                                             "net_chart_unit",
+                                             "ranges",
+                                             "refresh",
+                                             "show_footer",
+                                             "temp_card_unit",
+                                             "temp_chart_unit",
+                                             "temp_critical_fallback",
+                                             "theme",
+                                             "title",
+                                             "uptime_unit"};
+static const char *const ALERT_KEYS[] = {"command",  "cooldown",  "metric", "name",
+                                         "operator", "threshold", "webhook"};
+
+/* Levenshtein distance, for the did-you-mean hint. */
+static int key_distance(const char *a, const char *b)
+{
+    int la = (int)strlen(a), lb = (int)strlen(b);
+    int row[64];
+    if (lb >= 64)
+        return 99;
+    for (int j = 0; j <= lb; j++)
+        row[j] = j;
+    for (int i = 1; i <= la; i++) {
+        int diag = row[0]; /* previous row's [j-1] */
+        row[0] = i;
+        for (int j = 1; j <= lb; j++) {
+            int cur = row[j];
+            int best = diag + (a[i - 1] == b[j - 1] ? 0 : 1);
+            if (row[j] + 1 < best)
+                best = row[j] + 1;
+            if (row[j - 1] + 1 < best)
+                best = row[j - 1] + 1;
+            row[j] = best;
+            diag = cur;
+        }
+    }
+    return row[lb];
+}
+
+/* Warn for each key of `tab` not in known[]; suggests the closest canonical
+ * name within distance 2. Returns the unknown count (warnings only). */
+static int warn_unknown_in(toml_datum_t tab, const char *where, const char *const *known, int nkeys)
+{
+    int unknown = 0;
+    for (int i = 0; i < tab.u.tab.size; i++) {
+        const char *k = tab.u.tab.key[i];
+        int         found = 0;
+        for (int j = 0; j < nkeys && !found; j++)
+            found = strcmp(k, known[j]) == 0;
+        if (found)
+            continue;
+        unknown++;
+        const char *close = NULL;
+        int         bestd = 3;
+        for (int j = 0; j < nkeys; j++) {
+            int d = key_distance(k, known[j]);
+            if (d < bestd) {
+                bestd = d;
+                close = known[j];
+            }
+        }
+        if (close)
+            fprintf(stderr, "config: unknown key '%s.%s' (typo of '%s'?)\n", where, k, close);
+        else
+            fprintf(stderr, "config: unknown key '%s.%s'\n", where, k);
+    }
+    return unknown;
+}
+
+#define N_KEYS(a) ((int)(sizeof(a) / sizeof((a)[0])))
+
+/* Walk the parsed document's top level and every known table one level deep.
+ * Exact-named tables of the wrong type are left to the readers' own checks. */
+static int config_warn_unknown(toml_datum_t root)
+{
+    int unknown = 0;
+    for (int i = 0; i < root.u.tab.size; i++) {
+        const char  *k = root.u.tab.key[i];
+        toml_datum_t v = root.u.tab.value[i];
+        if (strcmp(k, "server") == 0) {
+            if (v.type == TOML_TABLE)
+                unknown += warn_unknown_in(v, k, SERVER_KEYS, N_KEYS(SERVER_KEYS));
+        } else if (strcmp(k, "collect") == 0) {
+            if (v.type == TOML_TABLE)
+                unknown += warn_unknown_in(v, k, COLLECT_KEYS, N_KEYS(COLLECT_KEYS));
+        } else if (strcmp(k, "dashboard") == 0) {
+            if (v.type == TOML_TABLE)
+                unknown += warn_unknown_in(v, k, DASHBOARD_KEYS, N_KEYS(DASHBOARD_KEYS));
+        } else if (strcmp(k, "alert") == 0) {
+            if (v.type != TOML_ARRAY)
+                continue;
+            for (int a = 0; a < v.u.arr.size; a++) {
+                if (v.u.arr.elem[a].type != TOML_TABLE)
+                    continue;
+                char where[24];
+                snprintf(where, sizeof(where), "alert[%d]", a);
+                unknown += warn_unknown_in(v.u.arr.elem[a], where, ALERT_KEYS, N_KEYS(ALERT_KEYS));
+            }
+        } else {
+            static const char *const TABLES[] = {"alert", "collect", "dashboard", "server"};
+            unknown++;
+            const char *close = NULL;
+            for (int j = 0; j < N_KEYS(TABLES) && !close; j++)
+                if (key_distance(k, TABLES[j]) <= 2)
+                    close = TABLES[j];
+            if (close)
+                fprintf(stderr, "config: unknown top-level key '%s' (typo of '%s'?)\n", k, close);
+            else
+                fprintf(stderr, "config: unknown top-level key '%s'\n", k);
+        }
+    }
+    return unknown;
 }
 
 /* --- Public API --- */
@@ -132,6 +294,8 @@ int config_load(config_t *cfg, const char *path)
 
     toml_datum_t root = res.toptab;
     toml_datum_t v;
+
+    config_warn_unknown(root);
 
     /* [server] */
     v = toml_seek(root, "server.listen");
@@ -204,23 +368,27 @@ int config_load(config_t *cfg, const char *path)
     else if (v.type == TOML_INT64)
         fprintf(stderr, "config: refresh must be > 0 (got %ld); using default\n", (long)v.u.int64);
     v = toml_seek(root, "dashboard.memory_card_unit");
-    str_copy(cfg->memory_card_unit, sizeof(cfg->memory_card_unit), v);
+    unit_copy(cfg->memory_card_unit, sizeof(cfg->memory_card_unit), v, "memory_card_unit",
+              MEM_UNITS);
     v = toml_seek(root, "dashboard.memory_chart_unit");
-    str_copy(cfg->memory_chart_unit, sizeof(cfg->memory_chart_unit), v);
+    unit_copy(cfg->memory_chart_unit, sizeof(cfg->memory_chart_unit), v, "memory_chart_unit",
+              MEM_UNITS);
     v = toml_seek(root, "dashboard.disk_card_unit");
-    str_copy(cfg->disk_card_unit, sizeof(cfg->disk_card_unit), v);
+    unit_copy(cfg->disk_card_unit, sizeof(cfg->disk_card_unit), v, "disk_card_unit", DISK_UNITS);
     v = toml_seek(root, "dashboard.disk_chart_unit");
-    str_copy(cfg->disk_chart_unit, sizeof(cfg->disk_chart_unit), v);
+    unit_copy(cfg->disk_chart_unit, sizeof(cfg->disk_chart_unit), v, "disk_chart_unit", DISK_UNITS);
     v = toml_seek(root, "dashboard.cpu_load_card_unit");
-    str_copy(cfg->cpu_load_card_unit, sizeof(cfg->cpu_load_card_unit), v);
+    unit_copy(cfg->cpu_load_card_unit, sizeof(cfg->cpu_load_card_unit), v, "cpu_load_card_unit",
+              LOAD_UNITS);
     v = toml_seek(root, "dashboard.cpu_load_chart_unit");
-    str_copy(cfg->cpu_load_chart_unit, sizeof(cfg->cpu_load_chart_unit), v);
+    unit_copy(cfg->cpu_load_chart_unit, sizeof(cfg->cpu_load_chart_unit), v, "cpu_load_chart_unit",
+              LOAD_UNITS);
     v = toml_seek(root, "dashboard.net_card_unit");
-    str_copy(cfg->net_card_unit, sizeof(cfg->net_card_unit), v);
+    unit_copy(cfg->net_card_unit, sizeof(cfg->net_card_unit), v, "net_card_unit", NET_UNITS);
     v = toml_seek(root, "dashboard.net_chart_unit");
-    str_copy(cfg->net_chart_unit, sizeof(cfg->net_chart_unit), v);
+    unit_copy(cfg->net_chart_unit, sizeof(cfg->net_chart_unit), v, "net_chart_unit", NET_UNITS);
     v = toml_seek(root, "dashboard.uptime_unit");
-    str_copy(cfg->uptime_unit, sizeof(cfg->uptime_unit), v);
+    unit_copy(cfg->uptime_unit, sizeof(cfg->uptime_unit), v, "uptime_unit", UPTIME_UNITS);
     v = toml_seek(root, "dashboard.charts");
     if (v.type == TOML_ARRAY) {
         if (v.u.arr.size == 0) {
@@ -246,9 +414,9 @@ int config_load(config_t *cfg, const char *path)
         }
     }
     v = toml_seek(root, "dashboard.temp_card_unit");
-    str_copy(cfg->temp_card_unit, sizeof(cfg->temp_card_unit), v);
+    unit_copy(cfg->temp_card_unit, sizeof(cfg->temp_card_unit), v, "temp_card_unit", TEMP_UNITS);
     v = toml_seek(root, "dashboard.temp_chart_unit");
-    str_copy(cfg->temp_chart_unit, sizeof(cfg->temp_chart_unit), v);
+    unit_copy(cfg->temp_chart_unit, sizeof(cfg->temp_chart_unit), v, "temp_chart_unit", TEMP_UNITS);
     v = toml_seek(root, "dashboard.temp_critical_fallback");
     if (v.type == TOML_FP64 && v.u.fp64 > 0)
         cfg->temp_critical_fallback = (float)v.u.fp64;

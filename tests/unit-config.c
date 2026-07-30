@@ -16,13 +16,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/*
- * Unit tests for src/config.c - zero-dependency, no framework. Build with:
+/* Unit tests for src/config.c - zero-dependency, no framework. Build with:
  *   make test
  *
  * config.c is `#include`d directly so static helpers are exercisable. Each
- * test returns 0 on pass / 1 on fail; the shared harness lives in runner.h.
- */
+ * test returns 0 on pass / 1 on fail; the shared harness lives in runner.h. */
 
 #define _POSIX_C_SOURCE 200809L
 
@@ -465,6 +463,156 @@ static int test_points_in_config_ignored(void)
     return cfg.range_count == 4 ? 0 : 1;
 }
 
+/* --- parse_duration: per-unit 10-year caps --- */
+
+static int test_duration_basics(void)
+{
+    return parse_duration("60s") == 60 && parse_duration("2m") == 120 &&
+                   parse_duration("3h") == 10800 && parse_duration("1d") == 86400 &&
+                   parse_duration("0d") == -1 && parse_duration("5x") == -1 &&
+                   parse_duration("10") == -1
+               ? 0
+               : 1;
+}
+
+static int test_duration_caps(void)
+{
+    return parse_duration("3653d") == 3653L * 86400 && parse_duration("3654d") == -1 &&
+                   parse_duration("87672h") == 3653L * 86400 && parse_duration("87673h") == -1 &&
+                   parse_duration("315619200s") == 3653L * 86400 &&
+                   parse_duration("315619201s") == -1
+               ? 0
+               : 1;
+}
+
+static int test_duration_overflow_typo(void)
+{
+    /* The pre-multiply guard: 999999999d would overflow a 32-bit long. */
+    return parse_duration("999999999d") == -1 ? 0 : 1;
+}
+
+static int test_alert_cooldown_capped(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[[alert]]\nname = \"a\"\nmetric = \"m\"\noperator = \">\"\n"
+                       "threshold = 1\nwebhook = \"http://x\"\ncooldown = \"999999999d\"\n") != 0)
+        return 1;
+    /* Invalid cooldown warns and stays 0 (alert itself is kept). */
+    return cfg.alert_count == 1 && cfg.alerts[0].cooldown_seconds == 0 ? 0 : 1;
+}
+
+/* --- Unit values --- */
+
+static int test_unit_invalid_keeps_default(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[dashboard]\nmemory_card_unit = \"xyz\"\n") != 0)
+        return 1;
+    return strcmp(cfg.memory_card_unit, "%") == 0 ? 0 : 1;
+}
+
+static int test_unit_valid_applied(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[dashboard]\nmemory_card_unit = \"gb\"\nnet_chart_unit = \"mbps\"\n"
+                       "temp_card_unit = \"f\"\nuptime_unit = \"d\"\n") != 0)
+        return 1;
+    return strcmp(cfg.memory_card_unit, "gb") == 0 && strcmp(cfg.net_chart_unit, "mbps") == 0 &&
+                   strcmp(cfg.temp_card_unit, "f") == 0 && strcmp(cfg.uptime_unit, "d") == 0
+               ? 0
+               : 1;
+}
+
+static int test_unit_case_sensitive(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[dashboard]\nnet_card_unit = \"MB\"\n") != 0)
+        return 1;
+    return strcmp(cfg.net_card_unit, "kb") == 0 ? 0 : 1;
+}
+
+static int test_unit_cross_field_value(void)
+{
+    config_t cfg;
+    /* "tb" is a disk unit, not a memory one: rejected for memory. */
+    if (load_cfg(&cfg, "[dashboard]\nmemory_chart_unit = \"tb\"\ndisk_chart_unit = \"tb\"\n") != 0)
+        return 1;
+    return strcmp(cfg.memory_chart_unit, "mb") == 0 && strcmp(cfg.disk_chart_unit, "tb") == 0 ? 0
+                                                                                              : 1;
+}
+
+/* --- Unknown keys --- */
+
+/* Parse `toml` from memory and count the unknown keys it warns about. */
+static int count_unknown(const char *toml)
+{
+    toml_result_t r = toml_parse(toml, (int)strlen(toml));
+    if (!r.ok)
+        return -9;
+    int n = config_warn_unknown(r.toptab);
+    toml_free(r);
+    return n;
+}
+
+static int test_keys_all_known(void)
+{
+    return count_unknown("[server]\nlisten = \"0.0.0.0:1\"\nthreads = 4\n"
+                         "[collect]\ninterval = 60\ndb = \"x\"\ndisk_path = \"/\"\n"
+                         "[dashboard]\ntitle = \"t\"\ntheme = \"dark\"\nranges = [\"1d\"]\n"
+                         "[[alert]]\nname = \"a\"\nmetric = \"m\"\noperator = \">\"\n"
+                         "threshold = 1\nwebhook = \"w\"\ncooldown = \"5m\"\n") == 0
+               ? 0
+               : 1;
+}
+
+static int test_keys_typo_in_dashboard(void)
+{
+    return count_unknown("[dashboard]\ntitel = \"x\"\n") == 1 ? 0 : 1;
+}
+
+static int test_keys_typo_in_collect(void)
+{
+    return count_unknown("[collect]\nintevral = 60\ndsik_path = \"/\"\n") == 2 ? 0 : 1;
+}
+
+static int test_keys_typo_in_alert(void)
+{
+    return count_unknown("[[alert]]\nname = \"a\"\ncoolddown = \"5m\"\n") == 1 ? 0 : 1;
+}
+
+static int test_keys_unknown_table(void)
+{
+    const char *toml = "[dashbord]\ntitle = \"x\"\n"; /* codespell:ignore dashbord */
+    return count_unknown(toml) == 1 ? 0 : 1;
+}
+
+static int test_keys_root_scalar(void) { return count_unknown("title = \"x\"\n") == 1 ? 0 : 1; }
+
+static int test_keys_removed_points_warns(void)
+{
+    /* The removed v0.1 dashboard.points key: warned as unknown, never fatal. */
+    return count_unknown("[dashboard]\npoints = 999\n") == 1 ? 0 : 1;
+}
+
+static int test_keys_typo_load_still_succeeds(void)
+{
+    config_t cfg;
+    /* Typos warn but must not abort; the real key keeps its default. */
+    if (load_cfg(&cfg, "[dashboard]\ntitel = \"My Server\"\n") != 0)
+        return 1;
+    return strcmp(cfg.title, "minimoni") == 0 ? 0 : 1;
+}
+
+static int test_key_distance(void)
+{
+    if (key_distance("titel", "title") != 2) /* codespell:ignore titel */
+        return 1;
+    return key_distance("intevral", "interval") == 2 && key_distance("title", "title") == 0 &&
+                   key_distance("points", "title") > 2
+               ? 0
+               : 1;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
@@ -529,6 +677,26 @@ static const test_t ALL_TESTS[] = {
     T(mixed_skip_and_valid),
     /* points: removed key ignored */
     T(points_in_config_ignored),
+    /* parse_duration caps */
+    T(duration_basics),
+    T(duration_caps),
+    T(duration_overflow_typo),
+    T(alert_cooldown_capped),
+    /* unit values */
+    T(unit_invalid_keeps_default),
+    T(unit_valid_applied),
+    T(unit_case_sensitive),
+    T(unit_cross_field_value),
+    /* unknown keys */
+    T(keys_all_known),
+    T(keys_typo_in_dashboard),
+    T(keys_typo_in_collect),
+    T(keys_typo_in_alert),
+    T(keys_unknown_table),
+    T(keys_root_scalar),
+    T(keys_removed_points_warns),
+    T(keys_typo_load_still_succeeds),
+    T(key_distance),
 };
 
 int main(void)
