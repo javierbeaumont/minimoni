@@ -273,7 +273,7 @@ function renderAll() {
              : cfgChartUnits.temp[0] === '%' ? '%' : '°C';
   const netUL  = {
     'kb': 'KB/s', 'mb': 'MB/s', 'gb': 'GB/s',
-    'kbps': 'Kbps', 'mbps': 'Mbps', 'gbps': 'Gbps',
+    'kbps': 'Kbps', 'mbps': 'Mbps', 'gbps': 'Gbps', '%': '%',
   }[cfgChartUnits.net] || 'KB/s';
 
   const loadOpts = cfgChartUnits.load === '%'

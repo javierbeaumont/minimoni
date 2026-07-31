@@ -21,10 +21,16 @@
 
 /* Convert a raw collected value (in its stored base unit) to the configured
  * display unit. `unit` is the matching *_unit string from config. */
-double net_convert(double bps, const char *unit);              /* bps -> kb/mb/gb/kbps/mbps/gbps */
+/* bps -> kb/mb/gb/kbps/mbps/gbps, or % of `ref_bps` (see net_ref_bps). */
+double net_convert(double bps, const char *unit, double ref_bps);
 double mem_convert(double mb, const char *unit);               /* mb  -> mb/gb */
 double disk_convert(double gb, const char *unit);              /* gb  -> gb/tb */
 double load_convert(double load, int cores, const char *unit); /* load -> abs/% */
+
+/* 100% reference for net percent mode, in bytes/s: the configured maximum when set
+ * (it wins: the uplink may be slower than the NIC), else the detected link speed,
+ * else 1 GbE. Both inputs in Mbit/s. */
+double net_ref_bps(int max_mbit, int detected_mbit);
 
 /* Temperature: celsius -> celsius/fahrenheit/percent. In percent mode the value
  * is scaled against `ref` (the temperature that maps to 100%). */

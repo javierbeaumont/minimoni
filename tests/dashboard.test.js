@@ -108,6 +108,12 @@ test('fmtNet: fixed unit, adaptive precision', () => {
   assert.strictEqual(fmtNet(2, 'xyz'), '2.000'); /* unknown unit -> bare number */
 });
 
+test('fmtNet: link-speed percent', () => {
+  assert.strictEqual(fmtNet(50, '%'), '50.0%');
+  assert.strictEqual(fmtNet(0.25, '%'), '0.3%'); /* one decimal, like the other percents */
+  assert.strictEqual(fmtNet(null, '%'), EMD);
+});
+
 test('fmtTempVal by unit', () => {
   assert.strictEqual(fmtTempVal(null, 'c'), EMD); /* sensor configured, no reading */
   assert.strictEqual(fmtTempVal(45.5, 'c'), '45.5' + DEG + 'C');

@@ -35,21 +35,66 @@ static int approx(double a, double b)
 
 /* --- net_convert (bps -> kb/mb/gb/kbps/mbps/gbps) --- */
 
-static int test_net_mb(void) { return approx(net_convert(1048576.0, "mb"), 1.0) ? 0 : 1; }
+static int test_net_mb(void) { return approx(net_convert(1048576.0, "mb", 0.0), 1.0) ? 0 : 1; }
 
-static int test_net_gb(void) { return approx(net_convert(1073741824.0, "gb"), 1.0) ? 0 : 1; }
+static int test_net_gb(void) { return approx(net_convert(1073741824.0, "gb", 0.0), 1.0) ? 0 : 1; }
 
-static int test_net_mbps(void) { return approx(net_convert(1.0e6, "mbps"), 8.0) ? 0 : 1; }
+static int test_net_mbps(void) { return approx(net_convert(1.0e6, "mbps", 0.0), 8.0) ? 0 : 1; }
 
-static int test_net_gbps(void) { return approx(net_convert(1.0e9, "gbps"), 8.0) ? 0 : 1; }
+static int test_net_gbps(void) { return approx(net_convert(1.0e9, "gbps", 0.0), 8.0) ? 0 : 1; }
 
-static int test_net_kb(void) { return approx(net_convert(1024.0, "kb"), 1.0) ? 0 : 1; }
+static int test_net_kb(void) { return approx(net_convert(1024.0, "kb", 0.0), 1.0) ? 0 : 1; }
 
-static int test_net_kbps(void) { return approx(net_convert(1000.0, "kbps"), 8.0) ? 0 : 1; }
+static int test_net_kbps(void) { return approx(net_convert(1000.0, "kbps", 0.0), 8.0) ? 0 : 1; }
 
 static int test_net_null_defaults_mb(void)
 {
-    return approx(net_convert(1048576.0, NULL), 1.0) ? 0 : 1;
+    return approx(net_convert(1048576.0, NULL, 0.0), 1.0) ? 0 : 1;
+}
+
+/* --- net percent + link-speed reference --- */
+
+static int test_net_ref_configured_wins(void)
+{
+    /* The NIC may be faster than the uplink: 100 Mbit configured beats a 1 GbE link. */
+    return approx(net_ref_bps(100, 1000), 12500000.0) ? 0 : 1;
+}
+
+static int test_net_ref_detected(void) { return approx(net_ref_bps(0, 1000), 125000000.0) ? 0 : 1; }
+
+/* Nothing configured and nothing detected (wifi, virtual NIC): assume 1 GbE. */
+static int test_net_ref_defaults_to_gbe(void)
+{
+    return approx(net_ref_bps(0, 0), 125000000.0) ? 0 : 1;
+}
+
+static int test_net_percent_half(void)
+{
+    /* Full duplex: each direction is scaled against the whole link. */
+    double ref = net_ref_bps(1000, 0);
+    return approx(net_convert(ref / 2.0, "%", ref), 50.0) ? 0 : 1;
+}
+
+static int test_net_percent_full(void)
+{
+    double ref = net_ref_bps(100, 0);
+    return approx(net_convert(ref, "%", ref), 100.0) ? 0 : 1;
+}
+
+static int test_net_percent_no_ref(void)
+{
+    return approx(net_convert(1.0e6, "%", 0.0), 0.0) ? 0 : 1;
+}
+
+static int test_net_unknown_unit_defaults_mb(void)
+{
+    /* An unrecognised first letter falls through to the mb branch. */
+    return approx(net_convert(1048576.0, "xyz", 0.0), 1.0) ? 0 : 1;
+}
+
+static int test_temp_null_unit_passthrough(void)
+{
+    return approx(temp_convert(50.0, NULL, 85.0), 50.0) ? 0 : 1;
 }
 
 /* --- mem_convert / disk_convert --- */
@@ -119,6 +164,14 @@ static const test_t ALL_TESTS[] = {
     T(net_gb),
     T(net_mbps),
     T(net_gbps),
+    T(net_ref_configured_wins),
+    T(net_ref_detected),
+    T(net_ref_defaults_to_gbe),
+    T(net_percent_half),
+    T(net_percent_full),
+    T(net_percent_no_ref),
+    T(net_unknown_unit_defaults_mb),
+    T(temp_null_unit_passthrough),
     T(net_kb),
     T(net_kbps),
     T(net_null_defaults_mb),

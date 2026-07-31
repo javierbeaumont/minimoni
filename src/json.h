@@ -52,12 +52,12 @@ void jbuf_pair(jbuf_t *j, const char *key, double warn, double crit);
  * thresholds. The hardware context (core count, sysfs critical trip point) is
  * passed in explicitly so this layer needs no dependency on the HTTP server. */
 void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, int num_cores,
-                            int temp_critical_valid, double temp_critical);
+                            int temp_critical_valid, double temp_critical, int detected_speed_mbit);
 
 /* Serialize one history point (for /api/metrics) into `j` using the configured
  * chart units and short keys. Only the temperature series is gated server-side
  * (it may lack a sensor); other charts are shown or hidden by the dashboard. */
 void json_serialize_point(jbuf_t *j, const db_row_t *r, const config_t *cfg, int num_cores,
-                          int temp_critical_valid, double temp_critical);
+                          int temp_critical_valid, double temp_critical, int detected_speed_mbit);
 
 #endif /* MINIMONI_JSON_H */

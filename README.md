@@ -375,8 +375,10 @@ disk_chart_unit        = "gb"   # chart Y-axis: "%" | "gb" | "tb"
 temp_card_unit         = "c"    # status card: "%" | "c" | "f"
 temp_chart_unit        = "c"    # chart Y-axis: "%" | "c" | "f"
 # temp_critical_fallback = 95     # temp % 100% ref when sysfs has no critical trip (default: 85)
-net_card_unit          = "kb"   # status card: "kb" | "mb" | "gb" | "kbps" | "mbps" | "gbps"
-net_chart_unit         = "kb"   # chart Y-axis: "kb" | "mb" | "gb" | "kbps" | "mbps" | "gbps"
+net_card_unit          = "kb"   # status card: "%" | "kb" | "mb" | "gb" | "kbps" | "mbps" | "gbps"
+net_chart_unit         = "kb"   # chart Y-axis: same values as net_card_unit
+# net_max_speed          = 300    # net % 100% ref in Mbit/s: wins over the sysfs link speed
+#                                 # (the NIC's, not your uplink). Unset: sysfs, else 1000
 uptime_unit            = "auto" # uptime display: "auto" | "h" | "d"
 ```
 

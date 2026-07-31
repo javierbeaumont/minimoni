@@ -113,6 +113,79 @@ static int test_net_rate_counter_reset_tx(void)
     return net_rate(&prev, &cur, &rx, &tx) == 0 ? 0 : 1;
 }
 
+/* --- Link speed (sysfs `speed` parsing) --- */
+
+static int test_link_speed_parse(void)
+{
+    /* Virtual devices and down wifi report -1; garbage and empties are 0 too.
+     * The 1e6 ceiling rejects nonsense without capping any real NIC. */
+    return parse_link_speed("1000\n") == 1000 && parse_link_speed("10") == 10 &&
+                   parse_link_speed("-1\n") == 0 && parse_link_speed("0\n") == 0 &&
+                   parse_link_speed("") == 0 && parse_link_speed("abc") == 0 &&
+                   parse_link_speed("2000000") == 0
+               ? 0
+               : 1;
+}
+
+static int test_link_speed_sum_is_sane(void)
+{
+    /* Reads the real /sys on the build host: only assert it cannot go negative
+     * (containers usually expose veth with speed -1, so 0 is a valid answer). */
+    return metrics_link_speed_mbit() >= 0 ? 0 : 1;
+}
+
+/* --- metrics_collect against the real /proc (the suite runs on Linux) --- */
+
+static int test_collect_fills_plausible_values(void)
+{
+    metrics_t m;
+    memset(&m, 0, sizeof(m));
+    if (metrics_collect(&m, "/") != 0)
+        return 1;
+
+    /* Ranges, not exact values: this reads the live host. */
+    if (m.load_1m < 0 || m.load_5m < 0 || m.load_15m < 0)
+        return 1;
+    if (!(m.mem_total_mb > 0) || m.mem_used_mb < 0 || m.mem_used_mb > m.mem_total_mb)
+        return 1;
+    if (m.mem_percent < 0 || m.mem_percent > 100)
+        return 1;
+    if (!(m.disk_total_gb > 0) || m.disk_percent < 0 || m.disk_percent > 100)
+        return 1;
+    return m.uptime_seconds > 0 ? 0 : 1;
+}
+
+static int test_collect_second_pass_yields_rates(void)
+{
+    metrics_t a, b;
+    memset(&a, 0, sizeof(a));
+    memset(&b, 0, sizeof(b));
+
+    /* The CPU/net snapshots are static, so priming may already have happened in
+     * an earlier test: only the SECOND call of this pair is asserted. */
+    if (metrics_collect(&a, "/") != 0)
+        return 1;
+
+    struct timespec pause = {0, 50 * 1000 * 1000}; /* 50 ms: enough for a delta */
+    nanosleep(&pause, NULL);
+
+    if (metrics_collect(&b, "/") != 0)
+        return 1;
+    if (!b.cpu_valid) /* /proc/stat always moves */
+        return 1;
+    if (b.cpu_user_percent < 0 || b.cpu_user_percent > 100)
+        return 1;
+    /* net_valid can be 0 if the counters did not move; when set, rates are >= 0. */
+    return (!b.net_valid || (b.net_rx_bps >= 0 && b.net_tx_bps >= 0)) ? 0 : 1;
+}
+
+static int test_collect_bad_disk_path_fails(void)
+{
+    metrics_t m;
+    memset(&m, 0, sizeof(m));
+    return metrics_collect(&m, "/no/such/mount/point") == -1 ? 0 : 1;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
@@ -123,6 +196,11 @@ static const test_t ALL_TESTS[] = {
     T(net_rate_negative_dt),
     T(net_rate_counter_reset_rx),
     T(net_rate_counter_reset_tx),
+    T(link_speed_parse),
+    T(link_speed_sum_is_sane),
+    T(collect_fills_plausible_values),
+    T(collect_second_pass_yields_rates),
+    T(collect_bad_disk_path_fails),
 };
 
 int main(void) { return run_tests(ALL_TESTS, sizeof(ALL_TESTS) / sizeof(ALL_TESTS[0])); }

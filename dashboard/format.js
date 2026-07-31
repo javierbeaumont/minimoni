@@ -85,6 +85,7 @@ function fmtUptime(s, unit) {
  * stays "0.500 MB/s", not "512 KB/s"). Precision adapts to ~4 significant digits. */
 function fmtNet(v, unit) {
   if (v == null) return '—';
+  if (unit === '%') return v.toFixed(1) + '%'; /* link-speed percent: one decimal like the others */
   let s;
   if      (v >= 1000) s = v.toFixed(0);
   else if (v >= 100)  s = v.toFixed(1);

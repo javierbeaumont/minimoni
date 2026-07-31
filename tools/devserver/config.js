@@ -178,6 +178,13 @@ function dashboardTempCriticalFallback(d) {
   return Number.isFinite(v) && v > 0 ? v : 85.0;
 }
 
+/* Net percent reference in Mbit/s; 0 means unset, so the detected link is used. */
+function dashboardNetMaxSpeed(d) {
+  const v = Number('net_max_speed' in d ? d.net_max_speed : 0);
+
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
 function loadDashboardConfig(filepath) {
   let text;
 
@@ -226,6 +233,7 @@ module.exports = {
   CONFIG_DEFAULTS,
   parseDashboard,
   dashboardTempCriticalFallback,
+  dashboardNetMaxSpeed,
   loadDashboardConfig,
   configFields,
 };

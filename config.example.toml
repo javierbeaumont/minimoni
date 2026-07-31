@@ -28,8 +28,11 @@ disk_path = "/"
 # temp_card_unit         = "c"    # status card: "%" | "c" | "f"
 # temp_chart_unit        = "c"    # chart Y-axis: "%" | "c" | "f"
 # temp_critical_fallback = 95     # temp % 100% ref when sysfs has no critical trip point (def: 85)
-# net_card_unit          = "kb"   # status card: "kb" | "mb" | "gb" | "kbps" | "mbps" | "gbps"
-# net_chart_unit         = "kb"   # chart Y-axis: "kb" | "mb" | "gb" | "kbps" | "mbps" | "gbps"
+# net_card_unit          = "kb"   # status card: "%" | "kb" | "mb" | "gb" | "kbps" | "mbps" | "gbps"
+# net_chart_unit         = "kb"   # chart Y-axis: same values as net_card_unit
+# net_max_speed          = 300    # net % 100% ref in Mbit/s: your real ceiling. Wins over the
+#                                 # sysfs link speed, which is the NIC's, not your uplink (a 1 GbE
+#                                 # card on a 300 Mbit line reads 1000). Unset: sysfs, else 1000.
 # uptime_unit            = "auto" # uptime display: "auto" | "h" | "d"
 
 [[alert]]

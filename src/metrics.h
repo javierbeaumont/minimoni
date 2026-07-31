@@ -34,6 +34,8 @@ typedef struct {
     double disk_total_gb, disk_used_gb, disk_free_gb, disk_percent;
 
     /* Temperature: optional (temp_valid=0 if sensor absent) */
+    /* NB: the network link speed is NOT here: it is a host property, not a
+     * sample. Read on demand with metrics_link_speed_mbit(). */
     int    temp_valid;
     double temp_celsius;
 
@@ -58,5 +60,11 @@ typedef struct {
  * unreadable network stats) the affected fields are zeroed and collection
  * continues. Returns -1 only if a required metric source is unavailable. */
 int metrics_collect(metrics_t *m, const char *disk_path);
+
+/* Sum of sysfs `speed` (Mbit/s) over the non-loopback interfaces, i.e. the same
+ * set collect_net sums traffic over; the 100% reference for net percent mode.
+ * Returns 0 when no interface reports a usable speed (virtual devices, wifi),
+ * leaving the caller to fall back to config. */
+int metrics_link_speed_mbit(void);
 
 #endif /* MINIMONI_METRICS_H */

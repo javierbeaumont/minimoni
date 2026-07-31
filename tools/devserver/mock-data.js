@@ -29,6 +29,7 @@ const SCENARIO_STRESS = { normal: 0.1, warn: 0.85, critical: 0.97 };
 const MEM_TOTAL_MB = 1959.0;
 const DISK_TOTAL_GB = 97.9;
 const TEMP_CRITICAL_C = 105.0;
+const NET_SPEED_MBIT = 1000; /* mock link: what sysfs would report on GbE */
 
 /* Parse a range like '7d', '12h' or '30m' into seconds; default 1 day. */
 function rangeSeconds(value) {
@@ -125,6 +126,7 @@ function currentSnapshot(scenario = 'cycle') {
 
   m.timestamp = localTimestamp(new Date());
   m.temp_critical_c = TEMP_CRITICAL_C;
+  m.net_speed_mbit = NET_SPEED_MBIT;
 
   return m;
 }
@@ -142,6 +144,7 @@ function makePoints(rangeValue = '1d', scenario = 'cycle', n = 300) {
 
     m.t = t;
     m.temp_critical_c = TEMP_CRITICAL_C;
+    m.net_speed_mbit = NET_SPEED_MBIT;
 
     points.push(m);
   }

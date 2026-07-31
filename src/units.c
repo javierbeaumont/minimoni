@@ -18,8 +18,22 @@
 
 #include "units.h"
 
-double net_convert(double bps, const char *unit)
+/* 100% reference for net percent mode. A configured speed WINS over the detected
+ * link: the NIC is often faster than the uplink behind it (1 GbE card on a
+ * 300 Mbit line), so the operator's number is the honest denominator. Falls back
+ * to sysfs, then to 1 GbE. Full duplex: rx and tx each get the whole link. */
+double net_ref_bps(int max_mbit, int detected_mbit)
 {
+    int mbit = max_mbit > 0 ? max_mbit : detected_mbit;
+    if (mbit <= 0)
+        mbit = 1000;
+    return (double)mbit * 125000.0; /* Mbit/s -> bytes/s */
+}
+
+double net_convert(double bps, const char *unit, double ref_bps)
+{
+    if (unit && unit[0] == '%')
+        return ref_bps > 0 ? bps * 100.0 / ref_bps : 0.0;
     if (!unit || unit[0] == 'm') {
         if (unit && unit[1] == 'b' && unit[2] == 'p') /* mbps */
             return bps * 8.0 / 1e6;

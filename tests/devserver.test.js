@@ -39,7 +39,8 @@ const {
 } = require(path.join(dev, 'mock-data'));
 
 const {
-  netConvert, memConvert, diskConvert, loadConvert, tempConvert, tempRef, toCurrent, toPoint,
+  netConvert, netRefBps, memConvert, diskConvert, loadConvert, tempConvert, tempRef, toCurrent,
+  toPoint,
 } = require(path.join(dev, 'units'));
 
 function point(scenario = 'normal') {
@@ -139,6 +140,29 @@ test('netConvert: byte and bit units', () => {
   assert.strictEqual(netConvert(1000, 'kbps'), 8);
   assert.strictEqual(netConvert(1048576, ''), 1); /* empty unit -> mb */
   assert.strictEqual(netConvert(1048576, 'x'), 1); /* unknown unit -> mb */
+});
+
+test('netRefBps / netConvert percent mirror the C server', () => {
+  assert.strictEqual(netRefBps(100, 1000), 12500000); /* configured max wins over the link */
+  assert.strictEqual(netRefBps(0, 1000), 125000000); /* detected link when nothing configured */
+  assert.strictEqual(netRefBps(0, 0), 125000000); /* neither: assume 1 GbE */
+
+  const ref = netRefBps(1000, 0);
+
+  assert.strictEqual(netConvert(ref / 2, '%', ref), 50); /* full duplex: whole link per direction */
+  assert.strictEqual(netConvert(ref, '%', ref), 100);
+  assert.strictEqual(netConvert(1e6, '%', 0), 0); /* no reference -> 0, never NaN */
+});
+
+test('toCurrent: net percent end to end', () => {
+  const raw = currentSnapshot('normal');
+
+  raw.net_rx_bps = 62500000; /* half of the mock 1000 Mbit/s link */
+  raw.net_speed_mbit = 1000;
+
+  const out = toCurrent(raw, configFields({ net_card_unit: '%' }), 85.0);
+
+  assert.strictEqual(out.net_rx, 50);
 });
 
 test('memConvert / diskConvert', () => {

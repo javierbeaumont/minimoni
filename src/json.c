@@ -102,12 +102,13 @@ void jbuf_pair(jbuf_t *j, const char *key, double warn, double crit)
 /* --- Serializers --- */
 
 void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, int num_cores,
-                            int temp_critical_valid, double temp_critical)
+                            int temp_critical_valid, double temp_critical, int detected_speed_mbit)
 {
     const char *lu = cfg->cpu_load_card_unit;
     const char *mu = cfg->memory_card_unit;
     const char *du = cfg->disk_card_unit;
     const char *nu = cfg->net_card_unit;
+    double      nref = net_ref_bps(cfg->net_max_speed, detected_speed_mbit);
 
     jbuf_str(j, "timestamp", r->timestamp);
 
@@ -165,8 +166,8 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
 
     if (config_has(cfg->cards, cfg->card_count, "net")) {
         if (r->net_valid) {
-            jbuf_real(j, "net_rx", net_convert(r->net_rx_bps, nu));
-            jbuf_real(j, "net_tx", net_convert(r->net_tx_bps, nu));
+            jbuf_real(j, "net_rx", net_convert(r->net_rx_bps, nu, nref));
+            jbuf_real(j, "net_tx", net_convert(r->net_tx_bps, nu, nref));
         } else {
             jbuf_null(j, "net_rx");
             jbuf_null(j, "net_tx");
@@ -276,13 +277,14 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
 }
 
 void json_serialize_point(jbuf_t *j, const db_row_t *r, const config_t *cfg, int num_cores,
-                          int temp_critical_valid, double temp_critical)
+                          int temp_critical_valid, double temp_critical, int detected_speed_mbit)
 {
     const char *lu = cfg->cpu_load_chart_unit;
     const char *mu = cfg->memory_chart_unit;
     const char *du = cfg->disk_chart_unit;
     const char *nu = cfg->net_chart_unit;
     double      tref = temp_ref(temp_critical_valid, temp_critical, cfg->temp_critical_fallback);
+    double      nref = net_ref_bps(cfg->net_max_speed, detected_speed_mbit);
 
     jbuf_long(j, "t", r->unix_time);
 
@@ -332,8 +334,8 @@ void json_serialize_point(jbuf_t *j, const db_row_t *r, const config_t *cfg, int
 
     if (config_has(cfg->charts, cfg->chart_count, "net")) {
         if (r->net_valid) {
-            jbuf_real(j, "nr", net_convert(r->net_rx_bps, nu));
-            jbuf_real(j, "nt", net_convert(r->net_tx_bps, nu));
+            jbuf_real(j, "nr", net_convert(r->net_rx_bps, nu, nref));
+            jbuf_real(j, "nt", net_convert(r->net_tx_bps, nu, nref));
         } else {
             jbuf_null(j, "nr");
             jbuf_null(j, "nt");

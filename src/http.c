@@ -34,6 +34,7 @@
 #include "embed.h"
 #include "http.h"
 #include "json.h"
+#include "metrics.h"
 
 /* =========================================================================
  * CPU count  (for load normalisation when cpu_load_unit = "%")
@@ -148,7 +149,7 @@ static int handler_current(struct mg_connection *conn, void *cbdata)
     jbuf_init(&j, buf, sizeof(buf));
     jbuf_begin(&j);
     json_serialize_current(&j, &row, ctx->cfg, ctx->num_cores, ctx->temp_critical_valid,
-                           ctx->temp_critical);
+                           ctx->temp_critical, ctx->net_speed_mbit);
     jbuf_end(&j);
 
     mg_send_http_ok(conn, "application/json", (long long)j.pos);
@@ -243,7 +244,7 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
         jbuf_init(&j, pt, sizeof(pt));
         jbuf_begin(&j);
         json_serialize_point(&j, &rows[i], ctx->cfg, ctx->num_cores, ctx->temp_critical_valid,
-                             ctx->temp_critical);
+                             ctx->temp_critical, ctx->net_speed_mbit);
         jbuf_end(&j);
 
         if (i > 0)
@@ -275,7 +276,7 @@ static int handler_stream(struct mg_connection *conn, void *cbdata)
             jbuf_init(&j, buf, sizeof(buf));
             jbuf_begin(&j);
             json_serialize_current(&j, &row, ctx->cfg, ctx->num_cores, ctx->temp_critical_valid,
-                                   ctx->temp_critical);
+                                   ctx->temp_critical, ctx->net_speed_mbit);
             jbuf_end(&j);
 
             int w = mg_printf(conn, "data: %.*s\n\n", (int)j.pos, buf);
@@ -314,6 +315,9 @@ int http_start(http_ctx_t *ctx, const config_t *cfg, db_t *db)
     ctx->db = db;
     ctx->num_cores = read_num_cores();
     read_temp_critical(ctx);
+    /* Host properties, read once at startup like the trip point above: a link
+     * renegotiation (or a new cable) needs a restart to be picked up. */
+    ctx->net_speed_mbit = metrics_link_speed_mbit();
 
     char threads_str[8];
     snprintf(threads_str, sizeof(threads_str), "%d", cfg->threads);

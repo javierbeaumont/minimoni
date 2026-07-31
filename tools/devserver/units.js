@@ -31,7 +31,19 @@ function round(x, n) {
   return Math.round(x * p) / p;
 }
 
-function netConvert(bps, unit) {
+/* A configured speed wins over the detected link (the NIC is often faster than
+ * the uplink behind it); then sysfs, then 1 GbE. Full duplex: each direction
+ * gets the whole link. */
+function netRefBps(maxMbit, detectedMbit) {
+  let mbit = maxMbit > 0 ? maxMbit : detectedMbit;
+  if (!(mbit > 0))
+    mbit = 1000;
+  return mbit * 125000.0; /* Mbit/s -> bytes/s */
+}
+
+function netConvert(bps, unit, refBps) {
+  if (unit && unit[0] === '%')
+    return refBps > 0 ? (bps * 100.0) / refBps : 0.0;
   if (!unit || unit[0] === 'm') {
     if (unit && unit[1] === 'b' && unit[2] === 'p') /* mbps */
       return (bps * 8.0) / 1e6;
@@ -95,7 +107,7 @@ function configHas(list, name) {
 /* /api/current in CARD units. Mirrors json.c json_serialize_current(): a metric
  * group is emitted only when its card is configured, and [warn, crit] thresholds
  * are computed server-side. */
-function toCurrent(raw, f, fallback) {
+function toCurrent(raw, f, fallback, netMaxSpeed = 0) {
   const m = raw;
   const cards = f.cards;
   const lu = String(f.cpu_load_card_unit);
@@ -148,8 +160,10 @@ function toCurrent(raw, f, fallback) {
   }
 
   if (configHas(cards, 'net')) {
-    out.net_rx = round(netConvert(m.net_rx_bps, nu), 2);
-    out.net_tx = round(netConvert(m.net_tx_bps, nu), 2);
+    const nref = netRefBps(netMaxSpeed, m.net_speed_mbit);
+
+    out.net_rx = round(netConvert(m.net_rx_bps, nu, nref), 2);
+    out.net_tx = round(netConvert(m.net_tx_bps, nu, nref), 2);
   }
 
   if (configHas(cards, 'uptime')) {
@@ -183,7 +197,7 @@ function toCurrent(raw, f, fallback) {
 }
 
 /* Serialize a raw point for /api/metrics using the CHART units (short keys). */
-function toPoint(raw, f, fallback) {
+function toPoint(raw, f, fallback, netMaxSpeed = 0) {
   const m = raw;
   const lu = String(f.cpu_load_chart_unit);
   const mu = String(f.mem_chart_unit);
@@ -224,8 +238,10 @@ function toPoint(raw, f, fallback) {
     out.tp = tc != null ? round(tempConvert(tc, tu, ref), 1) : null;
   }
 
-  out.nr = round(netConvert(m.net_rx_bps, nu), 2);
-  out.nt = round(netConvert(m.net_tx_bps, nu), 2);
+  const nref = netRefBps(netMaxSpeed, m.net_speed_mbit);
+
+  out.nr = round(netConvert(m.net_rx_bps, nu, nref), 2);
+  out.nt = round(netConvert(m.net_tx_bps, nu, nref), 2);
   out.up = raw.uptime;
 
   return out;
@@ -234,6 +250,7 @@ function toPoint(raw, f, fallback) {
 module.exports = {
   CORES,
   netConvert,
+  netRefBps,
   memConvert,
   diskConvert,
   tempConvert,

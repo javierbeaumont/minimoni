@@ -31,14 +31,13 @@ typedef struct {
     int                num_cores;     /* from /sys/devices/system/cpu/online */
     double             temp_critical; /* critical trip point in Celsius, 0 if absent */
     int                temp_critical_valid;
-    volatile int       stopping;
+    int          net_speed_mbit; /* link speed sum, 0 if none reported (see config fallback) */
+    volatile int stopping;
 } http_ctx_t;
 
-/*
- * Bind to cfg->listen, register all route handlers, and start the civetweb
+/* Bind to cfg->listen, register all route handlers, and start the civetweb
  * thread pool.  ctx must remain valid until http_stop() returns.
- * Returns 0 on success, -1 on failure (message written to stderr).
- */
+ * Returns 0 on success, -1 on failure (message written to stderr). */
 int http_start(http_ctx_t *ctx, const config_t *cfg, db_t *db);
 
 /* Signal all SSE connections to close, stop the HTTP server, and block

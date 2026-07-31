@@ -18,6 +18,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <dirent.h>
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -348,6 +349,40 @@ static int net_rate(const net_raw_t *prev, const net_raw_t *cur, double *rx_bps,
     *rx_bps = (double)drx / dt;
     *tx_bps = (double)dtx / dt;
     return 1;
+}
+
+/* sysfs `speed` in Mbit/s, or 0 when the link has none to report: virtual
+ * devices and down/renegotiating wifi give -1, an empty read or garbage. */
+static int parse_link_speed(const char *s)
+{
+    char *end;
+    long  v = strtol(s, &end, 10);
+    return (end != s && v > 0 && v <= 1000000) ? (int)v : 0;
+}
+
+int metrics_link_speed_mbit(void)
+{
+    DIR *d = opendir("/sys/class/net");
+    if (!d)
+        return 0;
+
+    int total = 0;
+    for (struct dirent *e = readdir(d); e; e = readdir(d)) {
+        if (e->d_name[0] == '.' || strcmp(e->d_name, "lo") == 0)
+            continue;
+        char path[320]; /* fits the longest possible d_name plus the fixed parts */
+        snprintf(path, sizeof(path), "/sys/class/net/%s/speed", e->d_name);
+        FILE *f = fopen(path, "r");
+        if (!f)
+            continue;
+        char buf[32] = {0};
+        if (fgets(buf, sizeof(buf), f))
+            total += parse_link_speed(buf);
+        fclose(f);
+    }
+
+    closedir(d);
+    return total;
 }
 
 static void collect_net(metrics_t *m)

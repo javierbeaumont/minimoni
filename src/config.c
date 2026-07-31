@@ -95,7 +95,7 @@ static const char *const MEM_UNITS[] = {"%", "mb", "gb", NULL};
 static const char *const DISK_UNITS[] = {"%", "gb", "tb", NULL};
 static const char *const TEMP_UNITS[] = {"%", "c", "f", NULL};
 static const char *const LOAD_UNITS[] = {"%", "abs", NULL};
-static const char *const NET_UNITS[] = {"kb", "mb", "gb", "kbps", "mbps", "gbps", NULL};
+static const char *const NET_UNITS[] = {"%", "kb", "mb", "gb", "kbps", "mbps", "gbps", NULL};
 static const char *const UPTIME_UNITS[] = {"auto", "h", "d", NULL};
 
 /* str_copy, but only when the value is in `allowed`; else warn and keep the
@@ -135,6 +135,7 @@ static const char *const DASHBOARD_KEYS[] = {"cards",
                                              "memory_chart_unit",
                                              "net_card_unit",
                                              "net_chart_unit",
+                                             "net_max_speed",
                                              "ranges",
                                              "refresh",
                                              "show_footer",
@@ -270,6 +271,7 @@ void config_defaults(config_t *cfg)
     snprintf(cfg->cpu_load_chart_unit, sizeof(cfg->cpu_load_chart_unit), "%s", "abs");
     snprintf(cfg->net_card_unit, sizeof(cfg->net_card_unit), "%s", "kb");
     snprintf(cfg->net_chart_unit, sizeof(cfg->net_chart_unit), "%s", "kb");
+    cfg->net_max_speed = 0; /* unset: net_ref_bps prefers the detected link */
     snprintf(cfg->uptime_unit, sizeof(cfg->uptime_unit), "%s", "auto");
     cfg->chart_count = 0; /* 0 = show all in default order */
     cfg->card_count = 0;
@@ -389,6 +391,14 @@ int config_load(config_t *cfg, const char *path)
     unit_copy(cfg->net_chart_unit, sizeof(cfg->net_chart_unit), v, "net_chart_unit", NET_UNITS);
     v = toml_seek(root, "dashboard.uptime_unit");
     unit_copy(cfg->uptime_unit, sizeof(cfg->uptime_unit), v, "uptime_unit", UPTIME_UNITS);
+    v = toml_seek(root, "dashboard.net_max_speed");
+    if (v.type == TOML_INT64 && v.u.int64 > 0 && v.u.int64 <= 1000000)
+        cfg->net_max_speed = (int)v.u.int64;
+    else if (v.type == TOML_INT64)
+        fprintf(stderr,
+                "config: net_max_speed must be 1..1000000 Mbit/s (got %ld); "
+                "using default\n",
+                (long)v.u.int64);
     v = toml_seek(root, "dashboard.charts");
     if (v.type == TOML_ARRAY) {
         if (v.u.arr.size == 0) {

@@ -541,6 +541,237 @@ static int test_unit_cross_field_value(void)
                                                                                               : 1;
 }
 
+/* --- [server] --- */
+
+static int test_server_listen_and_threads(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[server]\nlisten = \"127.0.0.1:9999\"\nthreads = 16\n"
+                       "sse_keepalive = 5\n") != 0)
+        return 1;
+    return strcmp(cfg.listen, "127.0.0.1:9999") == 0 && cfg.threads == 16 &&
+                   cfg.sse_keepalive_seconds == 5
+               ? 0
+               : 1;
+}
+
+static int test_server_threads_below_min_aborts(void)
+{
+    config_t cfg;
+    return load_cfg(&cfg, "[server]\nthreads = 1\n") == -1 ? 0 : 1;
+}
+
+static int test_server_threads_above_max_defaults(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[server]\nthreads = 999\n") != 0)
+        return 1;
+    return cfg.threads == 8 ? 0 : 1;
+}
+
+static int test_server_sse_keepalive_invalid_defaults(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[server]\nsse_keepalive = 0\n") != 0)
+        return 1;
+    return cfg.sse_keepalive_seconds == 1 ? 0 : 1;
+}
+
+/* --- [collect] paths --- */
+
+static int test_collect_paths(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[collect]\ndb = \"/var/x.db\"\ndisk_path = \"/mnt\"\n") != 0)
+        return 1;
+    return strcmp(cfg.db_path, "/var/x.db") == 0 && strcmp(cfg.disk_path, "/mnt") == 0 ? 0 : 1;
+}
+
+/* --- [dashboard] scalars --- */
+
+static int test_dashboard_title_footer_theme(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[dashboard]\ntitle = \"Pi\"\nshow_footer = false\ntheme = \"dark\"\n"
+                       "refresh = 10\n") != 0)
+        return 1;
+    return strcmp(cfg.title, "Pi") == 0 && cfg.show_footer == 0 && strcmp(cfg.theme, "dark") == 0 &&
+                   cfg.refresh_seconds == 10
+               ? 0
+               : 1;
+}
+
+static int test_dashboard_theme_invalid_defaults(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[dashboard]\ntheme = \"neon\"\n") != 0)
+        return 1;
+    return strcmp(cfg.theme, "auto") == 0 ? 0 : 1;
+}
+
+static int test_dashboard_refresh_invalid_defaults(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[dashboard]\nrefresh = 0\n") != 0)
+        return 1;
+    return cfg.refresh_seconds == 30 ? 0 : 1;
+}
+
+static int test_temp_critical_fallback_variants(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[dashboard]\ntemp_critical_fallback = 95.5\n") != 0)
+        return 1;
+    if (cfg.temp_critical_fallback < 95.4f || cfg.temp_critical_fallback > 95.6f)
+        return 1;
+    if (load_cfg(&cfg, "[dashboard]\ntemp_critical_fallback = 90\n") != 0) /* int form */
+        return 1;
+    if (cfg.temp_critical_fallback < 89.9f || cfg.temp_critical_fallback > 90.1f)
+        return 1;
+    if (load_cfg(&cfg, "[dashboard]\ntemp_critical_fallback = -5\n") != 0) /* invalid */
+        return 1;
+    return cfg.temp_critical_fallback > 84.9f && cfg.temp_critical_fallback < 85.1f ? 0 : 1;
+}
+
+/* --- charts / cards visibility lists --- */
+
+static int test_charts_cards_lists(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[dashboard]\ncharts = [\"cpu_load\", \"memory\"]\n"
+                       "cards = [\"temp\"]\n") != 0)
+        return 1;
+    return cfg.chart_count == 2 && strcmp(cfg.charts[1], "memory") == 0 && cfg.card_count == 1 &&
+                   strcmp(cfg.cards[0], "temp") == 0
+               ? 0
+               : 1;
+}
+
+static int test_charts_cards_empty_hides_all(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[dashboard]\ncharts = []\ncards = []\n") != 0)
+        return 1;
+    /* -1 is the explicit "hide all" marker; config_has must agree. */
+    return cfg.chart_count == -1 && cfg.card_count == -1 &&
+                   config_has(cfg.charts, cfg.chart_count, "memory") == 0
+               ? 0
+               : 1;
+}
+
+static int test_config_has_states(void)
+{
+    config_t cfg;
+    config_defaults(&cfg);
+    if (!config_has(cfg.charts, 0, "anything")) /* count 0 = show all */
+        return 1;
+    strcpy(cfg.charts[0], "temp");
+    return config_has(cfg.charts, 1, "temp") == 1 && config_has(cfg.charts, 1, "net") == 0 ? 0 : 1;
+}
+
+/* --- [[alert]] --- */
+
+static int test_alert_full_entry(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[[alert]]\nname = \"hot\"\nmetric = \"temp\"\noperator = \">=\"\n"
+                       "threshold = 80.5\nwebhook = \"http://h\"\ncommand = \"echo hi\"\n"
+                       "cooldown = \"5m\"\n") != 0)
+        return 1;
+    const alert_cfg_t *a = &cfg.alerts[0];
+    return cfg.alert_count == 1 && strcmp(a->name, "hot") == 0 && strcmp(a->op, ">=") == 0 &&
+                   a->threshold > 80.4 && a->threshold < 80.6 && a->cooldown_seconds == 300 &&
+                   strcmp(a->webhook, "http://h") == 0 && strcmp(a->command, "echo hi") == 0
+               ? 0
+               : 1;
+}
+
+static int test_alert_int_threshold(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[[alert]]\nname = \"a\"\nmetric = \"m\"\noperator = \"<\"\n"
+                       "threshold = 5\nwebhook = \"w\"\n") != 0)
+        return 1;
+    return cfg.alert_count == 1 && cfg.alerts[0].threshold > 4.9 ? 0 : 1;
+}
+
+static int test_alert_skips_incomplete(void)
+{
+    config_t cfg;
+    /* missing operator, unknown operator, missing threshold, and no action:
+     * each entry is skipped with a warning, none abort the load. */
+    if (load_cfg(&cfg,
+                 "[[alert]]\nname = \"a\"\nmetric = \"m\"\n"
+                 "[[alert]]\nname = \"b\"\nmetric = \"m\"\noperator = \"~\"\n"
+                 "threshold = 1\nwebhook = \"w\"\n"
+                 "[[alert]]\nname = \"c\"\nmetric = \"m\"\noperator = \">\"\nwebhook = \"w\"\n"
+                 "[[alert]]\nname = \"d\"\nmetric = \"m\"\noperator = \">\"\n"
+                 "threshold = 1\n") != 0)
+        return 1;
+    return cfg.alert_count == 0 ? 0 : 1;
+}
+
+/* --- File-level errors --- */
+
+static int test_missing_file_fails(void)
+{
+    config_t cfg;
+    config_defaults(&cfg);
+    return config_load(&cfg, "/nonexistent/minimoni-test.toml") == -1 ? 0 : 1;
+}
+
+static int test_malformed_toml_fails(void)
+{
+    config_t cfg;
+    return load_cfg(&cfg, "[dashboard\ntitle = \n") == -1 ? 0 : 1;
+}
+
+static int test_config_open_keeps_defaults_without_file(void)
+{
+    config_t cfg;
+    /* No explicit path and no config in the search paths: defaults, rc 0. */
+    if (chdir("/tmp") != 0)
+        return 1;
+    unlink("/tmp/config.toml");
+    if (config_open(&cfg, NULL) != 0)
+        return 1;
+    return cfg.interval_seconds == 60 && strcmp(cfg.title, "minimoni") == 0 ? 0 : 1;
+}
+
+/* --- Net link-speed fallback --- */
+
+static int test_net_max_speed_default(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[dashboard]\ntitle = \"x\"\n") != 0)
+        return 1;
+    return cfg.net_max_speed == 0 ? 0 : 1; /* unset: the detected link is used */
+}
+
+static int test_net_max_speed_applied(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[dashboard]\nnet_max_speed = 300\n") != 0)
+        return 1;
+    return cfg.net_max_speed == 300 ? 0 : 1;
+}
+
+static int test_net_max_speed_invalid(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[dashboard]\nnet_max_speed = 0\n") != 0)
+        return 1;
+    return cfg.net_max_speed == 0 ? 0 : 1;
+}
+
+static int test_net_unit_percent_accepted(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[dashboard]\nnet_card_unit = \"%\"\n") != 0)
+        return 1;
+    return strcmp(cfg.net_card_unit, "%") == 0 ? 0 : 1;
+}
+
 /* --- Unknown keys --- */
 
 /* Parse `toml` from memory and count the unknown keys it warns about. */
@@ -687,6 +918,35 @@ static const test_t ALL_TESTS[] = {
     T(unit_valid_applied),
     T(unit_case_sensitive),
     T(unit_cross_field_value),
+    /* [server] */
+    T(server_listen_and_threads),
+    T(server_threads_below_min_aborts),
+    T(server_threads_above_max_defaults),
+    T(server_sse_keepalive_invalid_defaults),
+    /* [collect] paths */
+    T(collect_paths),
+    /* [dashboard] scalars */
+    T(dashboard_title_footer_theme),
+    T(dashboard_theme_invalid_defaults),
+    T(dashboard_refresh_invalid_defaults),
+    T(temp_critical_fallback_variants),
+    /* charts / cards */
+    T(charts_cards_lists),
+    T(charts_cards_empty_hides_all),
+    T(config_has_states),
+    /* alerts */
+    T(alert_full_entry),
+    T(alert_int_threshold),
+    T(alert_skips_incomplete),
+    /* file-level errors */
+    T(missing_file_fails),
+    T(malformed_toml_fails),
+    T(config_open_keeps_defaults_without_file),
+    /* net link-speed fallback */
+    T(net_max_speed_default),
+    T(net_max_speed_applied),
+    T(net_max_speed_invalid),
+    T(net_unit_percent_accepted),
     /* unknown keys */
     T(keys_all_known),
     T(keys_typo_in_dashboard),

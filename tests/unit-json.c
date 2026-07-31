@@ -81,14 +81,25 @@ static void only_card(config_t *c, const char *name)
     c->card_count = 1;
 }
 
-/* Serialize row+cfg into buf exactly as the HTTP handlers do (begin/end wrap). */
+/* Serialize row+cfg into buf exactly as the HTTP handlers do (begin/end wrap).
+ * net_speed_mbit is 0 here, so net percent mode falls back to the config value. */
 static void emit(char *buf, size_t cap, const db_row_t *r, const config_t *cfg, int num_cores,
                  int tc_valid, double tc)
 {
     jbuf_t j;
     jbuf_init(&j, buf, cap);
     jbuf_begin(&j);
-    json_serialize_current(&j, r, cfg, num_cores, tc_valid, tc);
+    json_serialize_current(&j, r, cfg, num_cores, tc_valid, tc, 0);
+    jbuf_end(&j);
+}
+
+/* Same, with an explicit detected link speed (Mbit/s). */
+static void emit_link(char *buf, size_t cap, const db_row_t *r, const config_t *cfg, int mbit)
+{
+    jbuf_t j;
+    jbuf_init(&j, buf, cap);
+    jbuf_begin(&j);
+    json_serialize_current(&j, r, cfg, 4, 0, 0.0, mbit);
     jbuf_end(&j);
 }
 
@@ -99,7 +110,7 @@ static void emit_point(char *buf, size_t cap, const db_row_t *r, const config_t 
     jbuf_t j;
     jbuf_init(&j, buf, cap);
     jbuf_begin(&j);
-    json_serialize_point(&j, r, cfg, num_cores, tc_valid, tc);
+    json_serialize_point(&j, r, cfg, num_cores, tc_valid, tc, 0);
     jbuf_end(&j);
 }
 
@@ -294,6 +305,80 @@ static int test_net_null_when_invalid(void)
     return (has(b, "\"net_rx\":null") && has(b, "\"net_tx\":null")) ? 0 : 1;
 }
 
+static int test_net_percent_uses_detected_link(void)
+{
+    char     b[2048];
+    db_row_t r = sample_row();
+    r.net_valid = 1;
+    r.net_rx_bps = 6250000.0; /* half of a 100 Mbit/s link (12.5 MB/s) */
+    config_t c = base_cfg();
+    strcpy(c.net_card_unit, "%");
+    emit_link(b, sizeof(b), &r, &c, 100);
+    return has(b, "\"net_rx\":50") ? 0 : 1;
+}
+
+static int test_net_percent_defaults_to_gbe(void)
+{
+    char     b[2048];
+    db_row_t r = sample_row();
+    r.net_valid = 1;
+    r.net_rx_bps = 12500000.0; /* 10% of the assumed 1 GbE */
+    config_t c = base_cfg();
+    strcpy(c.net_card_unit, "%");
+    emit_link(b, sizeof(b), &r, &c, 0); /* nothing configured, nothing detected */
+    return has(b, "\"net_rx\":10") ? 0 : 1;
+}
+
+static int test_net_percent_configured_max_wins(void)
+{
+    char     b[2048];
+    db_row_t r = sample_row();
+    r.net_valid = 1;
+    r.net_rx_bps = 12500000.0;
+    config_t c = base_cfg();
+    strcpy(c.net_card_unit, "%");
+    c.net_max_speed = 100;                 /* the uplink, slower than the NIC */
+    emit_link(b, sizeof(b), &r, &c, 1000); /* sysfs says 1 GbE; config must win */
+    return has(b, "\"net_rx\":100") ? 0 : 1;
+}
+
+/* --- charts/cards echo: the three visibility states --- */
+
+static int test_charts_echo_null_by_default(void)
+{
+    char     b[2048];
+    db_row_t r = sample_row();
+    config_t c = base_cfg();
+    emit(b, sizeof(b), &r, &c, 4, 0, 0.0);
+    return (has(b, "\"charts\":null") && has(b, "\"cards\":null")) ? 0 : 1;
+}
+
+static int test_charts_echo_empty_when_hidden(void)
+{
+    char     b[2048];
+    db_row_t r = sample_row();
+    config_t c = base_cfg();
+    c.chart_count = -1; /* explicit empty list: hide all */
+    c.card_count = -1;
+    emit(b, sizeof(b), &r, &c, 4, 0, 0.0);
+    return (has(b, "\"charts\":[]") && has(b, "\"cards\":[]")) ? 0 : 1;
+}
+
+static int test_charts_echo_list(void)
+{
+    char     b[2048];
+    db_row_t r = sample_row();
+    config_t c = base_cfg();
+    strcpy(c.charts[0], "cpu_load");
+    strcpy(c.charts[1], "memory");
+    c.chart_count = 2;
+    strcpy(c.cards[0], "temp");
+    c.card_count = 1;
+    emit(b, sizeof(b), &r, &c, 4, 0, 0.0);
+    return (has(b, "\"charts\":[\"cpu_load\",\"memory\"]") && has(b, "\"cards\":[\"temp\"]")) ? 0
+                                                                                              : 1;
+}
+
 static int test_cpu_null_when_invalid(void)
 {
     char     b[2048];
@@ -474,6 +559,12 @@ static const test_t ALL_TESTS[] = {
     T(thresh_temp_fallback_no_critical),
     T(temp_null_when_sensor_invalid),
     T(net_null_when_invalid),
+    T(net_percent_uses_detected_link),
+    T(net_percent_defaults_to_gbe),
+    T(net_percent_configured_max_wins),
+    T(charts_echo_null_by_default),
+    T(charts_echo_empty_when_hidden),
+    T(charts_echo_list),
     T(cpu_null_when_invalid),
     T(mem_percent_only_when_pct_unit),
     T(mem_absolute_emits_used),
