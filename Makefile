@@ -124,8 +124,10 @@ tidy:
 # are covered by the browser paths and the cli.sh bundle check instead).
 test-unit: ci-image \
       tests/unit-config.c tests/unit-db.c tests/unit-db_cmd.c tests/unit-downsample.c \
-      tests/unit-json.c tests/unit-metrics.c tests/unit-migrate.c tests/unit-units.c \
-      tests/runner.h tests/devserver.test.js tests/devserver-http.test.js tests/dashboard.test.js
+      tests/unit-http.c tests/unit-json.c tests/unit-metrics.c tests/unit-migrate.c \
+      tests/unit-units.c \
+      tests/contract-units.c tests/runner.h tests/devserver.test.js \
+      tests/devserver-http.test.js tests/dashboard.test.js
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
 	  sh -c "mkdir -p build && \
 	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Itests \
@@ -136,6 +138,11 @@ test-unit: ci-image \
 	      tests/unit-db_cmd.c vendor/sqlite3.c -o build/unit-db_cmd-test -lpthread && \
 	    gcc -Wall -Wextra -std=c11 -Isrc -Itests \
 	      tests/unit-downsample.c -o build/unit-downsample-test && \
+	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Ibuild -Itests $(SQLITE_FLAGS) \
+	      $(CIVETWEB_FLAGS) \
+	      tests/unit-http.c src/db.c src/json.c src/units.c src/downsample.c \
+	      src/config.c src/metrics.c vendor/sqlite3.c vendor/tomlc17.c \
+	      -o build/unit-http-test -lpthread && \
 	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Itests \
 	      tests/unit-json.c vendor/tomlc17.c -o build/unit-json-test && \
 	    gcc -Wall -Wextra -std=c11 -Isrc -Itests \
@@ -144,8 +151,11 @@ test-unit: ci-image \
 	      tests/unit-migrate.c -o build/unit-migrate-test && \
 	    gcc -Wall -Wextra -std=c11 -Isrc -Itests \
 	      tests/unit-units.c -o build/unit-units-test && \
+	    gcc -Wall -Wextra -std=c11 -Isrc -Itests \
+	      tests/contract-units.c -o build/contract-units && \
 	    ./build/unit-config-test && ./build/unit-db-test && ./build/unit-db_cmd-test && \
-	    ./build/unit-downsample-test && ./build/unit-json-test && ./build/unit-metrics-test && \
+	    ./build/unit-downsample-test && ./build/unit-http-test && ./build/unit-json-test && \
+	    ./build/unit-metrics-test && \
 	    ./build/unit-migrate-test && ./build/unit-units-test && \
 	    node --test --experimental-test-coverage --test-coverage-lines=97 \
       --test-coverage-branches=90 --test-coverage-functions=92 \

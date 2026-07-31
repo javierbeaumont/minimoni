@@ -144,6 +144,16 @@ home=$(wget -qO- "http://127.0.0.1:$PORT/" 2>/dev/null)
 # minify strips attribute quotes, so match a bare tag rather than id="...".
 check_has "serve / serves the dashboard" "$home" '<canvas'
 check_lacks "dashboard bundle fully inlined" "$home" 'script src='
+# /stream is the only SSE path: read the first frame, then drop the connection.
+frame=$(timeout 3 wget -qO- "http://127.0.0.1:$PORT/stream" 2>/dev/null | head -c 40)
+check_has "serve /stream pushes an SSE frame" "$frame" 'data: {'
+# Query-parameter fallbacks: the server clamps instead of erroring.
+bad=$(wget -qO- "http://127.0.0.1:$PORT/api/metrics?range=bogus" 2>/dev/null)
+check_has "serve /api/metrics falls back on a bad range" "$bad" '"range":"1d"'
+big=$(wget -qO- "http://127.0.0.1:$PORT/api/metrics?range=1d&points=99999" 2>/dev/null)
+check_has "serve /api/metrics survives an oversized points" "$big" '"points":'
+code=$(wget -qO- -S "http://127.0.0.1:$PORT/nope" 2>&1 | grep -m1 HTTP)
+check_has "serve 404s an unknown path" "$code" '404'
 kill -TERM "$sv" 2>/dev/null
 wait "$sv"
 rc=$?
