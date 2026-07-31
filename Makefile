@@ -59,7 +59,7 @@ VENDOR_CC = $(CC) $(CFLAGS) -Wno-unused-but-set-variable $(SQLITE_FLAGS) \
   $(CIVETWEB_FLAGS) $(BEARSSL_INC) -Ivendor -Isrc -Ibuild -c
 
 .PHONY: all embed release release-linux ci-image debug tidy \
-        test-unit test-integration test fmt clean
+        test-unit test-integration test fmt clean-build clean
 
 all: embed minimoni minimoni-migrate
 
@@ -178,7 +178,11 @@ test: test-unit test-integration
 fmt:
 	find src tests -name '*.[ch]' | xargs $(CLANG_FORMAT) -i
 
-clean:
+# Everything this repo generates. Keeps the vendored BearSSL lib, which only changes
+# on a vendor bump: rebuilding it on every gate run costs more than it catches.
+clean-build:
 	rm -f minimoni minimoni-migrate
 	rm -rf build
+
+clean: clean-build
 	-$(MAKE) -C vendor/bearssl clean 2>/dev/null
