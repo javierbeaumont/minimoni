@@ -119,14 +119,15 @@ tidy:
 	pre-commit run clang-tidy --all-files --hook-stage pre-push
 
 # Unit tests (Docker): one C suite per module (shared tests/runner.h; unit-config/json
-# link tomlc17), plus the JS suites via node --test with a coverage gate (thresholds
-# apply to the loaded non-DOM JS: dashboard/format.js + tools/devserver; the DOM files
-# are covered by the browser paths and the cli.sh bundle check instead).
+# link tomlc17; unit-http uses tests/embed.h, hence no -Ibuild), plus the JS suites via
+# node --test with a coverage gate (thresholds apply to the loaded non-DOM JS:
+# dashboard/format.js + tools/devserver; the DOM files are covered by the browser paths
+# and the cli.sh bundle check instead).
 test-unit: ci-image \
       tests/unit-config.c tests/unit-db.c tests/unit-db_cmd.c tests/unit-downsample.c \
       tests/unit-http.c tests/unit-json.c tests/unit-metrics.c tests/unit-migrate.c \
       tests/unit-units.c \
-      tests/contract-units.c tests/runner.h tests/devserver.test.js \
+      tests/contract-units.c tests/embed.h tests/runner.h tests/devserver.test.js \
       tests/devserver-http.test.js tests/dashboard.test.js
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
 	  sh -c "mkdir -p build && \
@@ -138,7 +139,7 @@ test-unit: ci-image \
 	      tests/unit-db_cmd.c vendor/sqlite3.c -o build/unit-db_cmd-test -lpthread && \
 	    gcc -Wall -Wextra -std=c11 -Isrc -Itests \
 	      tests/unit-downsample.c -o build/unit-downsample-test && \
-	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Ibuild -Itests $(SQLITE_FLAGS) \
+	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Itests $(SQLITE_FLAGS) \
 	      $(CIVETWEB_FLAGS) \
 	      tests/unit-http.c src/db.c src/json.c src/units.c src/downsample.c \
 	      src/config.c src/metrics.c vendor/sqlite3.c vendor/tomlc17.c \
