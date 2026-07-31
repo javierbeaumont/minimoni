@@ -10,6 +10,8 @@
 Zero-dependency system monitoring in a single C binary. Collects CPU, memory, disk,
 temperature, and network metrics into SQLite and serves an interactive canvas dashboard.
 
+Try the [live demo][demo]: a Raspberry Pi 3B monitoring itself.
+
 Designed for resource-constrained Linux systems (small VPS, single-board computers,
 and homelab servers) where every MB counts.
 
@@ -608,6 +610,8 @@ open a public issue for vulnerabilities).
 ## License
 
 GPL-3.0-or-later. See [LICENSE](LICENSE) for the full text.
+
+[demo]: https://javier.beaumont.eus/minimoni/live/
 
 <!-- Badge definitions. The URLs below exceed 100 columns; a URL cannot be wrapped. -->
 [b-deps]: https://img.shields.io/badge/Dependencies-0-brightgreen
