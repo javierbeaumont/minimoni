@@ -379,7 +379,8 @@ temp_chart_unit        = "c"    # chart Y-axis: "%" | "c" | "f"
 # temp_critical_fallback = 95     # temp % 100% ref when sysfs has no critical trip (default: 85)
 net_card_unit          = "kb"   # status card: "%" | "kb" | "mb" | "gb" | "kbps" | "mbps" | "gbps"
 net_chart_unit         = "kb"   # chart Y-axis: same values as net_card_unit
-# net_max_speed          = 300    # net % 100% ref in Mbit/s: wins over the sysfs link speed
+# net_max_speed          = 300    # link ceiling in Mbit/s: the net "%" denominator and the
+#                                 # source of its thresholds. Wins over the sysfs link speed
 #                                 # (the NIC's, not your uplink). Unset: sysfs, else 1000
 uptime_unit            = "auto" # uptime display: "auto" | "h" | "d"
 ```
@@ -420,6 +421,12 @@ or skipped, the daemon aborts at config load (instead of silently falling back t
 Repeats and custom ordering are valid (e.g. `["4h", "2d", "45d", "2d"]` shows four tabs in
 that order with 45-day retention). Sub-day ranges round up to 1 day for retention purposes
 (prune granularity is days). Default: `["1d", "7d", "30d", "90d"]`.
+
+**`net_max_speed`**: the link ceiling in Mbit/s. Denominator of the net `"%"` units and anchor of
+the semaphore: yellow at 85% of it, red at 98%, both levels drawn on the chart once traffic
+reaches them. Set your real ceiling, because sysfs reports the NIC and not the uplink behind it:
+a 1 GbE card on a 300 Mbit line reads 1000, and every value then looks three times healthier than
+it is. With neither this key nor sysfs, minimoni assumes 1 GbE.
 
 The number of data points per chart is no longer a per-install setting: the dashboard
 JS asks for what it can render, via the `points` query parameter on `/api/metrics`

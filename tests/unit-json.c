@@ -342,6 +342,29 @@ static int test_net_percent_configured_max_wins(void)
     return has(b, "\"net_rx\":100") ? 0 : 1;
 }
 
+static int test_net_thresholds_percent(void)
+{
+    char     b[2048];
+    db_row_t r = sample_row();
+    r.net_valid = 1;
+    config_t c = base_cfg();
+    strcpy(c.net_card_unit, "%");
+    emit_link(b, sizeof(b), &r, &c, 1000);
+    return (has(b, "\"thresh_net\":[85,98]")) ? 0 : 1;
+}
+
+static int test_net_thresholds_absolute(void)
+{
+    char     b[2048];
+    db_row_t r = sample_row();
+    r.net_valid = 1;
+    config_t c = base_cfg();
+    strcpy(c.net_card_unit, "mb"); /* 100 Mbit = 12500000 B/s = 11.9209 MB/s */
+    c.net_max_speed = 100;
+    emit_link(b, sizeof(b), &r, &c, 0);
+    return (has(b, "\"thresh_net\":[10.13")) ? 0 : 1;
+}
+
 /* --- charts/cards echo: the three visibility states --- */
 
 static int test_charts_echo_null_by_default(void)
@@ -562,6 +585,8 @@ static const test_t ALL_TESTS[] = {
     T(net_percent_uses_detected_link),
     T(net_percent_defaults_to_gbe),
     T(net_percent_configured_max_wins),
+    T(net_thresholds_percent),
+    T(net_thresholds_absolute),
     T(charts_echo_null_by_default),
     T(charts_echo_empty_when_hidden),
     T(charts_echo_list),

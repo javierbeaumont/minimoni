@@ -107,10 +107,18 @@ function fmtTempVal(v, unit) {
   return v.toFixed(1) + '%';
 }
 
-/* Threshold -> 'g' / 'y' / 'r' (good / warning / critical). */
+/* Threshold -> 'g' / 'y' / 'r' (good / warning / critical). No thresholds yet
+ * (net, before the first /current): no semaphore instead of a crash. */
 function cardLevel(v, thresh) {
-  if (v == null) return '';
+  if (v == null || !thresh) return '';
   return v >= thresh[1] ? 'r' : v >= thresh[0] ? 'y' : 'g';
+}
+
+/* Card level for a two-directional metric: the busier direction decides, a
+ * saturated uplink being a saturated link with the downlink idle. */
+function pairLevel(a, b, thresh) {
+  const seen = [a, b].filter((v) => v != null);
+  return seen.length ? cardLevel(Math.max(...seen), thresh) : '';
 }
 
 /* --- Chart axis helpers --- */
@@ -180,6 +188,7 @@ if (typeof module !== 'undefined' && module.exports) {
     fmtNet: fmtNet,
     fmtTempVal: fmtTempVal,
     cardLevel: cardLevel,
+    pairLevel: pairLevel,
     niceTicks: niceTicks,
     timeTicks: timeTicks,
     metricsUrl: metricsUrl,

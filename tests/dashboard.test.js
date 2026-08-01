@@ -29,7 +29,8 @@ const assert = require('node:assert');
 const path = require('path');
 
 const {
-  fmtY, fmtX, fmtTip, fmtXFull, fmtUptime, fmtNet, fmtTempVal, cardLevel, metricsUrl, clampPoints,
+  fmtY, fmtX, fmtTip, fmtXFull, fmtUptime, fmtNet, fmtTempVal, cardLevel, pairLevel, metricsUrl,
+  clampPoints,
   niceTicks, timeTicks,
 } = require(path.join(__dirname, '..', 'dashboard', 'format.js'));
 
@@ -126,6 +127,17 @@ test('cardLevel thresholds', () => {
   assert.strictEqual(cardLevel(50, [70, 90]), 'g');
   assert.strictEqual(cardLevel(75, [70, 90]), 'y');
   assert.strictEqual(cardLevel(95, [70, 90]), 'r');
+  /* Net has no static fallback: no thresholds yet means no semaphore. */
+  assert.strictEqual(cardLevel(95, undefined), '');
+});
+
+test('pairLevel: the busier direction decides', () => {
+  assert.strictEqual(pairLevel(10, 95, [85, 98]), 'y');  /* download alone crosses warn */
+  assert.strictEqual(pairLevel(99, 10, [85, 98]), 'r');  /* upload alone saturates */
+  assert.strictEqual(pairLevel(10, 20, [85, 98]), 'g');
+  assert.strictEqual(pairLevel(null, 99, [85, 98]), 'r'); /* one direction is enough */
+  assert.strictEqual(pairLevel(null, null, [85, 98]), ''); /* no delta yet: no semaphore */
+  assert.strictEqual(pairLevel(99, 99, undefined), '');    /* no thresholds yet */
 });
 
 test('metricsUrl basic', () => {
