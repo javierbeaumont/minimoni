@@ -20,7 +20,7 @@ repos:
       - id: check-toml
       - id: detect-private-key
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.2
+    rev: v2.4.3
     hooks:
       - id: codespell
   - repo: https://github.com/shellcheck-py/shellcheck-py
@@ -55,17 +55,17 @@ repos:
         files: '\.(html|svg)$'
         args: [--license-filepath=tools/license-header.txt, '--comment-style=<!--|  |-->']
   - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v22.1.5
+    rev: v22.1.8
     hooks:
       - id: clang-format
         files: '\.(c|h)$'
   - repo: https://github.com/pre-commit/mirrors-eslint
-    rev: v10.5.0
+    rev: v10.7.0
     hooks:
       - id: eslint
         files: '\.js$'
         additional_dependencies:
-          - eslint@10.5.0
+          - eslint@10.8.0
           - '@eslint/js@10.0.1'
           - globals@17.7.0
   - repo: local
