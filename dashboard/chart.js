@@ -22,7 +22,7 @@
  * top lives in hover.js. bundle.sh inlines format.js, this, hover.js, cards.js,
  * then app.js (one shared global scope). */
 /* global fmtY, fmtTip, fmtX, fmtNet, niceTicks, timeTicks */
-/* global THRESH, cfgCardUnits, cfgChartUnits, cfgVisCharts, pts, tempCritical */
+/* global THRESH, cfgCardUnits, cfgChartUnits, cfgVisCharts, pts */
 /* global refreshLockedIdx, scheduleHoverDraw, lockedIdx */
 /* exported renderAll, buildLegends, invalidateCssCache, drawChart, chartCache */
 
@@ -159,10 +159,7 @@ function drawChart(id, series, opts) {
     });
   }
 
-  /* Reference lines: explicit opts.refLines (e.g. the sysfs temp trip point,
-   * dashed) plus opts.thresh-derived thin solid warn/crit lines, drawn only
-   * when the data actually crossed them. */
-  const refLines = (opts.refLines || []).slice();
+  /* Threshold lines, drawn only once the data crossed them. */
   if (opts.thresh) {
     let thMax = -Infinity;
     series.forEach((s) => {
@@ -170,28 +167,20 @@ function drawChart(id, series, opts) {
         if (v != null && v > thMax) thMax = v;
       });
     });
-    if (thMax >= opts.thresh[0])
-      refLines.push({ v: opts.thresh[0], c: cssv('--ylw'), dashed: false });
-    if (thMax >= opts.thresh[1])
-      refLines.push({ v: opts.thresh[1], c: cssv('--red'), dashed: false });
-  }
-  refLines.forEach((rl) => {
-    const ry = ty(rl.v);
-    if (ry < Pt || ry > Pt + ch) return;  /* out of visible range */
-    ctx.save();
-    ctx.strokeStyle = rl.c || cssv('--red');
-    if (rl.dashed === false) {
+    /* No save/restore: the series below sets its own stroke and width. */
+    const line = (v, colour) => {
+      const ry = ty(v);
+      if (ry < Pt || ry > Pt + ch) return;  /* out of visible range */
+      ctx.strokeStyle = colour;
       ctx.lineWidth = 0.5;
-    } else {
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-    }
-    ctx.beginPath();
-    ctx.moveTo(Pl, ry);
-    ctx.lineTo(Pl + cw, ry);
-    ctx.stroke();
-    ctx.restore();
-  });
+      ctx.beginPath();
+      ctx.moveTo(Pl, ry);
+      ctx.lineTo(Pl + cw, ry);
+      ctx.stroke();
+    };
+    if (thMax >= opts.thresh[0]) line(opts.thresh[0], cssv('--ylw'));
+    if (thMax >= opts.thresh[1]) line(opts.thresh[1], cssv('--red'));
+  }
 
   /* Series: stroke only (no fill). `ok` resets on null entries so gaps in the
    * data render as breaks instead of straight lines. */
@@ -366,10 +355,6 @@ function renderAll() {
     const tempOpts = {
       yMin: 0,
       ts:   ts,
-      /* Dashed red line at the sysfs critical trip-point (hardware limit) */
-      refLines: (tempUnitsMatch && tempCritical != null)
-        ? [{ v: tempCritical, c: cssv('--red') }]
-        : [],
       /* Tooltip shows the actual unit symbol; fmtTip alone collapses C and F to
        * a bare degree, ambiguous when the user picked Fahrenheit. */
       fmtFn: (v) => v.toFixed(1) + tmpSym,
@@ -383,11 +368,18 @@ function renderAll() {
   if (chartVisible('net', 'nr', 'b-net')) {
     document.getElementById('b-net').querySelector('.ctitle').textContent =
       'Network (' + netUL + ')';
+    /* Thresholds arrive in CARD units: they only apply if the chart shares it. */
+    const netUnitsMatch = (cfgChartUnits.net || 'kb') === (cfgCardUnits.net || 'kb');
+    const netOpts = {
+      yMin: 0,
+      ts:   ts,
+      fmtFn: (v) => fmtNet(v, cfgChartUnits.net),
+    };
+    if (netUnitsMatch) netOpts.thresh = THRESH.net;
     drawChart('g-net', [
       { c: CLR.tx, k: 'net-tx', v: pts.map((p) => p.nt), label: 'upload' },
       { c: CLR.rx, k: 'net-rx', v: pts.map((p) => p.nr), label: 'download' },
-    ].filter((_, i) => !seriesHidden['g-net'][i]),
-      { yMin: 0, ts: ts, fmtFn: (v) => fmtNet(v, cfgChartUnits.net) });
+    ].filter((_, i) => !seriesHidden['g-net'][i]), netOpts);
   }
 
   /* Fresh drawChart calls above rewrote clean opts to the cache; without this

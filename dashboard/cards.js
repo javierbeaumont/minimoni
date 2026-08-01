@@ -20,9 +20,9 @@
  * also applies server config: units, thresholds, visibility, title/theme/footer).
  * Owns the config state (written here, read by chart.js/app.js via globals).
  * bundle.sh inlines format.js, chart.js, this, then app.js (one shared scope). */
-/* global fmtUptime, fmtNet, fmtTempVal, cardLevel */
+/* global fmtUptime, fmtNet, fmtTempVal, cardLevel, pairLevel */
 /* global buildTabs */
-/* exported updateCards, wireCards, THRESH, cfgCardUnits, cfgChartUnits, cfgVisCharts, cfgRanges, tempCritical */
+/* exported updateCards, wireCards, THRESH, cfgCardUnits, cfgChartUnits, cfgVisCharts, cfgRanges */
 
 /* Fallback [warn, critical] card thresholds, used only until the first payload:
  * the server sends per-metric thresh_* in /api/current and updateCards overwrites these. */
@@ -33,8 +33,6 @@ const THRESH = {
   load: [3, 4],    /* abs fallback = [0.75x4, 1.0x4], 4 cores assumed */
   temp: [70, 80],  /* degC fallback when no sysfs trip point */
 };
-
-let tempCritical = null;    /* sysfs trip-point; drawn as a red dashed line */
 
 /* Units read from server config; sensible defaults until first /current */
 const cfgCardUnits  = { mem: '%',  disk: '%',  temp: 'c', net: 'kb', load: 'abs' };
@@ -138,6 +136,7 @@ function updateCards(d) {
   if (d.thresh_mem)  THRESH.mem  = d.thresh_mem;
   if (d.thresh_disk) THRESH.disk = d.thresh_disk;
   if (d.thresh_temp) THRESH.temp = d.thresh_temp;
+  if (d.thresh_net)  THRESH.net  = d.thresh_net;
 
   /* Title, footer, theme */
   if (d.title) {
@@ -284,17 +283,13 @@ function updateCards(d) {
     tc.querySelector('.cval').textContent = fmtTempVal(d.temp, cfgCardUnits.temp);
     tc.className = 'card' + (tempLvl ? ' ' + tempLvl : '');
   }
-  /* Store the critical trip-point for the chart reference line. `!== undefined`
-   * so an explicit null (sensor offline after a valid read) clears the stale
-   * reference; only an absent field preserves the last known value. */
-  if (d.temp_critical !== undefined) tempCritical = d.temp_critical;
-
   /* Network: netV[0]=tx, netV[1]=rx, matching the HTML card-sub order. Both
    * may be null on the first collect before a delta exists (rendered as the
    * dash). No threshold levels (network has no semaphore). */
   if ('net_rx' in d) {
     const netFmt = (v) => fmtNet(v, cfgCardUnits.net);
-    updateNumericCard('c-net', 'net', [d.net_tx, d.net_rx], netFmt, '');
+    updateNumericCard('c-net', 'net', [d.net_tx, d.net_rx], netFmt,
+      pairLevel(d.net_tx, d.net_rx, THRESH.net), (v) => cardLevel(v, THRESH.net));
   }
 
   /* Uptime subtitle */
