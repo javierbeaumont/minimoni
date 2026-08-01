@@ -214,6 +214,18 @@ test('toCurrent: thresh_temp derives from the sysfs critical point', () => {
   assert.deepStrictEqual(out.thresh_temp, [85, 95]); /* mock crit 105 -> [crit-20, crit-10] */
 });
 
+test('toCurrent: thresh_net tracks the link ceiling', () => {
+  const pct = toCurrent(currentSnapshot('normal'), configFields({ net_card_unit: '%' }), 85.0);
+
+  assert.deepStrictEqual(pct.thresh_net, [85, 98]);
+
+  /* Absolute, 100 Mbit configured (4th arg) = 12500000 B/s = 11.9209 MB/s. */
+  const abs = toCurrent(currentSnapshot('normal'),
+    configFields({ net_card_unit: 'mb' }), 85.0, 100);
+
+  assert.strictEqual(abs.thresh_net[0], 10.1328);
+});
+
 test('toPoint: emits short keys', () => {
   const out = toPoint(point(), configFields({}), 85.0);
 

@@ -109,6 +109,7 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
     const char *du = cfg->disk_card_unit;
     const char *nu = cfg->net_card_unit;
     double      nref = net_ref_bps(cfg->net_max_speed, detected_speed_mbit);
+    double      tref = temp_ref(temp_critical_valid, temp_critical, cfg->temp_critical_fallback);
 
     jbuf_str(j, "timestamp", r->timestamp);
 
@@ -153,15 +154,10 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
     }
 
     if (config_has(cfg->cards, cfg->card_count, "temp")) {
-        double tref = temp_ref(temp_critical_valid, temp_critical, cfg->temp_critical_fallback);
         if (r->temp_valid)
             jbuf_real(j, "temp", temp_convert(r->temp_celsius, cfg->temp_card_unit, tref));
         else
             jbuf_null(j, "temp");
-        if (temp_critical_valid)
-            jbuf_real(j, "temp_critical", temp_convert(temp_critical, cfg->temp_card_unit, tref));
-        else
-            jbuf_null(j, "temp_critical");
     }
 
     if (config_has(cfg->cards, cfg->card_count, "net")) {
@@ -243,8 +239,9 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
      *   load : [0.75*cores, 1.0*cores] for abs; [70, 90] for %
      *   cpu  : [70, 90]   (always %)
      *   mem  : [70, 90]   (compared against mem_percent)
-     *   disk : [80, 90]   (compared against disk_percent; Nagios std)
-     *   temp : [trip-20, trip-10] converted to the card unit; [70, 80] fallback */
+     *   disk : [80, 90]   (compared against disk_percent)
+     *   temp : [trip-20, trip-10] converted to the card unit; [70, 80] fallback
+     *   net  : [85%, 98%] of the link ceiling, converted to the card unit */
     if (config_has(cfg->cards, cfg->card_count, "cpu_load")) {
         double lw, lc;
         if (lu[0] == '%') {
@@ -263,7 +260,6 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
     if (config_has(cfg->cards, cfg->card_count, "disk"))
         jbuf_pair(j, "thresh_disk", 80.0, 90.0);
     if (config_has(cfg->cards, cfg->card_count, "temp")) {
-        double tref = temp_ref(temp_critical_valid, temp_critical, cfg->temp_critical_fallback);
         double tw, tc;
         if (temp_critical_valid) {
             tw = temp_convert(temp_critical - 20.0, cfg->temp_card_unit, tref);
@@ -274,6 +270,9 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
         }
         jbuf_pair(j, "thresh_temp", tw, tc);
     }
+    if (config_has(cfg->cards, cfg->card_count, "net"))
+        jbuf_pair(j, "thresh_net", net_convert(0.85 * nref, nu, nref),
+                  net_convert(0.98 * nref, nu, nref));
 }
 
 void json_serialize_point(jbuf_t *j, const db_row_t *r, const config_t *cfg, int num_cores,

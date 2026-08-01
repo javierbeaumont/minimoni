@@ -153,15 +153,13 @@ function toCurrent(raw, f, fallback, netMaxSpeed = 0) {
   const tc = m.temp_c;
   const crit = m.temp_critical_c;
   const ref = tempRef(crit, fallback);
+  const nref = netRefBps(netMaxSpeed, m.net_speed_mbit);
 
   if (configHas(cards, 'temp')) {
     out.temp = tc != null ? round(tempConvert(tc, tu, ref), 1) : null;
-    out.temp_critical = crit != null ? round(tempConvert(crit, tu, ref), 1) : null;
   }
 
   if (configHas(cards, 'net')) {
-    const nref = netRefBps(netMaxSpeed, m.net_speed_mbit);
-
     out.net_rx = round(netConvert(m.net_rx_bps, nu, nref), 2);
     out.net_tx = round(netConvert(m.net_tx_bps, nu, nref), 2);
   }
@@ -190,6 +188,13 @@ function toCurrent(raw, f, fallback, netMaxSpeed = 0) {
     out.thresh_temp = [
       round(tempConvert(base[0], tu, ref), 4),
       round(tempConvert(base[1], tu, ref), 4),
+    ];
+  }
+
+  if (configHas(cards, 'net')) {
+    out.thresh_net = [
+      round(netConvert(0.85 * nref, nu, nref), 4),
+      round(netConvert(0.98 * nref, nu, nref), 4),
     ];
   }
 
@@ -248,7 +253,6 @@ function toPoint(raw, f, fallback, netMaxSpeed = 0) {
 }
 
 module.exports = {
-  CORES,
   netConvert,
   netRefBps,
   memConvert,
@@ -256,7 +260,6 @@ module.exports = {
   tempConvert,
   tempRef,
   loadConvert,
-  configHas,
   toCurrent,
   toPoint,
 };
