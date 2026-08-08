@@ -166,7 +166,26 @@ check_rc "serve shuts down cleanly on SIGTERM" 0 "$rc"
 # database to the response, which is where a mismatched key or a dropped call
 # would hide. The row: 1748/2048 MB memory, 20/100 GB disk, 50 C, 5 MiB/s down
 # and 1 MiB/s up, load 2.
-"$BIN" db exec "$work/metrics.db" "INSERT INTO metrics (timestamp, load_1m, load_5m, \
+#
+# Its own database, seeded and nothing else: the magnitude comes from the
+# largest value in the window, so rows collected from the host would hand the
+# choice to whatever memory the machine happens to have (MB in a small
+# container, GB on a 16 GB CI runner).
+udb="$work/units.db"
+cat >"$work/units-seed.toml" <<EOF
+[collect]
+db = "$udb"
+interval = 60
+disk_path = "/"
+[server]
+listen = "127.0.0.1:$PORT"
+EOF
+"$BIN" serve --config "$work/units-seed.toml" >/dev/null 2>&1 &
+usv=$!
+sleep 1
+kill -TERM "$usv" 2>/dev/null
+wait "$usv" 2>/dev/null
+"$BIN" db exec "$udb" "INSERT INTO metrics (timestamp, load_1m, load_5m, \
   load_15m, cpu_user_percent, cpu_system_percent, cpu_idle_percent, mem_total_mb, \
   mem_used_mb, mem_available_mb, mem_percent, disk_total_gb, disk_used_gb, disk_free_gb, \
   disk_percent, temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds, bucket_sec) VALUES \
@@ -177,7 +196,7 @@ check_rc "units: seed row inserted" 0 $?
 units_serve() { # CFG_BODY -> sets $current and $metrics
     cat >"$work/u.toml" <<EOF
 [collect]
-db = "$work/metrics.db"
+db = "$udb"
 interval = 60
 disk_path = "/"
 [server]
