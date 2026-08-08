@@ -44,33 +44,8 @@ function netRefBps(maxMbit, detectedMbit) {
 function netConvert(bps, unit, refBps) {
   if (unit && unit[0] === '%')
     return refBps > 0 ? (bps * 100.0) / refBps : 0.0;
-  if (!unit || unit[0] === 'm') {
-    if (unit && unit[1] === 'b' && unit[2] === 'p') /* mbps */
-      return (bps * 8.0) / 1e6;
-    return bps / 1048576.0; /* mb */
-  }
 
-  if (unit[0] === 'g') {
-    if (unit[1] === 'b' && unit[2] === 'p') /* gbps */
-      return (bps * 8.0) / 1e9;
-    return bps / 1073741824.0; /* gb */
-  }
-
-  if (unit[0] === 'k') {
-    if (unit[1] === 'b' && unit[2] === 'p') /* kbps */
-      return (bps * 8.0) / 1000.0;
-    return bps / 1024.0; /* kb */
-  }
-
-  return bps / 1048576.0;
-}
-
-function memConvert(mb, unit) {
-  return unit && unit[0] === 'g' ? mb / 1024.0 : mb;
-}
-
-function diskConvert(gb, unit) {
-  return unit && unit[0] === 't' ? gb / 1024.0 : gb;
+  return bps;
 }
 
 function tempConvert(celsius, unit, ref) {
@@ -132,9 +107,9 @@ function toCurrent(raw, f, fallback, netMaxSpeed = 0) {
 
   if (configHas(cards, 'memory')) {
     if (mu[0] !== '%') {
-      out.mem_used = round(memConvert(m.mem_used_mb, mu), 2);
-      out.mem_available = round(memConvert(m.mem_avail_mb, mu), 2);
-      out.mem_total = round(memConvert(m.mem_total_mb, mu), 2);
+      out.mem_used = round(m.mem_used_mb, 2);
+      out.mem_available = round(m.mem_avail_mb, 2);
+      out.mem_total = round(m.mem_total_mb, 2);
     }
 
     out.mem_percent = round(m.mem_percent, 1);
@@ -142,9 +117,9 @@ function toCurrent(raw, f, fallback, netMaxSpeed = 0) {
 
   if (configHas(cards, 'disk')) {
     if (du[0] !== '%') {
-      out.disk_used = round(diskConvert(m.disk_used_gb, du), 2);
-      out.disk_total = round(diskConvert(m.disk_total_gb, du), 2);
-      out.disk_free = round(diskConvert(m.disk_free_gb, du), 2);
+      out.disk_used = round(m.disk_used_gb, 2);
+      out.disk_total = round(m.disk_total_gb, 2);
+      out.disk_free = round(m.disk_free_gb, 2);
     }
 
     out.disk_percent = round(m.disk_percent, 1);
@@ -201,6 +176,47 @@ function toCurrent(raw, f, fallback, netMaxSpeed = 0) {
   return out;
 }
 
+/* Mirror of unit_step + json_serialize_units in the C server. */
+const LADDERS = {
+  mem:   { sym: ['MB', 'GB', 'TB'], mul: 1, factor: 1024, base: 0 },
+  disk:  { sym: ['GB', 'TB', 'PB'], mul: 1, factor: 1024, base: 0 },
+  bytes: { sym: ['KB/s', 'MB/s', 'GB/s'], mul: 1, factor: 1024, base: 1 },
+  bits:  { sym: ['Kbps', 'Mbps', 'Gbps'], mul: 8, factor: 1000, base: 1 },
+};
+const DIGITS_MAX = 9999;
+
+function unitStep(max, steps, factor) {
+  if (!(max > 0)) return -1;
+  let i = 0;
+  while (i < steps - 1 && max / Math.pow(factor, i) > DIGITS_MAX) i++;
+  return i;
+}
+
+function unitFor(max, kind) {
+  const l = LADDERS[kind];
+  const i = unitStep((max * l.mul) / Math.pow(l.factor, l.base), l.sym.length, l.factor);
+  return i < 0 ? null : { sym: l.sym[i], mul: l.mul, div: Math.pow(l.factor, i + l.base) };
+}
+
+function unitsFor(raws, f) {
+  const out = {};
+  const peak = (rows, ...keys) => rows.reduce((m, r) =>
+    keys.reduce((n, k) => (r[k] != null && r[k] > n ? r[k] : n), m), 0);
+  /* Like the C server: a row with no delta yet carries noise, not throughput. */
+  const withNet = raws.filter((r) => r.net_valid !== 0);
+
+  if (String(f.mem_chart_unit)[0] !== '%')
+    out.mem = unitFor(peak(raws, 'mem_used_mb', 'mem_avail_mb'), 'mem');
+  if (String(f.disk_chart_unit)[0] !== '%')
+    out.disk = unitFor(peak(raws, 'disk_used_gb', 'disk_free_gb'), 'disk');
+  if (String(f.net_chart_unit)[0] !== '%') {
+    out.net = unitFor(peak(withNet, 'net_rx_bps', 'net_tx_bps'),
+      String(f.net_chart_unit) === 'bits' ? 'bits' : 'bytes');
+  }
+  Object.keys(out).forEach((k) => { if (!out[k]) delete out[k]; });
+  return out;
+}
+
 /* Serialize a raw point for /api/metrics using the CHART units (short keys). */
 function toPoint(raw, f, fallback, netMaxSpeed = 0) {
   const m = raw;
@@ -221,17 +237,17 @@ function toPoint(raw, f, fallback, netMaxSpeed = 0) {
   };
 
   if (mu[0] !== '%') {
-    out.mu = round(memConvert(m.mem_used_mb, mu), 2);
-    out.ma = round(memConvert(m.mem_avail_mb, mu), 2);
-    out.mt = round(memConvert(m.mem_total_mb, mu), 2);
+    out.mu = round(m.mem_used_mb, 2);
+    out.ma = round(m.mem_avail_mb, 2);
+    out.mt = round(m.mem_total_mb, 2);
   }
 
   out.mp = round(m.mem_percent, 1);
 
   if (du[0] !== '%') {
-    out.du = round(diskConvert(m.disk_used_gb, du), 2);
-    out.dt = round(diskConvert(m.disk_total_gb, du), 2);
-    out.df = round(diskConvert(m.disk_free_gb, du), 2);
+    out.du = round(m.disk_used_gb, 2);
+    out.dt = round(m.disk_total_gb, 2);
+    out.df = round(m.disk_free_gb, 2);
   }
 
   out.dp = round(m.disk_percent, 1);
@@ -255,11 +271,11 @@ function toPoint(raw, f, fallback, netMaxSpeed = 0) {
 module.exports = {
   netConvert,
   netRefBps,
-  memConvert,
-  diskConvert,
   tempConvert,
   tempRef,
   loadConvert,
   toCurrent,
   toPoint,
+  unitsFor,
+  unitStep,
 };

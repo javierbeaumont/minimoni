@@ -252,9 +252,17 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
         mg_write(conn, pt, j.pos);
     }
 
+    char   tail[256];
+    jbuf_t u;
+    jbuf_init(&u, tail, sizeof(tail));
+    u.comma = 0;
+    json_serialize_units(&u, rows, cnt, ctx->cfg);
+
     free(rows);
     db_release_memory(ctx->db);
-    mg_write(conn, "]}", 2);
+    mg_write(conn, "],", 2);
+    mg_write(conn, tail, u.pos);
+    mg_write(conn, "}", 1);
     return 200;
 }
 

@@ -39,7 +39,7 @@ const {
 } = require(path.join(dev, 'mock-data'));
 
 const {
-  netConvert, netRefBps, memConvert, diskConvert, loadConvert, tempConvert, tempRef, toCurrent,
+  netConvert, netRefBps, loadConvert, tempConvert, tempRef, toCurrent, unitsFor,
   toPoint,
 } = require(path.join(dev, 'units'));
 
@@ -131,15 +131,11 @@ test('tempConvert: celsius', () => {
   assert.strictEqual(tempConvert(50.0, 'c', 85.0), 50.0);
 });
 
-test('netConvert: byte and bit units', () => {
-  assert.strictEqual(netConvert(1048576, 'mb'), 1);
-  assert.strictEqual(netConvert(1073741824, 'gb'), 1);
-  assert.strictEqual(netConvert(1024, 'kb'), 1);
-  assert.strictEqual(netConvert(1e6, 'mbps'), 8);
-  assert.strictEqual(netConvert(1e9, 'gbps'), 8);
-  assert.strictEqual(netConvert(1000, 'kbps'), 8);
-  assert.strictEqual(netConvert(1048576, ''), 1); /* empty unit -> mb */
-  assert.strictEqual(netConvert(1048576, 'x'), 1); /* unknown unit -> mb */
+test('netConvert: anything but "%" passes through', () => {
+  /* Magnitude is the dashboard's call, so the mock ships base bytes/s too. */
+  assert.strictEqual(netConvert(1048576, 'bytes'), 1048576);
+  assert.strictEqual(netConvert(1048576, 'bits'), 1048576);
+  assert.strictEqual(netConvert(1048576, ''), 1048576);
 });
 
 test('netRefBps / netConvert percent mirror the C server', () => {
@@ -163,13 +159,6 @@ test('toCurrent: net percent end to end', () => {
   const out = toCurrent(raw, configFields({ net_card_unit: '%' }), 85.0);
 
   assert.strictEqual(out.net_rx, 50);
-});
-
-test('memConvert / diskConvert', () => {
-  assert.strictEqual(memConvert(1024, 'gb'), 1);
-  assert.strictEqual(memConvert(500, 'mb'), 500);
-  assert.strictEqual(diskConvert(1024, 'tb'), 1);
-  assert.strictEqual(diskConvert(50, 'gb'), 50);
 });
 
 test('loadConvert: percent normalises by cores', () => {
@@ -219,11 +208,43 @@ test('toCurrent: thresh_net tracks the link ceiling', () => {
 
   assert.deepStrictEqual(pct.thresh_net, [85, 98]);
 
-  /* Absolute, 100 Mbit configured (4th arg) = 12500000 B/s = 11.9209 MB/s. */
+  /* Outside "%", base bytes/s: 100 Mbit configured (4th arg) = 12500000 B/s. */
   const abs = toCurrent(currentSnapshot('normal'),
-    configFields({ net_card_unit: 'mb' }), 85.0, 100);
+    configFields({ net_card_unit: 'bytes' }), 85.0, 100);
 
-  assert.strictEqual(abs.thresh_net[0], 10.1328);
+  assert.deepStrictEqual(abs.thresh_net, [10625000, 12250000]);
+});
+
+test('unitsFor: mirrors the C choice for a window', () => {
+  const raws = [
+    { mem_used_mb: 300, mem_avail_mb: 1748, disk_used_gb: 20, disk_free_gb: 72,
+      net_rx_bps: 5242880, net_tx_bps: 1000 },
+  ];
+  const u = unitsFor(raws, configFields({}));
+
+  assert.deepStrictEqual(u.mem, { sym: 'MB', mul: 1, div: 1 });
+  assert.deepStrictEqual(u.disk, { sym: 'GB', mul: 1, div: 1 });
+  assert.deepStrictEqual(u.net, { sym: 'KB/s', mul: 1, div: 1024 });
+
+  /* Nothing on screen: no unit at all, rather than an invented one. */
+  assert.deepStrictEqual(unitsFor([{}], configFields({})), {});
+
+  /* A "%" metric has no magnitude. */
+  assert.ok(!('mem' in unitsFor(raws, configFields({ memory_chart_unit: '%' }))));
+
+  /* Rows with no delta carry noise, and must not set the magnitude (as in C). */
+  const noisy = unitsFor([
+    { net_valid: 0, net_tx_bps: 9e9 },
+    { net_valid: 1, net_tx_bps: 2048 },
+  ], configFields({}));
+
+  assert.deepStrictEqual(noisy.net, { sym: 'KB/s', mul: 1, div: 1024 });
+
+  /* Bits climb in 1000, bytes in 1024, and both ladders start one rung up. */
+  const bits = unitsFor([{ net_rx_bps: 125000, net_tx_bps: 0 }],
+    configFields({ net_chart_unit: 'bits' }));
+
+  assert.deepStrictEqual(bits.net, { sym: 'Kbps', mul: 8, div: 1000 });
 });
 
 test('toPoint: emits short keys', () => {
@@ -344,13 +365,13 @@ test('configFields: defaults, memory rename, overrides', () => {
   const def = configFields({});
 
   assert.strictEqual(def.mem_card_unit, '%'); /* memory_card_unit -> mem_card_unit */
-  assert.strictEqual(def.mem_chart_unit, 'mb');
+  assert.strictEqual(def.mem_chart_unit, 'auto');
   assert.strictEqual(def.title, 'minimoni');
   assert.strictEqual(def.charts, null); /* absent -> show all */
   assert.strictEqual(def.cards, null);
 
-  const over = configFields({ memory_card_unit: 'gb', title: 'X' });
+  const over = configFields({ memory_card_unit: 'auto', title: 'X' });
 
-  assert.strictEqual(over.mem_card_unit, 'gb');
+  assert.strictEqual(over.mem_card_unit, 'auto');
   assert.strictEqual(over.title, 'X');
 });

@@ -20,7 +20,9 @@
 #include <string.h>
 
 #include "json.h"
+
 #include "units.h"
+#include <math.h>
 
 /* --- JSON output writer --- */
 
@@ -137,18 +139,18 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
 
     if (config_has(cfg->cards, cfg->card_count, "memory")) {
         if (mu[0] != '%') {
-            jbuf_real(j, "mem_used", mem_convert(r->mem_used_mb, mu));
-            jbuf_real(j, "mem_available", mem_convert(r->mem_available_mb, mu));
-            jbuf_real(j, "mem_total", mem_convert(r->mem_total_mb, mu));
+            jbuf_real(j, "mem_used", r->mem_used_mb);
+            jbuf_real(j, "mem_available", r->mem_available_mb);
+            jbuf_real(j, "mem_total", r->mem_total_mb);
         }
         jbuf_real(j, "mem_percent", r->mem_percent);
     }
 
     if (config_has(cfg->cards, cfg->card_count, "disk")) {
         if (du[0] != '%') {
-            jbuf_real(j, "disk_used", disk_convert(r->disk_used_gb, du));
-            jbuf_real(j, "disk_total", disk_convert(r->disk_total_gb, du));
-            jbuf_real(j, "disk_free", disk_convert(r->disk_free_gb, du));
+            jbuf_real(j, "disk_used", r->disk_used_gb);
+            jbuf_real(j, "disk_total", r->disk_total_gb);
+            jbuf_real(j, "disk_free", r->disk_free_gb);
         }
         jbuf_real(j, "disk_percent", r->disk_percent);
     }
@@ -275,6 +277,54 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
                   net_convert(0.98 * nref, nu, nref));
 }
 
+static const char *const MEM_LADDER[] = {"MB", "GB", "TB"};
+static const char *const DISK_LADDER[] = {"GB", "TB", "PB"};
+static const char *const NET_BYTES[] = {"KB/s", "MB/s", "GB/s"};
+/* A kbit is 1000 bits, not 1024, hence the factor this one is served with. */
+static const char *const NET_BITS[] = {"Kbps", "Mbps", "Gbps"};
+
+static double max2(double a, double b) { return a > b ? a : b; }
+
+static void unit_entry(jbuf_t *j, const char *key, double max, const char *const *ladder, int steps,
+                       double mul, double factor, int base)
+{
+    int  step = unit_step(max * mul / pow(factor, base), steps, factor);
+    char buf[96];
+    if (step < 0)
+        return;
+    snprintf(buf, sizeof(buf), "\"%s\":{\"sym\":\"%s\",\"mul\":%g,\"div\":%g}", key, ladder[step],
+             mul, pow(factor, step + base));
+    jbuf_sep(j);
+    jbuf_raw(j, buf);
+}
+
+void json_serialize_units(jbuf_t *j, const db_row_t *rows, int cnt, const config_t *cfg)
+{
+    double mem = 0.0, disk = 0.0, net = 0.0;
+
+    for (int i = 0; i < cnt; i++) {
+        mem = max2(mem, max2(rows[i].mem_used_mb, rows[i].mem_available_mb));
+        disk = max2(disk, max2(rows[i].disk_used_gb, rows[i].disk_free_gb));
+        if (rows[i].net_valid)
+            net = max2(net, max2(rows[i].net_rx_bps, rows[i].net_tx_bps));
+    }
+
+    jbuf_sep(j);
+    jbuf_raw(j, "\"units\":{");
+    j->comma = 0; /* nested object: the first entry takes no leading comma */
+    if (cfg->memory_chart_unit[0] != '%')
+        unit_entry(j, "mem", mem, MEM_LADDER, 3, 1.0, 1024.0, 0);
+    if (cfg->disk_chart_unit[0] != '%')
+        unit_entry(j, "disk", disk, DISK_LADDER, 3, 1.0, 1024.0, 0);
+    if (cfg->net_chart_unit[0] != '%') {
+        int bits = cfg->net_chart_unit[0] == 'b' && cfg->net_chart_unit[1] == 'i';
+        unit_entry(j, "net", net, bits ? NET_BITS : NET_BYTES, 3, bits ? 8.0 : 1.0,
+                   bits ? 1000.0 : 1024.0, 1);
+    }
+    jbuf_raw(j, "}");
+    j->comma = 1;
+}
+
 void json_serialize_point(jbuf_t *j, const db_row_t *r, const config_t *cfg, int num_cores,
                           int temp_critical_valid, double temp_critical, int detected_speed_mbit)
 {
@@ -308,18 +358,18 @@ void json_serialize_point(jbuf_t *j, const db_row_t *r, const config_t *cfg, int
 
     if (config_has(cfg->charts, cfg->chart_count, "memory")) {
         if (mu[0] != '%') {
-            jbuf_real(j, "mu", mem_convert(r->mem_used_mb, mu));
-            jbuf_real(j, "ma", mem_convert(r->mem_available_mb, mu));
-            jbuf_real(j, "mt", mem_convert(r->mem_total_mb, mu));
+            jbuf_real(j, "mu", r->mem_used_mb);
+            jbuf_real(j, "ma", r->mem_available_mb);
+            jbuf_real(j, "mt", r->mem_total_mb);
         }
         jbuf_real(j, "mp", r->mem_percent);
     }
 
     if (config_has(cfg->charts, cfg->chart_count, "disk")) {
         if (du[0] != '%') {
-            jbuf_real(j, "du", disk_convert(r->disk_used_gb, du));
-            jbuf_real(j, "dt", disk_convert(r->disk_total_gb, du));
-            jbuf_real(j, "df", disk_convert(r->disk_free_gb, du));
+            jbuf_real(j, "du", r->disk_used_gb);
+            jbuf_real(j, "dt", r->disk_total_gb);
+            jbuf_real(j, "df", r->disk_free_gb);
         }
         jbuf_real(j, "dp", r->disk_percent);
     }

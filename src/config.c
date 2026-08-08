@@ -91,11 +91,11 @@ static int valid_op(const char *s)
 /* --- Unit validation --- */
 
 /* Allowed values per *_unit key, in the order config.example.toml documents. */
-static const char *const MEM_UNITS[] = {"%", "mb", "gb", NULL};
-static const char *const DISK_UNITS[] = {"%", "gb", "tb", NULL};
+static const char *const SIZE_UNITS[] = {"%", "auto", NULL};
+
 static const char *const TEMP_UNITS[] = {"%", "c", "f", NULL};
 static const char *const LOAD_UNITS[] = {"%", "abs", NULL};
-static const char *const NET_UNITS[] = {"%", "kb", "mb", "gb", "kbps", "mbps", "gbps", NULL};
+static const char *const NET_UNITS[] = {"%", "bytes", "bits", NULL};
 static const char *const UPTIME_UNITS[] = {"auto", "h", "d", NULL};
 
 /* str_copy, but only when the value is in `allowed`; else warn and keep the
@@ -261,16 +261,16 @@ void config_defaults(config_t *cfg)
     snprintf(cfg->theme, sizeof(cfg->theme), "%s", "auto");
     cfg->show_footer = 1;
     snprintf(cfg->memory_card_unit, sizeof(cfg->memory_card_unit), "%s", "%");
-    snprintf(cfg->memory_chart_unit, sizeof(cfg->memory_chart_unit), "%s", "mb");
+    snprintf(cfg->memory_chart_unit, sizeof(cfg->memory_chart_unit), "%s", "auto");
     snprintf(cfg->disk_card_unit, sizeof(cfg->disk_card_unit), "%s", "%");
-    snprintf(cfg->disk_chart_unit, sizeof(cfg->disk_chart_unit), "%s", "gb");
+    snprintf(cfg->disk_chart_unit, sizeof(cfg->disk_chart_unit), "%s", "auto");
     snprintf(cfg->temp_card_unit, sizeof(cfg->temp_card_unit), "%s", "c");
     snprintf(cfg->temp_chart_unit, sizeof(cfg->temp_chart_unit), "%s", "c");
     cfg->temp_critical_fallback = 85.0f;
     snprintf(cfg->cpu_load_card_unit, sizeof(cfg->cpu_load_card_unit), "%s", "abs");
     snprintf(cfg->cpu_load_chart_unit, sizeof(cfg->cpu_load_chart_unit), "%s", "abs");
-    snprintf(cfg->net_card_unit, sizeof(cfg->net_card_unit), "%s", "kb");
-    snprintf(cfg->net_chart_unit, sizeof(cfg->net_chart_unit), "%s", "kb");
+    snprintf(cfg->net_card_unit, sizeof(cfg->net_card_unit), "%s", "bytes");
+    snprintf(cfg->net_chart_unit, sizeof(cfg->net_chart_unit), "%s", "bytes");
     cfg->net_max_speed = 0; /* unset: net_ref_bps prefers the detected link */
     snprintf(cfg->uptime_unit, sizeof(cfg->uptime_unit), "%s", "auto");
     cfg->chart_count = 0; /* 0 = show all in default order */
@@ -371,14 +371,14 @@ int config_load(config_t *cfg, const char *path)
         fprintf(stderr, "config: refresh must be > 0 (got %ld); using default\n", (long)v.u.int64);
     v = toml_seek(root, "dashboard.memory_card_unit");
     unit_copy(cfg->memory_card_unit, sizeof(cfg->memory_card_unit), v, "memory_card_unit",
-              MEM_UNITS);
+              SIZE_UNITS);
     v = toml_seek(root, "dashboard.memory_chart_unit");
     unit_copy(cfg->memory_chart_unit, sizeof(cfg->memory_chart_unit), v, "memory_chart_unit",
-              MEM_UNITS);
+              SIZE_UNITS);
     v = toml_seek(root, "dashboard.disk_card_unit");
-    unit_copy(cfg->disk_card_unit, sizeof(cfg->disk_card_unit), v, "disk_card_unit", DISK_UNITS);
+    unit_copy(cfg->disk_card_unit, sizeof(cfg->disk_card_unit), v, "disk_card_unit", SIZE_UNITS);
     v = toml_seek(root, "dashboard.disk_chart_unit");
-    unit_copy(cfg->disk_chart_unit, sizeof(cfg->disk_chart_unit), v, "disk_chart_unit", DISK_UNITS);
+    unit_copy(cfg->disk_chart_unit, sizeof(cfg->disk_chart_unit), v, "disk_chart_unit", SIZE_UNITS);
     v = toml_seek(root, "dashboard.cpu_load_card_unit");
     unit_copy(cfg->cpu_load_card_unit, sizeof(cfg->cpu_load_card_unit), v, "cpu_load_card_unit",
               LOAD_UNITS);

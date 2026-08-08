@@ -24,7 +24,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { clampPointsParam, currentSnapshot, makePoints } = require('./mock-data');
-const { toCurrent, toPoint } = require('./units');
+const { toCurrent, toPoint, unitsFor } = require('./units');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
 const DASHBOARD_DIR = path.join(REPO_ROOT, 'dashboard');
@@ -79,12 +79,12 @@ function makeHandler(state, log = NOOP_LOG) {
   }
 
   function metrics(rangeValue, nPoints) {
-
-    const points = makePoints(rangeValue, state.scenario, nPoints).map((p) =>
+    const raws = makePoints(rangeValue, state.scenario, nPoints);
+    const points = raws.map((p) =>
       toPoint(p, state.configFields, state.tempCriticalFallback, state.netMaxSpeed)
     );
 
-    return { range: rangeValue, points };
+    return { range: rangeValue, points, units: unitsFor(raws, state.configFields) };
   }
 
   function serveDashboard(res) {

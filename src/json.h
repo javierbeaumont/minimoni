@@ -45,6 +45,10 @@ void jbuf_long(jbuf_t *j, const char *key, long val);
 void jbuf_null(jbuf_t *j, const char *key);
 void jbuf_pair(jbuf_t *j, const char *key, double warn, double crit);
 
+/* Display units for one /api/metrics window, chosen from the largest value it
+ * carries so a card and its chart always read in the same magnitude. */
+void json_serialize_units(jbuf_t *j, const db_row_t *rows, int cnt, const config_t *cfg);
+
 /* --- Serializers --- */
 
 /* Serialize the latest snapshot (for /api/current and /stream) into `j`,

@@ -18,6 +18,8 @@
 
 #include "units.h"
 
+#include <math.h>
+
 /* 100% reference for net percent mode. A configured speed WINS over the detected
  * link: the NIC is often faster than the uplink behind it (1 GbE card on a
  * 300 Mbit line), so the operator's number is the honest denominator. Falls back
@@ -34,36 +36,17 @@ double net_convert(double bps, const char *unit, double ref_bps)
 {
     if (unit && unit[0] == '%')
         return ref_bps > 0 ? bps * 100.0 / ref_bps : 0.0;
-    if (!unit || unit[0] == 'm') {
-        if (unit && unit[1] == 'b' && unit[2] == 'p') /* mbps */
-            return bps * 8.0 / 1e6;
-        return bps / 1048576.0; /* mb */
-    }
-    if (unit[0] == 'g') {
-        if (unit[1] == 'b' && unit[2] == 'p') /* gbps */
-            return bps * 8.0 / 1e9;
-        return bps / 1073741824.0; /* gb */
-    }
-    if (unit[0] == 'k') {
-        if (unit[1] == 'b' && unit[2] == 'p') /* kbps */
-            return bps * 8.0 / 1000.0;
-        return bps / 1024.0; /* kb */
-    }
-    return bps / 1048576.0;
+    return bps;
 }
 
-double mem_convert(double mb, const char *unit)
+int unit_step(double max, int steps, double factor)
 {
-    if (unit && unit[0] == 'g')
-        return mb / 1024.0;
-    return mb; /* mb (or %; caller uses mem_percent directly) */
-}
-
-double disk_convert(double gb, const char *unit)
-{
-    if (unit && unit[0] == 't')
-        return gb / 1024.0;
-    return gb; /* gb (or %; caller uses disk_percent directly) */
+    int i = 0;
+    if (!(max > 0))
+        return -1;
+    while (i < steps - 1 && max / pow(factor, i) > UNIT_DIGITS_MAX)
+        i++;
+    return i;
 }
 
 double temp_convert(double celsius, const char *unit, double ref)

@@ -514,10 +514,10 @@ static int test_unit_invalid_keeps_default(void)
 static int test_unit_valid_applied(void)
 {
     config_t cfg;
-    if (load_cfg(&cfg, "[dashboard]\nmemory_card_unit = \"gb\"\nnet_chart_unit = \"mbps\"\n"
+    if (load_cfg(&cfg, "[dashboard]\nmemory_card_unit = \"auto\"\nnet_chart_unit = \"bits\"\n"
                        "temp_card_unit = \"f\"\nuptime_unit = \"d\"\n") != 0)
         return 1;
-    return strcmp(cfg.memory_card_unit, "gb") == 0 && strcmp(cfg.net_chart_unit, "mbps") == 0 &&
+    return strcmp(cfg.memory_card_unit, "auto") == 0 && strcmp(cfg.net_chart_unit, "bits") == 0 &&
                    strcmp(cfg.temp_card_unit, "f") == 0 && strcmp(cfg.uptime_unit, "d") == 0
                ? 0
                : 1;
@@ -526,19 +526,23 @@ static int test_unit_valid_applied(void)
 static int test_unit_case_sensitive(void)
 {
     config_t cfg;
-    if (load_cfg(&cfg, "[dashboard]\nnet_card_unit = \"MB\"\n") != 0)
+    if (load_cfg(&cfg, "[dashboard]\nnet_card_unit = \"BYTES\"\n") != 0)
         return 1;
-    return strcmp(cfg.net_card_unit, "kb") == 0 ? 0 : 1;
+    return strcmp(cfg.net_card_unit, "bytes") == 0 ? 0 : 1;
 }
 
-static int test_unit_cross_field_value(void)
+/* Magnitudes are gone from the config surface (pre-1.0 break): the dashboard
+ * picks them. A leftover "tb" or "mb" warns and falls back to the default. */
+static int test_unit_magnitude_rejected(void)
 {
     config_t cfg;
-    /* "tb" is a disk unit, not a memory one: rejected for memory. */
-    if (load_cfg(&cfg, "[dashboard]\nmemory_chart_unit = \"tb\"\ndisk_chart_unit = \"tb\"\n") != 0)
+    if (load_cfg(&cfg, "[dashboard]\nmemory_chart_unit = \"gb\"\ndisk_chart_unit = \"tb\"\n"
+                       "net_card_unit = \"kb\"\n") != 0)
         return 1;
-    return strcmp(cfg.memory_chart_unit, "mb") == 0 && strcmp(cfg.disk_chart_unit, "tb") == 0 ? 0
-                                                                                              : 1;
+    return strcmp(cfg.memory_chart_unit, "auto") == 0 && strcmp(cfg.disk_chart_unit, "auto") == 0 &&
+                   strcmp(cfg.net_card_unit, "bytes") == 0
+               ? 0
+               : 1;
 }
 
 /* --- [server] --- */
@@ -917,7 +921,7 @@ static const test_t ALL_TESTS[] = {
     T(unit_invalid_keeps_default),
     T(unit_valid_applied),
     T(unit_case_sensitive),
-    T(unit_cross_field_value),
+    T(unit_magnitude_rejected),
     /* [server] */
     T(server_listen_and_threads),
     T(server_threads_below_min_aborts),

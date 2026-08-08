@@ -81,23 +81,20 @@ function fmtUptime(s, unit) {
   return 'up ' + m + 'm';
 }
 
-/* Throughput in the fixed display unit: the chosen unit NEVER rescales (0.5 mb
- * stays "0.500 MB/s", not "512 KB/s"). Precision adapts to ~4 significant digits. */
-function fmtNet(v, unit) {
+/* `u` is a served unit: {sym, mul, div}. */
+function scaleTo(v, u) {
+  return v == null || !u ? v : (v * u.mul) / u.div;
+}
+
+/* ~4 significant digits, so a scaled value reads the same at any magnitude. */
+function fmtScaled(v, sym) {
   if (v == null) return '—';
-  if (unit === '%') return v.toFixed(1) + '%'; /* link-speed percent: one decimal like the others */
-  let s;
-  if      (v >= 1000) s = v.toFixed(0);
-  else if (v >= 100)  s = v.toFixed(1);
-  else if (v >= 10)   s = v.toFixed(2);
-  else                s = v.toFixed(3);
-  if (!unit || unit === 'mb') return s + ' MB/s';
-  if (unit === 'kb')          return s + ' KB/s';
-  if (unit === 'gb')          return s + ' GB/s';
-  if (unit === 'kbps')        return s + ' Kbps';
-  if (unit === 'mbps')        return s + ' Mbps';
-  if (unit === 'gbps')        return s + ' Gbps';
-  return s;
+  const s = v >= 1000 ? v.toFixed(0) : v >= 100 ? v.toFixed(1) : v >= 10 ? v.toFixed(2) : v.toFixed(3);
+  return sym ? s + ' ' + sym : s;
+}
+
+function fmtUnit(v, u) {
+  return fmtScaled(scaleTo(v, u), u ? u.sym : '');
 }
 
 function fmtTempVal(v, unit) {
@@ -185,7 +182,9 @@ if (typeof module !== 'undefined' && module.exports) {
     fmtX: fmtX,
     fmtXFull: fmtXFull,
     fmtUptime: fmtUptime,
-    fmtNet: fmtNet,
+    scaleTo: scaleTo,
+    fmtScaled: fmtScaled,
+    fmtUnit: fmtUnit,
     fmtTempVal: fmtTempVal,
     cardLevel: cardLevel,
     pairLevel: pairLevel,

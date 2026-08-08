@@ -370,15 +370,15 @@ cards  = ["cpu_load", "cpu_usage", "memory", "disk", "temp", "net", "uptime"]
 
 cpu_load_card_unit     = "abs"  # status card: "%" | "abs" (% = normalized by core count)
 cpu_load_chart_unit    = "abs"  # chart Y-axis: "%" | "abs"
-memory_card_unit       = "%"    # status card: "%" | "mb" | "gb"
-memory_chart_unit      = "mb"   # chart Y-axis: "%" | "mb" | "gb"
-disk_card_unit         = "%"    # status card: "%" | "gb" | "tb"
-disk_chart_unit        = "gb"   # chart Y-axis: "%" | "gb" | "tb"
+memory_card_unit       = "%"    # status card: "%" | "auto"
+memory_chart_unit      = "auto" # chart Y-axis: "%" | "auto"
+disk_card_unit         = "%"    # status card: "%" | "auto"
+disk_chart_unit        = "auto" # chart Y-axis: "%" | "auto"
 temp_card_unit         = "c"    # status card: "%" | "c" | "f"
 temp_chart_unit        = "c"    # chart Y-axis: "%" | "c" | "f"
 # temp_critical_fallback = 95     # temp % 100% ref when sysfs has no critical trip (default: 85)
-net_card_unit          = "kb"   # status card: "%" | "kb" | "mb" | "gb" | "kbps" | "mbps" | "gbps"
-net_chart_unit         = "kb"   # chart Y-axis: same values as net_card_unit
+net_card_unit          = "bytes" # status card: "%" | "bytes" | "bits"
+net_chart_unit         = "bytes" # chart Y-axis: "%" | "bytes" | "bits"
 # net_max_speed          = 300    # link ceiling in Mbit/s: the net "%" denominator and the
 #                                 # source of its thresholds. Wins over the sysfs link speed
 #                                 # (the NIC's, not your uplink). Unset: sysfs, else 1000
@@ -421,6 +421,28 @@ or skipped, the daemon aborts at config load (instead of silently falling back t
 Repeats and custom ordering are valid (e.g. `["4h", "2d", "45d", "2d"]` shows four tabs in
 that order with 45-day retention). Sub-day ranges round up to 1 day for retention purposes
 (prune granularity is days). Default: `["1d", "7d", "30d", "90d"]`.
+
+**`memory_card_unit`** / **`memory_chart_unit`** / **`disk_card_unit`** / **`disk_chart_unit`**:
+`"%"` shows the share of capacity in use; `"auto"` shows the amount itself. The two keys are
+independent, so a percentage card next to an absolute chart is a valid combination. Under `"auto"`
+the magnitude is not configurable, see **Automatic magnitudes** below.
+
+**`net_card_unit`** / **`net_chart_unit`**: `"%"` measures throughput against the link ceiling (see
+`net_max_speed`); `"bytes"` counts in KB/s, MB/s and GB/s, and `"bits"` in Kbps, Mbps and Gbps, the
+form link speeds are usually quoted in. Bytes climb in steps of 1024, bits in steps of 1000, as each
+convention has it. As with memory and disk, the magnitude itself is automatic.
+
+**`temp_card_unit`** / **`temp_chart_unit`**: `"c"` for Celsius, `"f"` for Fahrenheit, or `"%"` of
+the critical trip point the kernel reports for the sensor, falling back to
+`temp_critical_fallback` when it reports none.
+
+**Automatic magnitudes.** Under `"auto"`, `"bytes"` or `"bits"` you choose what is measured, never
+the magnitude: the server picks that from the largest value in the window on screen, and a card and
+its chart always read in the same one. It takes the smallest unit whose reading still fits the five
+integer digits a card can display, so numbers stay whole (`1748 MB`, not `1.707 GB`), and it steps
+up an order of magnitude early so a value arriving after the choice still fits. With nothing on
+screen there is nothing to infer a unit from, and none is shown. Explicit magnitudes (`"mb"`,
+`"gb"`, `"tb"`, `"kbps"`...) are not accepted: they warn at startup and fall back to the default.
 
 **`net_max_speed`**: the link ceiling in Mbit/s. Denominator of the net `"%"` units and anchor of
 the semaphore: yellow at 85% of it, red at 98%, both levels drawn on the chart once traffic

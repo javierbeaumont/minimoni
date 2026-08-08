@@ -50,17 +50,17 @@ typedef struct {
     char  theme[8];               /* "auto" | "light" | "dark", default: "auto" */
     int   show_footer;            /* 1 = show project footer, 0 = hide, default: 1 */
     int   refresh_seconds;        /* default: 30 */
-    char  memory_card_unit[16];   /* "%" | "mb" | "gb", default: "%" */
-    char  memory_chart_unit[16];  /* "mb" | "gb" | "%", default: "mb" */
-    char  disk_card_unit[16];     /* "%" | "gb" | "tb", default: "%" */
-    char  disk_chart_unit[16];    /* "gb" | "tb" | "%", default: "gb" */
+    char  memory_card_unit[16];   /* "%" | "auto", default: "%" */
+    char  memory_chart_unit[16];  /* "%" | "auto", default: "auto" */
+    char  disk_card_unit[16];     /* "%" | "auto", default: "%" */
+    char  disk_chart_unit[16];    /* "%" | "auto", default: "auto" */
     char  temp_card_unit[4];      /* "c" | "f" | "%", default: "c" */
     char  temp_chart_unit[4];     /* "c" | "f" | "%", default: "c" */
     float temp_critical_fallback; /* temp percent 100% ref when sysfs critical absent; def: 85 */
     char  cpu_load_card_unit[4];  /* "abs" | "%", default: "abs" */
     char  cpu_load_chart_unit[4]; /* "abs" | "%", default: "abs" */
-    char  net_card_unit[8];       /* "%"|"kb"|"mb"|"gb"|"kbps"|"mbps"|"gbps", default: "kb" */
-    char  net_chart_unit[8];      /* same set as net_card_unit, default: "kb" */
+    char  net_card_unit[8];       /* "%" | "bytes" | "bits", default: "bytes" */
+    char  net_chart_unit[8];      /* "%" | "bytes" | "bits", default: "bytes" */
     int   net_max_speed;          /* net % 100% ref (Mbit/s); 0 = use the detected link */
     char  uptime_unit[8];         /* "h"|"d"|"auto", default: "auto" */
     /* charts/cards: count=0 means show all in default order */

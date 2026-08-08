@@ -21,7 +21,7 @@
  * globals app.js owns and the config globals cards.js owns; the pointer layer on
  * top lives in hover.js. bundle.sh inlines format.js, this, hover.js, cards.js,
  * then app.js (one shared global scope). */
-/* global fmtY, fmtTip, fmtX, fmtNet, niceTicks, timeTicks */
+/* global fmtY, fmtTip, fmtX, fmtScaled, scaleTo, niceTicks, timeTicks, srvUnits */
 /* global THRESH, cfgCardUnits, cfgChartUnits, cfgVisCharts, pts */
 /* global refreshLockedIdx, scheduleHoverDraw, lockedIdx */
 /* exported renderAll, buildLegends, invalidateCssCache, drawChart, chartCache */
@@ -255,15 +255,13 @@ function renderAll() {
     return visible;
   }
 
-  /* Derive display labels and axis unit keys from the configured units */
-  const memUL  = { 'mb': 'MB', 'gb': 'GB', '%': '%' }[cfgChartUnits.mem]  || 'MB';
-  const dskUL  = { 'gb': 'GB', 'tb': 'TB', '%': '%' }[cfgChartUnits.disk] || 'GB';
+  /* A metric with nothing to scale gets no unit, hence the guards below. */
+  const memU = srvUnits.mem, diskU = srvUnits.disk, netU = srvUnits.net;
+  const memUL  = cfgChartUnits.mem === '%' ? '%' : memU && memU.sym;
+  const dskUL  = cfgChartUnits.disk === '%' ? '%' : diskU && diskU.sym;
   const tmpSym = cfgChartUnits.temp[0] === 'f' ? '°F'
              : cfgChartUnits.temp[0] === '%' ? '%' : '°C';
-  const netUL  = {
-    'kb': 'KB/s', 'mb': 'MB/s', 'gb': 'GB/s',
-    'kbps': 'Kbps', 'mbps': 'Mbps', 'gbps': 'Gbps', '%': '%',
-  }[cfgChartUnits.net] || 'KB/s';
+  const netUL  = cfgChartUnits.net === '%' ? '%' : netU && netU.sym;
 
   const loadOpts = cfgChartUnits.load === '%'
     ? { yMin: 0, unit: '%', ts: ts }
@@ -304,19 +302,11 @@ function renderAll() {
     drawChart('g-mem', [
       {
         c: CLR.mem, k: 'mem-used', label: 'used',
-        v: pts.map((p) => {
-          if (cfgChartUnits.mem === '%')  return p.mp;
-          if (cfgChartUnits.mem === 'gb') return p.mu / 1024;
-          return p.mu;
-        }),
+        v: pts.map((p) => (memIsPct ? p.mp : scaleTo(p.mu, memU))),
       },
       {
         c: CLR.memAvail, k: 'mem-avail', label: 'available',
-        v: pts.map((p) => {
-          if (cfgChartUnits.mem === '%')  return 100 - p.mp;
-          if (cfgChartUnits.mem === 'gb') return p.ma / 1024;
-          return p.ma;
-        }),
+        v: pts.map((p) => (memIsPct ? 100 - p.mp : scaleTo(p.ma, memU))),
       },
     ].filter((_, i) => !seriesHidden['g-mem'][i]), memOpts);
   }
@@ -331,19 +321,11 @@ function renderAll() {
     drawChart('g-disk', [
       {
         c: CLR.disk, k: 'disk-used', label: 'used',
-        v: pts.map((p) => {
-          if (cfgChartUnits.disk === '%')  return p.dp;
-          if (cfgChartUnits.disk === 'tb') return p.du / 1000;
-          return p.du;
-        }),
+        v: pts.map((p) => (diskIsPct ? p.dp : scaleTo(p.du, diskU))),
       },
       {
         c: CLR.diskFree, k: 'disk-free', label: 'free',
-        v: pts.map((p) => {
-          if (cfgChartUnits.disk === '%')  return 100 - p.dp;
-          if (cfgChartUnits.disk === 'tb') return p.df / 1000;
-          return p.df;
-        }),
+        v: pts.map((p) => (diskIsPct ? 100 - p.dp : scaleTo(p.df, diskU))),
       },
     ].filter((_, i) => !seriesHidden['g-disk'][i]), diskOpts);
   }
@@ -369,16 +351,19 @@ function renderAll() {
     document.getElementById('b-net').querySelector('.ctitle').textContent =
       'Network (' + netUL + ')';
     /* Thresholds arrive in CARD units: they only apply if the chart shares it. */
-    const netUnitsMatch = (cfgChartUnits.net || 'kb') === (cfgCardUnits.net || 'kb');
+    const netIsPct      = cfgChartUnits.net === '%';
+    const netUnitsMatch = cfgChartUnits.net === cfgCardUnits.net;
     const netOpts = {
       yMin: 0,
       ts:   ts,
-      fmtFn: (v) => fmtNet(v, cfgChartUnits.net),
+      fmtFn: (v) => (netIsPct ? fmtTip(v, null) + '%' : fmtScaled(v, netUL)),
     };
-    if (netUnitsMatch) netOpts.thresh = THRESH.net;
+    if (netUnitsMatch && THRESH.net) {
+      netOpts.thresh = netIsPct ? THRESH.net : THRESH.net.map((t) => scaleTo(t, netU));
+    }
     drawChart('g-net', [
-      { c: CLR.tx, k: 'net-tx', v: pts.map((p) => p.nt), label: 'upload' },
-      { c: CLR.rx, k: 'net-rx', v: pts.map((p) => p.nr), label: 'download' },
+      { c: CLR.tx, k: 'net-tx', v: pts.map((p) => (netIsPct ? p.nt : scaleTo(p.nt, netU))), label: 'upload' },
+      { c: CLR.rx, k: 'net-rx', v: pts.map((p) => (netIsPct ? p.nr : scaleTo(p.nr, netU))), label: 'download' },
     ].filter((_, i) => !seriesHidden['g-net'][i]), netOpts);
   }
 

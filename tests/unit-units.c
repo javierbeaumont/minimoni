@@ -33,23 +33,21 @@ static int approx(double a, double b)
     return d < 1e-9;
 }
 
-/* --- net_convert (bps -> kb/mb/gb/kbps/mbps/gbps) --- */
+/* --- net_convert: "%" of the link, or bytes/s untouched --- */
 
-static int test_net_mb(void) { return approx(net_convert(1048576.0, "mb", 0.0), 1.0) ? 0 : 1; }
-
-static int test_net_gb(void) { return approx(net_convert(1073741824.0, "gb", 0.0), 1.0) ? 0 : 1; }
-
-static int test_net_mbps(void) { return approx(net_convert(1.0e6, "mbps", 0.0), 8.0) ? 0 : 1; }
-
-static int test_net_gbps(void) { return approx(net_convert(1.0e9, "gbps", 0.0), 8.0) ? 0 : 1; }
-
-static int test_net_kb(void) { return approx(net_convert(1024.0, "kb", 0.0), 1.0) ? 0 : 1; }
-
-static int test_net_kbps(void) { return approx(net_convert(1000.0, "kbps", 0.0), 8.0) ? 0 : 1; }
-
-static int test_net_null_defaults_mb(void)
+static int test_net_bytes_passthrough(void)
 {
-    return approx(net_convert(1048576.0, NULL, 0.0), 1.0) ? 0 : 1;
+    return approx(net_convert(1048576.0, "bytes", 0.0), 1048576.0) ? 0 : 1;
+}
+
+static int test_net_bits_passthrough(void)
+{
+    return approx(net_convert(1048576.0, "bits", 0.0), 1048576.0) ? 0 : 1;
+}
+
+static int test_net_null_passthrough(void)
+{
+    return approx(net_convert(1048576.0, NULL, 0.0), 1048576.0) ? 0 : 1;
 }
 
 /* --- net percent + link-speed reference --- */
@@ -86,26 +84,10 @@ static int test_net_percent_no_ref(void)
     return approx(net_convert(1.0e6, "%", 0.0), 0.0) ? 0 : 1;
 }
 
-static int test_net_unknown_unit_defaults_mb(void)
-{
-    /* An unrecognised first letter falls through to the mb branch. */
-    return approx(net_convert(1048576.0, "xyz", 0.0), 1.0) ? 0 : 1;
-}
-
 static int test_temp_null_unit_passthrough(void)
 {
     return approx(temp_convert(50.0, NULL, 85.0), 50.0) ? 0 : 1;
 }
-
-/* --- mem_convert / disk_convert --- */
-
-static int test_mem_gb(void) { return approx(mem_convert(1024.0, "gb"), 1.0) ? 0 : 1; }
-
-static int test_mem_mb_passthrough(void) { return approx(mem_convert(512.0, "mb"), 512.0) ? 0 : 1; }
-
-static int test_disk_tb(void) { return approx(disk_convert(1024.0, "tb"), 1.0) ? 0 : 1; }
-
-static int test_disk_gb_passthrough(void) { return approx(disk_convert(50.0, "gb"), 50.0) ? 0 : 1; }
 
 /* --- temp_convert (celsius -> c/f/%) --- */
 
@@ -160,25 +142,16 @@ static int test_temp_ref_falls_back(void) { return approx(temp_ref(0, 105.0, 85.
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
-    T(net_mb),
-    T(net_gb),
-    T(net_mbps),
-    T(net_gbps),
+    T(net_bytes_passthrough),
+    T(net_bits_passthrough),
+    T(net_null_passthrough),
     T(net_ref_configured_wins),
     T(net_ref_detected),
     T(net_ref_defaults_to_gbe),
     T(net_percent_half),
     T(net_percent_full),
     T(net_percent_no_ref),
-    T(net_unknown_unit_defaults_mb),
     T(temp_null_unit_passthrough),
-    T(net_kb),
-    T(net_kbps),
-    T(net_null_defaults_mb),
-    T(mem_gb),
-    T(mem_mb_passthrough),
-    T(disk_tb),
-    T(disk_gb_passthrough),
     T(temp_celsius),
     T(temp_fahrenheit),
     T(temp_fahrenheit_zero),

@@ -259,8 +259,9 @@ static int test_metrics_serializes_a_configured_range(void)
     insert_sample();
     request("range=7d");
     int rc = handler_metrics(NULL, ctx);
+    /* The envelope closes with the units chosen from the rows just streamed. */
     return fixture_done(rc == 200 && has("\"range\":\"7d\"") && has("\"points\":[") &&
-                        has("\"t\":") && strstr(g_resp, "]}") != NULL);
+                        has("\"t\":") && has("],\"units\":{"));
 }
 
 /* An unlisted range and no query string at all both fall back to the first

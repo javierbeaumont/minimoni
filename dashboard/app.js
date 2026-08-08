@@ -21,13 +21,14 @@
  * bundle.sh inlines them in that order before this file (one shared global scope). */
 /* global metricsUrl, clampPoints */
 /* global renderAll, buildLegends, attachHover, clearAllHovers, canHover, invalidateCssCache */
-/* global updateCards, wireCards, cfgRanges */
-/* exported pts */
+/* global updateCards, wireCards, replayCards, cfgRanges */
+/* exported pts, srvUnits */
 
 /* --- State --- */
 
 let curRange = '1d';    /* currently selected time range */
 let pts      = [];      /* array of data points from /api/metrics */
+let srvUnits = {};
 
 /* --- Theme toggle --- */
 
@@ -66,7 +67,10 @@ function loadMetrics() {
     r.json().then((d) => {
       if (myId !== metricsRequestId) return;   /* discard stale responses */
       pts = d.points || [];
+      srvUnits = d.units || {};
       renderAll();
+      /* Cards paint from /current, which lands first and knows no units yet. */
+      replayCards();
     });
   }).catch(() => {});
 }

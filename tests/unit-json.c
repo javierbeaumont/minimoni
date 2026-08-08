@@ -353,16 +353,128 @@ static int test_net_thresholds_percent(void)
     return (has(b, "\"thresh_net\":[85,98]")) ? 0 : 1;
 }
 
+/* Outside "%" everything net ships in base bytes/s, thresholds included, so the
+ * dashboard scales values and lines with one factor. */
 static int test_net_thresholds_absolute(void)
 {
     char     b[2048];
     db_row_t r = sample_row();
     r.net_valid = 1;
     config_t c = base_cfg();
-    strcpy(c.net_card_unit, "mb"); /* 100 Mbit = 12500000 B/s = 11.9209 MB/s */
-    c.net_max_speed = 100;
+    strcpy(c.net_card_unit, "bytes");
+    c.net_max_speed = 100; /* 100 Mbit = 12500000 B/s; 85% and 98% of it */
     emit_link(b, sizeof(b), &r, &c, 0);
-    return (has(b, "\"thresh_net\":[10.13")) ? 0 : 1;
+    return has(b, "\"thresh_net\":[1.0625e+07,1.225e+07]") ? 0 : 1;
+}
+
+/* --- units envelope: chosen from the window, shared by card and chart --- */
+
+static void emit_units(char *b, size_t n, db_row_t *rows, int cnt, config_t *c)
+{
+    jbuf_t j;
+    jbuf_init(&j, b, n);
+    jbuf_begin(&j);
+    json_serialize_units(&j, rows, cnt, c);
+    jbuf_end(&j);
+}
+
+static int test_units_smallest_that_fits(void)
+{
+    char     b[512];
+    db_row_t rows[2];
+    memset(rows, 0, sizeof(rows));
+    rows[0].mem_used_mb = 300.0;
+    rows[1].mem_available_mb = 1748.0; /* under 9999: stays in MB */
+    rows[0].disk_used_gb = 20.0;
+    rows[1].net_valid = 1;
+    rows[1].net_tx_bps = 5242880.0; /* 5 MB/s = 5120 KB/s, still four digits */
+    config_t c = base_cfg();
+    emit_units(b, sizeof(b), rows, 2, &c);
+    return (has(b, "\"mem\":{\"sym\":\"MB\",\"mul\":1,\"div\":1}") &&
+            has(b, "\"disk\":{\"sym\":\"GB\",\"mul\":1,\"div\":1}") &&
+            has(b, "\"net\":{\"sym\":\"KB/s\",\"mul\":1,\"div\":1024}"))
+               ? 0
+               : 1;
+}
+
+/* Past the five digits the card can show, the next unit up takes over. */
+static int test_units_step_up_past_the_cap(void)
+{
+    char     b[512];
+    db_row_t rows[1];
+    memset(rows, 0, sizeof(rows));
+    rows[0].mem_used_mb = 32768.0; /* 32 GB */
+    config_t c = base_cfg();
+    emit_units(b, sizeof(b), rows, 1, &c);
+    return has(b, "\"mem\":{\"sym\":\"GB\",\"mul\":1,\"div\":1024}") ? 0 : 1;
+}
+
+/* No data, no unit: nothing is on screen to give it a scale. */
+static int test_units_absent_without_data(void)
+{
+    char     b[512];
+    db_row_t rows[1];
+    memset(rows, 0, sizeof(rows));
+    config_t c = base_cfg();
+    emit_units(b, sizeof(b), rows, 1, &c);
+    return (has(b, "\"units\":{}") && !has(b, "\"mem\"")) ? 0 : 1;
+}
+
+/* A "%" metric has no magnitude to choose. */
+static int test_units_skips_percent_metrics(void)
+{
+    char     b[512];
+    db_row_t rows[1];
+    memset(rows, 0, sizeof(rows));
+    rows[0].mem_used_mb = 500.0;
+    rows[0].disk_used_gb = 20.0;
+    config_t c = base_cfg();
+    strcpy(c.memory_chart_unit, "%");
+    emit_units(b, sizeof(b), rows, 1, &c);
+    return (!has(b, "\"mem\"") && has(b, "\"disk\"")) ? 0 : 1;
+}
+
+/* Beyond the first rung the divisor is factor^(step + base), the arithmetic a
+ * plain off-by-one would survive while every reading stayed one rung low. */
+static int test_units_step_beyond_the_base_rung(void)
+{
+    char     b[512];
+    db_row_t rows[1];
+    memset(rows, 0, sizeof(rows));
+    rows[0].net_valid = 1;
+    rows[0].net_tx_bps = 52428800.0; /* 50 MB/s: 51200 KB/s needs the next rung */
+    config_t c = base_cfg();
+    emit_units(b, sizeof(b), rows, 1, &c);
+    return has(b, "\"net\":{\"sym\":\"MB/s\",\"mul\":1,\"div\":1.04858e+06}") ? 0 : 1;
+}
+
+/* The first sample after start has no delta, so its net counters are noise: it
+ * must not set the window's magnitude. */
+static int test_units_ignore_rows_without_a_net_delta(void)
+{
+    char     b[512];
+    db_row_t rows[2];
+    memset(rows, 0, sizeof(rows));
+    rows[0].net_valid = 0;
+    rows[0].net_tx_bps = 9.0e9; /* garbage from the priming sample */
+    rows[1].net_valid = 1;
+    rows[1].net_tx_bps = 2048.0;
+    config_t c = base_cfg();
+    emit_units(b, sizeof(b), rows, 2, &c);
+    return has(b, "\"net\":{\"sym\":\"KB/s\",\"mul\":1,\"div\":1024}") ? 0 : 1;
+}
+
+static int test_units_bits_ladder(void)
+{
+    char     b[512];
+    db_row_t rows[1];
+    memset(rows, 0, sizeof(rows));
+    rows[0].net_valid = 1;
+    rows[0].net_tx_bps = 125000.0; /* x8 = 1e6 bit/s = 1000 Kbps */
+    config_t c = base_cfg();
+    strcpy(c.net_chart_unit, "bits");
+    emit_units(b, sizeof(b), rows, 1, &c);
+    return has(b, "\"net\":{\"sym\":\"Kbps\",\"mul\":8,\"div\":1000}") ? 0 : 1;
 }
 
 /* --- charts/cards echo: the three visibility states --- */
@@ -426,7 +538,7 @@ static int test_mem_absolute_emits_used(void)
     char     b[2048];
     db_row_t r = sample_row();
     config_t c = base_cfg();
-    strcpy(c.memory_card_unit, "gb");
+    strcpy(c.memory_card_unit, "auto");
     emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
     return (has(b, "\"mem_used\"") && has(b, "\"mem_percent\"")) ? 0 : 1;
 }
@@ -436,7 +548,7 @@ static int test_disk_absolute_emits_used(void)
     char     b[2048];
     db_row_t r = sample_row();
     config_t c = base_cfg();
-    strcpy(c.disk_card_unit, "gb");
+    strcpy(c.disk_card_unit, "auto");
     emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
     return (has(b, "\"disk_used\"") && has(b, "\"disk_percent\"")) ? 0 : 1;
 }
@@ -558,7 +670,7 @@ static int test_point_mem_chart_abs_emits(void)
 {
     char     b[1024];
     db_row_t r = sample_row();
-    config_t c = base_cfg(); /* memory_chart_unit defaults to "mb" */
+    config_t c = base_cfg(); /* memory_chart_unit defaults to "auto" */
     emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
     return has(b, "\"mu\":") ? 0 : 1;
 }
@@ -587,6 +699,13 @@ static const test_t ALL_TESTS[] = {
     T(net_percent_configured_max_wins),
     T(net_thresholds_percent),
     T(net_thresholds_absolute),
+    T(units_smallest_that_fits),
+    T(units_step_up_past_the_cap),
+    T(units_absent_without_data),
+    T(units_skips_percent_metrics),
+    T(units_step_beyond_the_base_rung),
+    T(units_ignore_rows_without_a_net_delta),
+    T(units_bits_ladder),
     T(charts_echo_null_by_default),
     T(charts_echo_empty_when_hidden),
     T(charts_echo_list),

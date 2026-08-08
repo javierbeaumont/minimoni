@@ -21,15 +21,15 @@ disk_path = "/"
 
 # cpu_load_card_unit     = "abs"  # status card: "%" | "abs" (% = normalized by core count)
 # cpu_load_chart_unit    = "abs"  # chart Y-axis: "%" | "abs"
-# memory_card_unit       = "%"    # status card: "%" | "mb" | "gb"
-# memory_chart_unit      = "mb"   # chart Y-axis: "%" | "mb" | "gb"
-# disk_card_unit         = "%"    # status card: "%" | "gb" | "tb"
-# disk_chart_unit        = "gb"   # chart Y-axis: "%" | "gb" | "tb"
+# memory_card_unit       = "%"    # status card: "%" | "auto" (auto = MB/GB/TB by capacity)
+# memory_chart_unit      = "auto" # chart Y-axis: "%" | "auto"
+# disk_card_unit         = "%"    # status card: "%" | "auto" (auto = GB/TB by capacity)
+# disk_chart_unit        = "auto" # chart Y-axis: "%" | "auto"
 # temp_card_unit         = "c"    # status card: "%" | "c" | "f"
 # temp_chart_unit        = "c"    # chart Y-axis: "%" | "c" | "f"
 # temp_critical_fallback = 95     # temp % 100% ref when sysfs has no critical trip point (def: 85)
-# net_card_unit          = "kb"   # status card: "%" | "kb" | "mb" | "gb" | "kbps" | "mbps" | "gbps"
-# net_chart_unit         = "kb"   # chart Y-axis: same values as net_card_unit
+# net_card_unit          = "bytes" # status card: "%" | "bytes" | "bits" (magnitude is automatic)
+# net_chart_unit         = "bytes" # chart Y-axis: "%" | "bytes" | "bits"
 # net_max_speed          = 300    # link ceiling in Mbit/s: your real one. The net "%" denominator
 #                                 # and the anchor of the 85/98% semaphore. Wins over the sysfs
 #                                 # link speed, which is the NIC's, not your uplink (a 1 GbE card

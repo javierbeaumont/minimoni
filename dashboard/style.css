@@ -249,8 +249,9 @@ button:hover {
 /* --- Metric cards --- */
 
 /* Responsive grid: cards shrink to ~162 px minimum, then grow to fill. 162 px
- * fits the widest value the 4-significant-digit formatter produces (e.g.
- * "99999 Mbps") plus padding, so the 0.001..99999 range never crops. */
+ * fits the widest value the formatter produces ("99999 Mbps", the longest symbol
+ * on the widest number) plus padding, so nothing crops. The server keeps
+ * readings inside that range: see UNIT_DIGITS_MAX in src/units.h. */
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(162px, 1fr));

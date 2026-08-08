@@ -20,9 +20,9 @@
  * also applies server config: units, thresholds, visibility, title/theme/footer).
  * Owns the config state (written here, read by chart.js/app.js via globals).
  * bundle.sh inlines format.js, chart.js, this, then app.js (one shared scope). */
-/* global fmtUptime, fmtNet, fmtTempVal, cardLevel, pairLevel */
+/* global fmtUptime, fmtTempVal, cardLevel, pairLevel, fmtUnit, srvUnits */
 /* global buildTabs */
-/* exported updateCards, wireCards, THRESH, cfgCardUnits, cfgChartUnits, cfgVisCharts, cfgRanges */
+/* exported updateCards, wireCards, replayCards, THRESH, cfgCardUnits, cfgChartUnits, cfgVisCharts, cfgRanges */
 
 /* Fallback [warn, critical] card thresholds, used only until the first payload:
  * the server sends per-metric thresh_* in /api/current and updateCards overwrites these. */
@@ -51,11 +51,13 @@ let lastCurrent  = null;    /* last /current snapshot; replayed on swapCard */
 
 /* --- Card helpers --- */
 
-/* Swap which sub-metric (by 0-based index) is shown as primary in a card.
- * Replays lastCurrent so the change is visible immediately. */
+function replayCards() {
+  if (lastCurrent) updateCards(lastCurrent);
+}
+
 function swapCard(id, idx) {
   cardPrimary[id] = idx;
-  if (lastCurrent) updateCards(lastCurrent);
+  replayCards();
 }
 
 /* Wire click + Enter/Space as a single "activation": shared by card sub-values
@@ -244,14 +246,11 @@ function updateCards(d) {
 
   /* Memory: sub-colour shared (every sub takes the overall mem level) */
   if ('mem_percent' in d) {
-    const memIsAbs = cfgCardUnits.mem !== '%';
-    const memFmt = memIsAbs
-      ? (v) => {
-          if (cfgCardUnits.mem === 'gb') return (v / 1024).toFixed(2) + ' GB';
-          return v.toFixed(0) + ' MB';
-        }
+    const memFmt = cfgCardUnits.mem !== '%'
+      ? (v) => fmtUnit(v, srvUnits.mem)
       : (v) => v.toFixed(1) + '%';
-    const memV = memIsAbs
+    const memAuto = cfgCardUnits.mem !== '%';
+    const memV = memAuto
       ? [d.mem_used, d.mem_available]
       : [d.mem_percent, d.mem_percent != null ? 100 - d.mem_percent : null];
     const memLvl = cardLevel(d.mem_percent, THRESH.mem);
@@ -260,14 +259,11 @@ function updateCards(d) {
 
   /* Disk: same shape as memory */
   if ('disk_percent' in d) {
-    const diskIsAbs = cfgCardUnits.disk !== '%';
-    const diskFmt = diskIsAbs
-      ? (v) => {
-          if (cfgCardUnits.disk === 'tb') return (v / 1000).toFixed(2) + ' TB';
-          return v.toFixed(1) + ' GB';
-        }
+    const diskFmt = cfgCardUnits.disk !== '%'
+      ? (v) => fmtUnit(v, srvUnits.disk)
       : (v) => v.toFixed(1) + '%';
-    const diskV = diskIsAbs
+    const diskAuto = cfgCardUnits.disk !== '%';
+    const diskV = diskAuto
       ? [d.disk_used, d.disk_free]
       : [d.disk_percent, d.disk_percent != null ? 100 - d.disk_percent : null];
     const diskLvl = cardLevel(d.disk_percent, THRESH.disk);
@@ -285,9 +281,12 @@ function updateCards(d) {
   }
   /* Network: netV[0]=tx, netV[1]=rx, matching the HTML card-sub order. Both
    * may be null on the first collect before a delta exists (rendered as the
-   * dash). No threshold levels (network has no semaphore). */
+   * dash). Values and thresholds stay in base bytes/s here; only the formatter
+   * scales, so the semaphore compares like with like. */
   if ('net_rx' in d) {
-    const netFmt = (v) => fmtNet(v, cfgCardUnits.net);
+    const netFmt = cfgCardUnits.net === '%'
+      ? (v) => (v == null ? '—' : v.toFixed(1) + '%')
+      : (v) => fmtUnit(v, srvUnits.net);
     updateNumericCard('c-net', 'net', [d.net_tx, d.net_rx], netFmt,
       pairLevel(d.net_tx, d.net_rx, THRESH.net), (v) => cardLevel(v, THRESH.net));
   }

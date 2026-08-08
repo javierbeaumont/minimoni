@@ -158,6 +158,83 @@ kill -TERM "$sv" 2>/dev/null
 wait "$sv"
 rc=$?
 check_rc "serve shuts down cleanly on SIGTERM" 0 "$rc"
+
+# --- units end to end ---
+#
+# Every accepted value of every *_unit key, against one seeded row, through the
+# real binary. Unit tests cover each converter; this covers the wiring from the
+# database to the response, which is where a mismatched key or a dropped call
+# would hide. The row: 1748/2048 MB memory, 20/100 GB disk, 50 C, 5 MiB/s down
+# and 1 MiB/s up, load 2.
+"$BIN" db exec "$work/metrics.db" "INSERT INTO metrics (timestamp, load_1m, load_5m, \
+  load_15m, cpu_user_percent, cpu_system_percent, cpu_idle_percent, mem_total_mb, \
+  mem_used_mb, mem_available_mb, mem_percent, disk_total_gb, disk_used_gb, disk_free_gb, \
+  disk_percent, temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds, bucket_sec) VALUES \
+  (strftime('%Y-%m-%dT%H:%M:%SZ','now'), 2.0, 2.0, 2.0, 30.0, 10.0, 60.0, 2048.0, 1748.0, \
+   300.0, 85.35, 100.0, 20.0, 80.0, 20.0, 50.0, 5242880.0, 1048576.0, 90061.0, 0)" >/dev/null 2>&1
+check_rc "units: seed row inserted" 0 $?
+
+units_serve() { # CFG_BODY -> sets $current and $metrics
+    cat >"$work/u.toml" <<EOF
+[collect]
+db = "$work/metrics.db"
+interval = 60
+disk_path = "/"
+[server]
+listen = "127.0.0.1:$PORT"
+[dashboard]
+net_max_speed = 100
+$1
+EOF
+    "$BIN" serve --config "$work/u.toml" >/dev/null 2>&1 &
+    usv=$!
+    sleep 1
+    current=$(wget -qO- "http://127.0.0.1:$PORT/api/current" 2>/dev/null)
+    metrics=$(wget -qO- "http://127.0.0.1:$PORT/api/metrics?range=1d" 2>/dev/null)
+    kill -TERM "$usv" 2>/dev/null
+    wait "$usv" 2>/dev/null
+}
+
+# Everything in "%": the absolute fields are omitted and each value is a share of
+# its own ceiling. Net: 5242880 B/s over a 100 Mbit link (12500000 B/s) = 41.9%.
+units_serve 'memory_card_unit = "%"
+disk_card_unit = "%"
+temp_card_unit = "%"
+cpu_load_card_unit = "%"
+net_card_unit = "%"'
+check_lacks "units %: memory omits the absolute fields" "$current" '"mem_used"'
+check_lacks "units %: disk omits the absolute fields" "$current" '"disk_used"'
+check_has "units %: memory is a percentage" "$current" '"mem_percent":85.35'
+check_has "units %: net is a share of the link" "$current" '"net_rx":41.9'
+check_has "units %: load is normalised by cores" "$current" '"thresh_load":[70,90]'
+
+# Everything absolute: values travel in their base unit, untouched, and the
+# envelope carries the magnitude the dashboard should read them in.
+units_serve 'memory_card_unit = "auto"
+memory_chart_unit = "auto"
+disk_card_unit = "auto"
+disk_chart_unit = "auto"
+temp_card_unit = "c"
+cpu_load_card_unit = "abs"
+net_card_unit = "bytes"
+net_chart_unit = "bytes"'
+check_has "units auto: memory in base MB" "$current" '"mem_used":1748'
+check_has "units auto: disk in base GB" "$current" '"disk_used":20'
+check_has "units c: temperature in celsius" "$current" '"temp":50'
+check_has "units bytes: net in base bytes/s" "$current" '"net_rx":5.243e+06'
+check_has "units auto: memory magnitude is MB" "$metrics" '"mem":{"sym":"MB","mul":1,"div":1}'
+check_has "units auto: disk magnitude is GB" "$metrics" '"disk":{"sym":"GB","mul":1,"div":1}'
+check_has "units bytes: 5 MiB/s reads as KB/s" "$metrics" '"net":{"sym":"KB/s","mul":1,"div":1024}'
+
+# Fahrenheit, and the case that separates the two net ladders: the same traffic
+# is 5120 KB/s (four digits, stays put) but 41943 Kbps (five, steps up).
+units_serve 'temp_card_unit = "f"
+net_card_unit = "bits"
+net_chart_unit = "bits"'
+check_has "units f: temperature in fahrenheit" "$current" '"temp":122'
+check_has "units bits: value stays in base bytes/s" "$current" '"net_rx":5.243e+06'
+check_has "units bits: the same traffic steps up to Mbps" "$metrics" \
+    '"net":{"sym":"Mbps","mul":8,"div":1e+06}'
 expect_rc 1 "serve with missing config exits 1" "$BIN" serve --config "$work/none.toml"
 
 printf '\n  %d passed, %d failed\n' "$pass" "$fail"

@@ -20,12 +20,21 @@
 #define MINIMONI_UNITS_H
 
 /* Convert a raw collected value (in its stored base unit) to the configured
- * display unit. `unit` is the matching *_unit string from config. */
-/* bps -> kb/mb/gb/kbps/mbps/gbps, or % of `ref_bps` (see net_ref_bps). */
+ * display unit. `unit` is the matching *_unit string from config. Memory, disk
+ * and net magnitudes are NOT here: under "auto" the dashboard picks them from
+ * what is on screen, so the server ships the base unit untouched. */
+/* bps -> % of `ref_bps` (see net_ref_bps), or bytes/s unchanged. */
 double net_convert(double bps, const char *unit, double ref_bps);
-double mem_convert(double mb, const char *unit);               /* mb  -> mb/gb */
-double disk_convert(double gb, const char *unit);              /* gb  -> gb/tb */
 double load_convert(double load, int cores, const char *unit); /* load -> abs/% */
+
+/* Widest reading a status card can show without cropping: the grid reserves
+ * room for five integer digits (see the .cards rule in dashboard/style.css).
+ * The step is taken an order of magnitude early so a value larger than the one
+ * that chose the unit still fits. */
+#define UNIT_DIGITS_MAX 9999.0
+
+/* Index into the metric's unit ladder, or -1 when there is nothing to scale. */
+int unit_step(double max, int steps, double factor);
 
 /* 100% reference for net percent mode, in bytes/s: the configured maximum when set
  * (it wins: the uplink may be slower than the NIC), else the detected link speed,

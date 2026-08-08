@@ -30,15 +30,9 @@ static void p(const char *name, double v) { printf("%s|%.6f\n", name, v); }
 
 int main(void)
 {
-    p("net kb", net_convert(1024.0, "kb", 0.0));
-    p("net mb", net_convert(1048576.0, "mb", 0.0));
-    p("net gb", net_convert(1073741824.0, "gb", 0.0));
-    p("net kbps", net_convert(1000.0, "kbps", 0.0));
-    p("net mbps", net_convert(1.0e6, "mbps", 0.0));
-    p("net gbps", net_convert(1.0e9, "gbps", 0.0));
-    p("net default", net_convert(1048576.0, "", 0.0));
-    p("net unknown", net_convert(1048576.0, "zz", 0.0));
-    p("net small", net_convert(1.0, "kb", 0.0));
+    p("net bytes passthrough", net_convert(1048576.0, "bytes", 0.0));
+    p("net bits passthrough", net_convert(1048576.0, "bits", 0.0));
+    p("net null passthrough", net_convert(1048576.0, NULL, 0.0));
 
     p("net ref configured wins", net_ref_bps(100, 1000));
     p("net ref detected", net_ref_bps(0, 300));
@@ -47,12 +41,13 @@ int main(void)
     p("net pct full", net_convert(12500000.0, "%", net_ref_bps(100, 0)));
     p("net pct no ref", net_convert(1.0e6, "%", 0.0));
 
-    p("mem mb", mem_convert(512.0, "mb"));
-    p("mem gb", mem_convert(1024.0, "gb"));
-    p("mem pct passthrough", mem_convert(1024.0, "%"));
-
-    p("disk gb", disk_convert(50.0, "gb"));
-    p("disk tb", disk_convert(1024.0, "tb"));
+    p("unit step nothing", unit_step(0.0, 4, 1024.0));
+    p("unit step smallest", unit_step(900.0, 4, 1024.0));
+    p("unit step at the cap", unit_step(9999.0, 4, 1024.0));
+    p("unit step past the cap", unit_step(10000.0, 4, 1024.0));
+    p("unit step two up", unit_step(5.0e6, 4, 1024.0));
+    p("unit step ladder top", unit_step(1.0e15, 4, 1024.0));
+    p("unit step bits factor", unit_step(1.0e6, 4, 1000.0));
 
     p("temp c", temp_convert(50.0, "c", 85.0));
     p("temp f", temp_convert(100.0, "f", 85.0));

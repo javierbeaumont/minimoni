@@ -29,7 +29,8 @@ const assert = require('node:assert');
 const path = require('path');
 
 const {
-  fmtY, fmtX, fmtTip, fmtXFull, fmtUptime, fmtNet, fmtTempVal, cardLevel, pairLevel, metricsUrl,
+  fmtY, fmtX, fmtTip, fmtXFull, fmtUptime, scaleTo, fmtScaled, fmtUnit, fmtTempVal, cardLevel,
+  pairLevel, metricsUrl,
   clampPoints,
   niceTicks, timeTicks,
 } = require(path.join(__dirname, '..', 'dashboard', 'format.js'));
@@ -90,29 +91,30 @@ test('fmtUptime by unit', () => {
   assert.strictEqual(fmtUptime(300, 'auto'), 'up 5m'); /* minutes branch */
 });
 
-test('fmtNet: fixed unit, adaptive precision', () => {
-  assert.strictEqual(fmtNet(null, 'kb'), EMD);
-  /* The chosen unit never rescales: a small value keeps its unit
-   * (the old behaviour turned 0.5 mb into "512 KB/s"). */
-  assert.strictEqual(fmtNet(0.5, 'mb'), '0.500 MB/s');
-  assert.strictEqual(fmtNet(0.5, 'mbps'), '0.500 Mbps');
-  /* Precision adapts by magnitude to ~4 significant digits. */
-  assert.strictEqual(fmtNet(0, 'kb'), '0.000 KB/s'); /* idle: the common case */
-  assert.strictEqual(fmtNet(9.999, 'kb'), '9.999 KB/s');
-  assert.strictEqual(fmtNet(10, 'kb'), '10.00 KB/s');
-  assert.strictEqual(fmtNet(100, 'kb'), '100.0 KB/s');
-  assert.strictEqual(fmtNet(1500, 'kb'), '1500 KB/s');
-  /* The remaining unit suffixes; mb/kb/mbps are exercised above. */
-  assert.strictEqual(fmtNet(2, 'gb'), '2.000 GB/s');
-  assert.strictEqual(fmtNet(2, 'kbps'), '2.000 Kbps');
-  assert.strictEqual(fmtNet(2, 'gbps'), '2.000 Gbps');
-  assert.strictEqual(fmtNet(2, 'xyz'), '2.000'); /* unknown unit -> bare number */
+test('scaleTo / fmtUnit: apply the unit the server chose', () => {
+  const mb = { sym: 'MB', mul: 1, div: 1 };
+  const gb = { sym: 'GB', mul: 1, div: 1024 };
+  const mbit = { sym: 'Mbit/s', mul: 8, div: 1000000 };
+
+  assert.strictEqual(fmtUnit(1748, mb), '1748 MB');
+  assert.strictEqual(fmtUnit(1748, gb), '1.707 GB');
+  assert.strictEqual(fmtUnit(125000, mbit), '1.000 Mbit/s'); /* mul applies first */
+  assert.strictEqual(scaleTo(2048, gb), 2);
+
+  /* No unit yet (nothing to scale, or a "%" metric): the value passes through. */
+  assert.strictEqual(scaleTo(300, null), 300);
+  assert.strictEqual(fmtUnit(300, null), '300.0');
+  assert.strictEqual(fmtUnit(null, mb), EMD);
 });
 
-test('fmtNet: link-speed percent', () => {
-  assert.strictEqual(fmtNet(50, '%'), '50.0%');
-  assert.strictEqual(fmtNet(0.25, '%'), '0.3%'); /* one decimal, like the other percents */
-  assert.strictEqual(fmtNet(null, '%'), EMD);
+test('fmtScaled: adaptive precision, dash for null', () => {
+  assert.strictEqual(fmtScaled(null, 'MB/s'), EMD);
+  assert.strictEqual(fmtScaled(0, 'KB/s'), '0.000 KB/s'); /* idle: the common case */
+  assert.strictEqual(fmtScaled(9.999, 'KB/s'), '9.999 KB/s');
+  assert.strictEqual(fmtScaled(10, 'KB/s'), '10.00 KB/s');
+  assert.strictEqual(fmtScaled(100, 'KB/s'), '100.0 KB/s');
+  assert.strictEqual(fmtScaled(1500, 'KB/s'), '1500 KB/s');
+  assert.strictEqual(fmtScaled(2, ''), '2.000'); /* no symbol: bare number */
 });
 
 test('fmtTempVal by unit', () => {
