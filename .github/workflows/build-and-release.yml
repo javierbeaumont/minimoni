@@ -126,10 +126,21 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Through env: a ${{ }} inside the run block is substituted as text, and
+          # git allows shell metacharacters in a tag name. actionlint does not
+          # treat ref_name as untrusted, so nothing warns if this moves down.
+          TAG_NAME: ${{ github.ref_name }}
         run: |
+          # The official semver.org regex, verbatim, with a "v" prefix. It is PCRE
+          # (\d, non-capturing groups), so it needs grep -P: bash's =~ is ERE.
+          SEMVER='^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$'
+          if ! printf '%s\n' "$TAG_NAME" | grep -Pq "$SEMVER"; then
+            echo "refusing to release from tag '$TAG_NAME': not semver (vMAJOR.MINOR.PATCH)" >&2
+            exit 1
+          fi
           TITLE=$(head -n 1 RELEASE_NOTES.md | sed 's/^\*\*//;s/\*\*$//')
           tail -n +3 RELEASE_NOTES.md > /tmp/release-body.md
-          gh release create ${{ github.ref_name }} \
+          gh release create "$TAG_NAME" \
             --title "$TITLE" \
             --notes-file /tmp/release-body.md \
             dist/*
