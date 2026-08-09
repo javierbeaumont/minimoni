@@ -40,6 +40,12 @@ void jbuf_sep(jbuf_t *j);
 void jbuf_begin(jbuf_t *j);
 void jbuf_end(jbuf_t *j);
 void jbuf_str(jbuf_t *j, const char *key, const char *val);
+
+/* Escape `src` as a JSON string body (no quotes) into `dst`, per RFC 8259.
+ * Bytes >= 0x20 pass through, so valid UTF-8 in stays valid UTF-8 out. Returns
+ * the length written, or -1 if it would not fit, leaving nothing usable in
+ * `dst`: the caller drops the whole field. */
+int  json_escape(char *dst, size_t cap, const char *src);
 void jbuf_real(jbuf_t *j, const char *key, double val);
 void jbuf_long(jbuf_t *j, const char *key, long val);
 void jbuf_null(jbuf_t *j, const char *key);

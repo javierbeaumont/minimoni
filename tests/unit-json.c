@@ -367,6 +367,92 @@ static int test_net_thresholds_absolute(void)
     return has(b, "\"thresh_net\":[1.0625e+07,1.225e+07]") ? 0 : 1;
 }
 
+/* --- json_escape (RFC 8259) --- */
+
+static int esc_is(const char *in, const char *want)
+{
+    char out[64];
+    return json_escape(out, sizeof(out), in) == (int)strlen(want) && strcmp(out, want) == 0;
+}
+
+static int test_escape_mandatory_pair(void)
+{
+    /* A quote would end the string early, a backslash would eat what follows. */
+    return (esc_is("a\"b", "a\\\"b") && esc_is("C:\\prod", "C:\\\\prod")) ? 0 : 1;
+}
+
+static int test_escape_short_forms(void)
+{
+    return esc_is("a\nb\rc\td\be\ff", "a\\nb\\rc\\td\\be\\ff") ? 0 : 1;
+}
+
+/* No short form: \u00XX, lowercase hex. */
+static int test_escape_other_controls(void)
+{
+    return (esc_is("\x01", "\\u0001") && esc_is("\x1f", "\\u001f")) ? 0 : 1;
+}
+
+static int test_escape_passes_utf8_through(void)
+{
+    return (esc_is("plain text", "plain text") && esc_is("\xc3\xa9\xc3\xb1", "\xc3\xa9\xc3\xb1"))
+               ? 0
+               : 1;
+}
+
+static int test_escape_reports_overflow(void)
+{
+    char out[4];
+    return (json_escape(out, sizeof(out), "abcdef") < 0 && json_escape(out, 0, "a") < 0) ? 0 : 1;
+}
+
+static int test_escape_empty(void)
+{
+    char out[8];
+    return (json_escape(out, sizeof(out), "") == 0 && out[0] == '\0') ? 0 : 1;
+}
+
+static int test_str_field_escapes_the_value(void)
+{
+    char   b[256];
+    jbuf_t j;
+    jbuf_init(&j, b, sizeof(b));
+    jbuf_begin(&j);
+    jbuf_str(&j, "title", "web\"01");
+    jbuf_end(&j);
+    return strcmp(b, "{\"title\":\"web\\\"01\"}") == 0 ? 0 : 1;
+}
+
+/* A dangling comma is as broken as the unescaped quote this replaced. */
+static int test_str_field_drops_without_dangling_comma(void)
+{
+    char   b[512];
+    char   huge[600];
+    jbuf_t j;
+    memset(huge, 'x', sizeof(huge) - 1);
+    huge[sizeof(huge) - 1] = '\0';
+    jbuf_init(&j, b, sizeof(b));
+    jbuf_begin(&j);
+    jbuf_str(&j, "theme", "auto");
+    jbuf_str(&j, "title", huge);
+    jbuf_end(&j);
+    return strcmp(b, "{\"theme\":\"auto\"}") == 0 ? 0 : 1;
+}
+
+/* charts and cards reach the array unchecked: config copies them verbatim. */
+static int test_array_elements_are_escaped(void)
+{
+    char     b[2048];
+    db_row_t r = sample_row();
+    config_t c = base_cfg();
+    snprintf(c.charts[0], sizeof(c.charts[0]), "%s", "my\"chart");
+    c.chart_count = 1;
+    snprintf(c.cards[0], sizeof(c.cards[0]), "%s", "back\\slash");
+    c.card_count = 1;
+    emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
+    return (has(b, "\"charts\":[\"my\\\"chart\"]") && has(b, "\"cards\":[\"back\\\\slash\"]")) ? 0
+                                                                                               : 1;
+}
+
 /* --- units envelope: chosen from the window, shared by card and chart --- */
 
 static void emit_units(char *b, size_t n, db_row_t *rows, int cnt, config_t *c)
@@ -699,6 +785,15 @@ static const test_t ALL_TESTS[] = {
     T(net_percent_configured_max_wins),
     T(net_thresholds_percent),
     T(net_thresholds_absolute),
+    T(array_elements_are_escaped),
+    T(escape_mandatory_pair),
+    T(escape_short_forms),
+    T(escape_other_controls),
+    T(escape_passes_utf8_through),
+    T(escape_reports_overflow),
+    T(escape_empty),
+    T(str_field_escapes_the_value),
+    T(str_field_drops_without_dangling_comma),
     T(units_smallest_that_fits),
     T(units_step_up_past_the_cap),
     T(units_absent_without_data),

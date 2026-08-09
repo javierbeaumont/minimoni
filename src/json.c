@@ -61,11 +61,81 @@ void jbuf_begin(jbuf_t *j)
 
 void jbuf_end(jbuf_t *j) { jbuf_raw(j, "}"); }
 
+int json_escape(char *dst, size_t cap, const char *src)
+{
+    size_t o = 0;
+
+    if (cap == 0)
+        return -1;
+    for (const unsigned char *p = (const unsigned char *)src; *p; p++) {
+        const char *rep = NULL;
+        char        ubuf[8];
+
+        switch (*p) {
+        case '"':
+            rep = "\\\"";
+            break;
+        case '\\':
+            rep = "\\\\";
+            break;
+        case '\n':
+            rep = "\\n";
+            break;
+        case '\r':
+            rep = "\\r";
+            break;
+        case '\t':
+            rep = "\\t";
+            break;
+        case '\b':
+            rep = "\\b";
+            break;
+        case '\f':
+            rep = "\\f";
+            break;
+        default:
+            if (*p < 0x20) {
+                snprintf(ubuf, sizeof(ubuf), "\\u%04x", (unsigned)*p);
+                rep = ubuf;
+            }
+            break;
+        }
+
+        if (rep) {
+            size_t rl = strlen(rep);
+            if (o + rl >= cap)
+                return -1;
+            memcpy(dst + o, rep, rl);
+            o += rl;
+        } else {
+            if (o + 1 >= cap)
+                return -1;
+            dst[o++] = (char)*p;
+        }
+    }
+    dst[o] = '\0';
+    return (int)o;
+}
+
 void jbuf_str(jbuf_t *j, const char *key, const char *val)
 {
+    /* Decided before jbuf_sep writes its comma: a comma with no field after it
+     * is as invalid as the unescaped quote. A 127-char title is 6 bytes per
+     * character at worst, hence the value buffer. */
+    char ekey[64], eval[1024], tmp[1152];
+
+    if (json_escape(ekey, sizeof(ekey), key) < 0 || json_escape(eval, sizeof(eval), val) < 0) {
+        fprintf(stderr, "json: field '%.32s' does not fit escaped; omitted\n", key);
+        return;
+    }
+
+    int n = snprintf(tmp, sizeof(tmp), "\"%s\":\"%s\"", ekey, eval);
+    if (n < 0 || (size_t)n >= sizeof(tmp) || j->pos + (j->comma ? 1u : 0u) + (size_t)n >= j->cap) {
+        fprintf(stderr, "json: field '%.32s' does not fit the buffer; omitted\n", key);
+        return;
+    }
+
     jbuf_sep(j);
-    char tmp[256];
-    snprintf(tmp, sizeof(tmp), "\"%s\":\"%s\"", key, val);
     jbuf_raw(j, tmp);
 }
 
@@ -102,6 +172,23 @@ void jbuf_pair(jbuf_t *j, const char *key, double warn, double crit)
 }
 
 /* --- Serializers --- */
+
+/* One escaped element of an open JSON array. The comma is tracked rather than
+ * derived from the index, so a dropped element cannot leave "[," behind. */
+static void jbuf_array_str(jbuf_t *j, const char *s, int *emitted)
+{
+    char esc[96], tmp[112];
+
+    if (json_escape(esc, sizeof(esc), s) < 0)
+        return;
+
+    int n = snprintf(tmp, sizeof(tmp), "%s\"%s\"", *emitted ? "," : "", esc);
+    if (n < 0 || (size_t)n >= sizeof(tmp) || j->pos + (size_t)n >= j->cap)
+        return;
+
+    jbuf_raw(j, tmp);
+    *emitted = 1;
+}
 
 void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, int num_cores,
                             int temp_critical_valid, double temp_critical, int detected_speed_mbit)
@@ -194,11 +281,9 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
 
     jbuf_sep(j);
     jbuf_raw(j, "\"ranges\":[");
-    for (int i = 0; i < cfg->range_count; i++) {
-        char rs[16];
-        snprintf(rs, sizeof(rs), "%s\"%s\"", i > 0 ? "," : "", cfg->ranges[i]);
-        jbuf_raw(j, rs);
-    }
+    int remitted = 0;
+    for (int i = 0; i < cfg->range_count; i++)
+        jbuf_array_str(j, cfg->ranges[i], &remitted);
     jbuf_raw(j, "]");
 
     if (cfg->chart_count == 0) {
@@ -210,11 +295,9 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
     } else {
         jbuf_sep(j);
         jbuf_raw(j, "\"charts\":[");
-        for (int i = 0; i < cfg->chart_count; i++) {
-            char cs[24];
-            snprintf(cs, sizeof(cs), "%s\"%s\"", i > 0 ? "," : "", cfg->charts[i]);
-            jbuf_raw(j, cs);
-        }
+        int emitted = 0;
+        for (int i = 0; i < cfg->chart_count; i++)
+            jbuf_array_str(j, cfg->charts[i], &emitted);
         jbuf_raw(j, "]");
     }
 
@@ -227,11 +310,9 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
     } else {
         jbuf_sep(j);
         jbuf_raw(j, "\"cards\":[");
-        for (int i = 0; i < cfg->card_count; i++) {
-            char ks[24];
-            snprintf(ks, sizeof(ks), "%s\"%s\"", i > 0 ? "," : "", cfg->cards[i]);
-            jbuf_raw(j, ks);
-        }
+        int emitted = 0;
+        for (int i = 0; i < cfg->card_count; i++)
+            jbuf_array_str(j, cfg->cards[i], &emitted);
         jbuf_raw(j, "]");
     }
 

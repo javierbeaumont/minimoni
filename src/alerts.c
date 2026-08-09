@@ -33,6 +33,7 @@
 #include "bearssl.h"
 
 #include "alerts.h"
+#include "json.h"
 
 /* --- Metric lookup --- */
 
@@ -209,12 +210,21 @@ static void post_webhook(const alert_cfg_t *a, double value, const char *timesta
     if (scheme < 0)
         return;
 
-    char body[512];
+    /* Not op: valid_op() checks it at load. The other three are free-form. */
+    char ename[256], emetric[256], ehost[512];
+    if (json_escape(ename, sizeof(ename), a->name) < 0 ||
+        json_escape(emetric, sizeof(emetric), a->metric) < 0 ||
+        json_escape(ehost, sizeof(ehost), hostname) < 0) {
+        fprintf(stderr, "alerts: '%.32s' does not fit escaped; webhook skipped\n", a->name);
+        return;
+    }
+
+    char body[1024];
     int  blen = snprintf(body, sizeof(body),
                          "{\"alert\":\"%s\",\"metric\":\"%s\",\"value\":%.6g,"
                          "\"threshold\":%.6g,\"operator\":\"%s\","
                          "\"timestamp\":\"%s\",\"hostname\":\"%s\"}",
-                         a->name, a->metric, value, a->threshold, a->op, timestamp, hostname);
+                         ename, emetric, value, a->threshold, a->op, timestamp, ehost);
 
     struct addrinfo hints, *res;
     memset(&hints, 0, sizeof(hints));
