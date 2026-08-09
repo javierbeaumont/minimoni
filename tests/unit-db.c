@@ -929,6 +929,81 @@ static int test_db_open_path_in_nonexistent_dir(void)
 
 /* --- Runner --- */
 
+/* --- One cutoff instant per pass ---
+ *
+ * Regression tests for the INSERT and the DELETE of a tier landing on
+ * different seconds (see build_consolidate_sql). Passing the instant in also
+ * takes the wall clock out of the tests: they pin it instead of seeding
+ * relative to time(NULL) and hoping the boundary falls where they need it.
+ *
+ * PINNED_NOW is arbitrary; what matters is that PINNED_NOW - 7200 (the raw->T1
+ * threshold) is an exact multiple of 5, so the bucket ends exactly on the
+ * cutoff. That is the only bucket the two statements could disagree on. */
+
+#define PINNED_NOW 1800000000L
+#define T1_BUCKET 5
+#define T1_THRESHOLD 7200L
+
+static int consolidate_at(db_t *db, long now)
+{
+    if (build_consolidate_sql(db->sql_consolidate, CONSOLIDATE_SQL_SIZE, now) != 0)
+        return -1;
+    return sqlite3_exec(db->handle, db->sql_consolidate, NULL, NULL, NULL) == SQLITE_OK ? 0 : -1;
+}
+
+static int seed_boundary_bucket(db_t *db, long now)
+{
+    long bucket_start = now - T1_THRESHOLD - T1_BUCKET;
+    for (int i = 0; i < T1_BUCKET; i++)
+        if (insert_raw_row(db->handle, bucket_start + i) != SQLITE_OK)
+            return -1;
+    return 0;
+}
+
+static int test_consolidate_sql_reads_no_clock(void)
+{
+    char sql[CONSOLIDATE_SQL_SIZE];
+    if (build_consolidate_sql(sql, sizeof(sql), PINNED_NOW) != 0)
+        return 1;
+    return strstr(sql, "'now'") == NULL ? 0 : 1;
+}
+
+static int test_consolidate_boundary_bucket_is_aggregated(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+    if (seed_boundary_bucket(&db, PINNED_NOW) != 0 || consolidate_at(&db, PINNED_NOW) != 0) {
+        close_test_db(&db);
+        return 1;
+    }
+
+    int raw = count_rows(db.handle, "bucket_sec IS NULL");
+    int agg = count_rows(db.handle, "bucket_sec = 5");
+    close_test_db(&db);
+
+    return (raw == 0 && agg == 1) ? 0 : 1;
+}
+
+/* One second earlier the bucket is not due yet, so nothing may move. This is
+ * the cutoff the INSERT used to see while the DELETE had already moved on. */
+static int test_consolidate_boundary_bucket_not_due(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+    if (seed_boundary_bucket(&db, PINNED_NOW) != 0 || consolidate_at(&db, PINNED_NOW - 1) != 0) {
+        close_test_db(&db);
+        return 1;
+    }
+
+    int raw = count_rows(db.handle, "bucket_sec IS NULL");
+    int agg = count_rows(db.handle, "bucket_sec = 5");
+    close_test_db(&db);
+
+    return (raw == T1_BUCKET && agg == 0) ? 0 : 1;
+}
+
 static const test_t ALL_TESTS[] = {
     /* db_open validate-on-open state machine */
     T(db_open_fresh_install),
@@ -957,6 +1032,10 @@ static const test_t ALL_TESTS[] = {
     T(consolidate_straddles_t1_t2),
     T(consolidate_straddles_t3_t4),
     T(consolidate_straddles_t4_t5),
+    /* one cutoff instant for the whole pass */
+    T(consolidate_sql_reads_no_clock),
+    T(consolidate_boundary_bucket_is_aggregated),
+    T(consolidate_boundary_bucket_not_due),
 };
 
 int main(void)

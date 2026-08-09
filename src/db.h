@@ -39,7 +39,7 @@ typedef struct {
     sqlite3_stmt *stmt_prune_alerts;
     sqlite3_stmt *stmt_alert_check; /* SELECT COUNT from alert_log by name + cutoff */
     sqlite3_stmt *stmt_alert_fire;  /* INSERT into alert_log */
-    char         *sql_consolidate;  /* built once in db_open from the tier table */
+    char         *sql_consolidate;  /* buffer allocated in db_open, refilled per pass */
 } db_t;
 
 /* Open (or create) the database at path. Enables WAL mode, sets cache

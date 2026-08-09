@@ -98,30 +98,22 @@ Examples:
 
 ### Consolidation predicate: bucket-end, not row-level
 
-For each transition, the `WHERE` clause operates on the bucket boundary:
+A bucket is consolidated when its **end** crosses the tier's age threshold, so every row
+in a bucket qualifies together or not at all.
 
-```sql
-WHERE (CAST(strftime('%s', timestamp) AS INTEGER) / <bucket_next>) * <bucket_next>
-        + <bucket_next>
-      <= CAST(strftime('%s', 'now') AS INTEGER) - <threshold_seconds>
-  AND (bucket_sec IS NULL OR bucket_sec < <bucket_next>)
-```
+A row-level predicate (`timestamp < now - threshold`) would instead fire as each raw row
+crosses the threshold, producing one duplicate consolidated row **per collect cycle**
+inside the same bucket window: 5 duplicates per 5-minute bucket at the default
+`interval = 60`, and 300 at `interval = 1`.
 
-A row-level predicate (`timestamp < now - threshold`) would fire as each raw row
-crosses the threshold, producing one duplicate medium row **per collect cycle** inside
-the same bucket window. At default `interval = 60` the bug produces 5 duplicates per
-5-min bucket; at `interval = 1` it produces 300. The bucket-level predicate
-guarantees that all rows in a given bucket qualify together or not at all.
-
-This predicate applies to all 5 tier transitions. See `tests/unit-db.c` for regression
-tests.
+This applies to all 5 tier transitions.
 
 ### Single `BEGIN IMMEDIATE / COMMIT` per cycle
 
-All 5 consolidate passes execute within one transaction, called once per collect cycle
-after `db_insert` and before `db_prune`. Most passes are no-ops (cheap index scans) at
-any given moment; consolidation only happens when a bucket's age crosses the
-corresponding threshold.
+All 5 consolidate passes execute within one transaction, once per collect cycle, after
+the new sample is stored and before retention pruning. Most passes are no-ops (cheap
+index scans) at any given moment; consolidation only happens when a bucket's age crosses
+the corresponding threshold.
 
 ## Consequences
 

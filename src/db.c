@@ -105,8 +105,10 @@ static int read_pragma_long(sqlite3 *handle, const char *pragma_name, long *out)
     return rc;
 }
 
+#define CONSOLIDATE_SQL_SIZE 8192
+
 /* Forward declaration; definition lives next to db_consolidate. */
-static char *build_consolidate_sql(void);
+static int build_consolidate_sql(char *sql, size_t cap, long now);
 
 /* --- Public API --- */
 
@@ -208,9 +210,9 @@ int db_open(db_t *db, const char *path, long interval_sec)
         return -1;
     }
 
-    db->sql_consolidate = build_consolidate_sql();
+    db->sql_consolidate = malloc(CONSOLIDATE_SQL_SIZE);
     if (!db->sql_consolidate) {
-        fprintf(stderr, "db: failed to build consolidate SQL\n");
+        fprintf(stderr, "db: out of memory allocating the consolidate SQL buffer\n");
         db_close(db);
         return -1;
     }
@@ -615,30 +617,30 @@ static const struct tier_transition TIER_TRANSITIONS[] = {
 };
 #define NUM_TIER_TRANSITIONS (sizeof(TIER_TRANSITIONS) / sizeof(TIER_TRANSITIONS[0]))
 
-/* Build the consolidate SQL once: BEGIN IMMEDIATE; (5 x INSERT/DELETE); COMMIT;
- * Returns a heap-allocated string (caller frees), or NULL on allocation
- * failure. The numeric substitutions (bucket size and threshold) are baked in
- * at build time so db_consolidate just executes the pre-formed string. */
-static char *build_consolidate_sql(void)
+/* Build the consolidate SQL into `sql`: BEGIN IMMEDIATE; (5 x INSERT/DELETE);
+ * COMMIT; Returns 0, or -1 if it does not fit.
+ *
+ * `now` is a parameter rather than something the statements read for
+ * themselves: SQLite's 'now' is stable per statement, not per transaction, so
+ * the INSERT and the DELETE of a tier can land on different seconds, and a
+ * bucket between the two is deleted without having been aggregated. The INSERT
+ * is the slow one (full GROUP BY scan). db_prune takes its cutoff in C for the
+ * same reason. */
+static int build_consolidate_sql(char *sql, size_t cap, long now)
 {
-    enum { SQL_BUF_SIZE = 8192 };
-    char *sql = malloc(SQL_BUF_SIZE);
-    if (!sql)
-        return NULL;
-
-    int   remaining = SQL_BUF_SIZE;
+    int   remaining = (int)cap;
     char *p = sql;
     int   n;
 
     n = snprintf(p, remaining, "BEGIN IMMEDIATE;");
     if (n < 0 || n >= remaining)
-        goto fail;
+        return -1;
     p += n;
     remaining -= n;
 
     for (size_t i = 0; i < NUM_TIER_TRANSITIONS; i++) {
         int  bs = TIER_TRANSITIONS[i].bucket_sec;
-        long th = TIER_TRANSITIONS[i].threshold_sec;
+        long cut = now - TIER_TRANSITIONS[i].threshold_sec;
 
         n = snprintf(
             p, remaining,
@@ -658,40 +660,38 @@ static char *build_consolidate_sql(void)
             "  AVG(temp_celsius), AVG(net_rx_bps), AVG(net_tx_bps), AVG(uptime_seconds),"
             "  %d"
             " FROM metrics"
-            " WHERE (CAST(strftime('%%s',timestamp) AS INTEGER)/%d)*%d + %d"
-            "         <= CAST(strftime('%%s','now') AS INTEGER) - %ld"
+            " WHERE (CAST(strftime('%%s',timestamp) AS INTEGER)/%d)*%d + %d <= %ld"
             "   AND (bucket_sec IS NULL OR bucket_sec < %d)"
             " GROUP BY (CAST(strftime('%%s',timestamp) AS INTEGER)/%d)*%d;"
             "DELETE FROM metrics"
-            " WHERE (CAST(strftime('%%s',timestamp) AS INTEGER)/%d)*%d + %d"
-            "         <= CAST(strftime('%%s','now') AS INTEGER) - %ld"
+            " WHERE (CAST(strftime('%%s',timestamp) AS INTEGER)/%d)*%d + %d <= %ld"
             "   AND (bucket_sec IS NULL OR bucket_sec < %d);",
-            bs, bs,              /* SELECT strftime bucket expression */
-            bs,                  /* INSERT bucket_sec value */
-            bs, bs, bs, th, bs,  /* INSERT WHERE */
-            bs, bs,              /* GROUP BY */
-            bs, bs, bs, th, bs); /* DELETE WHERE */
+            bs, bs,               /* SELECT strftime bucket expression */
+            bs,                   /* INSERT bucket_sec value */
+            bs, bs, bs, cut, bs,  /* INSERT WHERE */
+            bs, bs,               /* GROUP BY */
+            bs, bs, bs, cut, bs); /* DELETE WHERE */
         if (n < 0 || n >= remaining)
-            goto fail;
+            return -1;
         p += n;
         remaining -= n;
     }
 
     n = snprintf(p, remaining, "COMMIT;");
     if (n < 0 || n >= remaining)
-        goto fail;
+        return -1;
 
-    return sql;
-
-fail:
-    free(sql);
-    return NULL;
+    return 0;
 }
 
 int db_consolidate(db_t *db)
 {
     if (!db->sql_consolidate)
         return -1;
+    if (build_consolidate_sql(db->sql_consolidate, CONSOLIDATE_SQL_SIZE, (long)time(NULL)) != 0) {
+        fprintf(stderr, "db: consolidate SQL does not fit in %d bytes\n", CONSOLIDATE_SQL_SIZE);
+        return -1;
+    }
     char *errmsg = NULL;
     if (sqlite3_exec(db->handle, db->sql_consolidate, NULL, NULL, &errmsg) != SQLITE_OK) {
         fprintf(stderr, "db: consolidate error: %s\n", errmsg ? errmsg : "(unknown)");
