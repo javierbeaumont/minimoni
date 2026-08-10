@@ -266,16 +266,44 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
     return 200;
 }
 
-/* /stream: SSE endpoint; blocks until the client disconnects or the server
- * is stopping.  Pushes a current snapshot every cfg->refresh_seconds. */
-static int handler_stream(struct mg_connection *conn, void *cbdata)
-{
-    const http_ctx_t *ctx = (const http_ctx_t *)cbdata;
-    mg_printf(conn, "HTTP/1.1 200 OK\r\n"
-                    "Content-Type: text/event-stream\r\n"
-                    "Cache-Control: no-cache\r\n"
-                    "Connection: keep-alive\r\n\r\n");
+/* Workers the operator never gets to spend on dashboards. A stream holds its
+ * worker until the client leaves, so without these the API and the dashboard
+ * itself would be served by whatever streams happened to leave free. Added on
+ * top of cfg->max_dashboards when sizing the pool, never subtracted from it.
+ *
+ * It scales with the dashboards because they are what loads the API: each one
+ * refetches /api/metrics on every SSE frame. The ratio comes from the fraction
+ * of a worker a dashboard occupies at the default refresh, left generous for
+ * bursts and for hardware slower than the one it was measured on. The floor is
+ * 2, not 1, because a single spare worker makes every request wait for the one
+ * before it. */
+#define SSE_RESERVE_MIN 2
+#define SSE_RESERVE_RATIO 16
 
+static int sse_reserve(int max_dashboards)
+{
+    int reserve = max_dashboards / SSE_RESERVE_RATIO;
+    return reserve > SSE_RESERVE_MIN ? reserve : SSE_RESERVE_MIN;
+}
+
+/* Take a stream slot, or return 0 if they are all taken. The CAS loop is what
+ * makes "check the limit, then claim a slot" one step: two clients arriving
+ * together cannot both see the last free slot and both take it. */
+static int sse_acquire(http_ctx_t *ctx)
+{
+    int active = atomic_load(&ctx->sse_active);
+    do {
+        if (active >= ctx->cfg->max_dashboards)
+            return 0;
+    } while (!atomic_compare_exchange_weak(&ctx->sse_active, &active, active + 1));
+    return 1;
+}
+
+/* Push a snapshot every cfg->refresh_seconds until the client goes away or the
+ * server stops. Split out of handler_stream so that however this loop ends, the
+ * slot is given back in one place instead of at every exit. */
+static void stream_loop(struct mg_connection *conn, const http_ctx_t *ctx)
+{
     for (;;) {
         db_row_t row;
         if (db_current(ctx->db, &row) == 0) {
@@ -302,13 +330,41 @@ static int handler_stream(struct mg_connection *conn, void *cbdata)
             nanosleep(&ts, NULL);
             if (ka_active && i % ka == 0) {
                 if (mg_printf(conn, ": keepalive\n\n") <= 0)
-                    return 200;
+                    return;
             }
         }
 
         if (ctx->stopping)
-            break;
+            return;
     }
+}
+
+/* /stream: SSE endpoint; blocks until the client disconnects or the server is
+ * stopping. */
+static int handler_stream(struct mg_connection *conn, void *cbdata)
+{
+    http_ctx_t *ctx = (http_ctx_t *)cbdata;
+
+    /* Refuse rather than park the reserved workers. The dashboard's EventSource
+     * reports the error and retries with backoff (app.js), so a full server
+     * costs this client its live updates instead of costing everyone else the
+     * server. */
+    if (!sse_acquire(ctx)) {
+        mg_printf(conn, "HTTP/1.1 503 Service Unavailable\r\n"
+                        "Retry-After: 30\r\n"
+                        "Content-Length: 0\r\n"
+                        "Connection: close\r\n\r\n");
+        return 503;
+    }
+
+    mg_printf(conn, "HTTP/1.1 200 OK\r\n"
+                    "Content-Type: text/event-stream\r\n"
+                    "Cache-Control: no-cache\r\n"
+                    "Connection: keep-alive\r\n\r\n");
+
+    stream_loop(conn, ctx);
+
+    atomic_fetch_sub(&ctx->sse_active, 1);
     return 200;
 }
 
@@ -319,6 +375,7 @@ static int handler_stream(struct mg_connection *conn, void *cbdata)
 int http_start(http_ctx_t *ctx, const config_t *cfg, db_t *db)
 {
     memset(ctx, 0, sizeof(*ctx));
+    atomic_init(&ctx->sse_active, 0);
     ctx->cfg = cfg;
     ctx->db = db;
     ctx->num_cores = read_num_cores();
@@ -327,8 +384,11 @@ int http_start(http_ctx_t *ctx, const config_t *cfg, db_t *db)
      * renegotiation (or a new cable) needs a restart to be picked up. */
     ctx->net_speed_mbit = metrics_link_speed_mbit();
 
-    char threads_str[8];
-    snprintf(threads_str, sizeof(threads_str), "%d", cfg->threads);
+    /* The reserve is ours, not the operator's: they ask for N dashboards and the
+     * pool is sized to serve N streams plus everything else. */
+    char threads_str[16];
+    snprintf(threads_str, sizeof(threads_str), "%d",
+             cfg->max_dashboards + sse_reserve(cfg->max_dashboards));
     const char *options[] = {"listening_ports",    cfg->listen, "num_threads", threads_str,
                              "request_timeout_ms", "30000",     NULL};
 

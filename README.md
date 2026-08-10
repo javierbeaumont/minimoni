@@ -336,17 +336,20 @@ mounted at `/data`, set `disk_path = "/data"`.
 ```toml
 [server]
 listen         = "0.0.0.0:8080"
-threads        = 8
+max_dashboards = 8
 sse_keepalive  = 1
 ```
 
 **`listen`**: address and port to bind. Use `0.0.0.0:8080` to accept from any interface, or
 `127.0.0.1:8080` to restrict to localhost (e.g. when running minimoni behind a reverse proxy).
 
-**`threads`**: number of HTTP worker threads. Each open dashboard tab holds one thread for its
-SSE connection. Default `8` handles up to 8 simultaneous users; raise if you have more. Values
-below `2` are rejected with an error (the SSE connection would occupy the only thread, making the
-server non-functional). Values above `256` fall back to the default with a warning. Range: 2-256.
+**`max_dashboards`**: how many dashboards may receive live updates at the same time. Each open
+tab holds one server-sent-events connection for as long as it stays open, so this is the number
+that matters in practice. Beyond it, `/stream` answers `503 Service Unavailable`: that tab still
+loads the page and keeps retrying, it just does not update live, and every other route keeps
+answering normally. Raising it is cheap in memory: measured on arm64, the daemon sits at about
+1.5 MB of RSS at the default, 1.8 MB at `32` and 2.2 MB at `64`. Values below `1` are rejected
+with an error. Values above `256` fall back to the default with a warning. Range: 1-256.
 
 **`sse_keepalive`**: how often (in seconds) a keepalive comment is sent over each SSE connection
 between data pushes. Allows the server to detect a closed browser tab and free its thread without

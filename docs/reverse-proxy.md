@@ -24,6 +24,35 @@ frozen even though the daemon is fine. The gotcha-fix per proxy is called out be
 You can verify your setup with `curl -N https://your-proxy/stream`; events should land
 every few seconds with no buffering.
 
+### Limiting concurrent connections
+
+minimoni serves every connection from a fixed pool of workers, sized from `max_dashboards` plus
+a small reserve so the dashboard and the API keep answering while SSE connections are open. That
+reserve is not a defence against volume: a client that opens many connections at once, or opens
+them and never finishes sending the request, still ties up every worker. Capping concurrent
+connections per client belongs at the proxy.
+
+What each one can do about it differs, so check yours rather than assume:
+
+- nginx caps concurrent connections with
+  [`limit_conn`](https://nginx.org/en/docs/http/ngx_http_limit_conn_module.html), keyed on a
+  variable you pick. Keying on the client address counts everyone behind one NAT address as a
+  single client.
+- Traefik caps simultaneous in-flight requests with
+  [`inFlightReq`](https://doc.traefik.io/traefik/middlewares/http/inflightreq/). Its
+  `sourceCriterion` defaults to the request host, which is one shared counter for everyone; set
+  it explicitly to count per client.
+- Caddy ships nothing for this. The separate
+  [caddy-ratelimit](https://github.com/mholt/caddy-ratelimit) module (Apache-2.0, built in with
+  xcaddy) caps request *rate*, which is a different thing from concurrency.
+- Apache ships nothing for this either. What it does have is
+  [`mod_reqtimeout`](https://httpd.apache.org/docs/2.4/mod/mod_reqtimeout.html), which drops
+  clients that send a request too slowly: that covers the connection held open and never
+  finished, but not the client that opens many at once.
+
+On a private mesh (Tailscale, WireGuard) the question is mostly moot, since only your own
+devices can open a connection at all.
+
 ## Caddy
 
 *License: [Apache 2.0](https://caddyserver.com/) (free software).*

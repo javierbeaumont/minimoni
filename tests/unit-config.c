@@ -547,30 +547,40 @@ static int test_unit_magnitude_rejected(void)
 
 /* --- [server] --- */
 
-static int test_server_listen_and_threads(void)
+static int test_server_listen_and_max_dashboards(void)
 {
     config_t cfg;
-    if (load_cfg(&cfg, "[server]\nlisten = \"127.0.0.1:9999\"\nthreads = 16\n"
+    if (load_cfg(&cfg, "[server]\nlisten = \"127.0.0.1:9999\"\nmax_dashboards = 16\n"
                        "sse_keepalive = 5\n") != 0)
         return 1;
-    return strcmp(cfg.listen, "127.0.0.1:9999") == 0 && cfg.threads == 16 &&
+    return strcmp(cfg.listen, "127.0.0.1:9999") == 0 && cfg.max_dashboards == 16 &&
                    cfg.sse_keepalive_seconds == 5
                ? 0
                : 1;
 }
 
-static int test_server_threads_below_min_aborts(void)
+/* One dashboard is the smallest useful server; zero would serve the API and
+ * never update a page, which is a config nobody means to write. */
+static int test_server_max_dashboards_below_min_aborts(void)
 {
     config_t cfg;
-    return load_cfg(&cfg, "[server]\nthreads = 1\n") == -1 ? 0 : 1;
+    return load_cfg(&cfg, "[server]\nmax_dashboards = 0\n") == -1 ? 0 : 1;
 }
 
-static int test_server_threads_above_max_defaults(void)
+static int test_server_max_dashboards_of_one_is_valid(void)
 {
     config_t cfg;
-    if (load_cfg(&cfg, "[server]\nthreads = 999\n") != 0)
+    if (load_cfg(&cfg, "[server]\nmax_dashboards = 1\n") != 0)
         return 1;
-    return cfg.threads == 8 ? 0 : 1;
+    return cfg.max_dashboards == 1 ? 0 : 1;
+}
+
+static int test_server_max_dashboards_above_max_defaults(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[server]\nmax_dashboards = 999\n") != 0)
+        return 1;
+    return cfg.max_dashboards == 8 ? 0 : 1;
 }
 
 static int test_server_sse_keepalive_invalid_defaults(void)
@@ -791,7 +801,7 @@ static int count_unknown(const char *toml)
 
 static int test_keys_all_known(void)
 {
-    return count_unknown("[server]\nlisten = \"0.0.0.0:1\"\nthreads = 4\n"
+    return count_unknown("[server]\nlisten = \"0.0.0.0:1\"\nmax_dashboards = 4\n"
                          "[collect]\ninterval = 60\ndb = \"x\"\ndisk_path = \"/\"\n"
                          "[dashboard]\ntitle = \"t\"\ntheme = \"dark\"\nranges = [\"1d\"]\n"
                          "[[alert]]\nname = \"a\"\nmetric = \"m\"\noperator = \">\"\n"
@@ -799,7 +809,6 @@ static int test_keys_all_known(void)
                ? 0
                : 1;
 }
-
 static int test_keys_typo_in_dashboard(void)
 {
     return count_unknown("[dashboard]\ntitel = \"x\"\n") == 1 ? 0 : 1;
@@ -923,9 +932,10 @@ static const test_t ALL_TESTS[] = {
     T(unit_case_sensitive),
     T(unit_magnitude_rejected),
     /* [server] */
-    T(server_listen_and_threads),
-    T(server_threads_below_min_aborts),
-    T(server_threads_above_max_defaults),
+    T(server_listen_and_max_dashboards),
+    T(server_max_dashboards_below_min_aborts),
+    T(server_max_dashboards_of_one_is_valid),
+    T(server_max_dashboards_above_max_defaults),
     T(server_sse_keepalive_invalid_defaults),
     /* [collect] paths */
     T(collect_paths),

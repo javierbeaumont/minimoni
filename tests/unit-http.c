@@ -124,13 +124,17 @@ int mg_get_var(const char *data, size_t data_len, const char *name, char *dst, s
     return -1;
 }
 
-static int g_handlers_registered;
+static int  g_handlers_registered;
+static char g_num_threads[16]; /* the pool size http_start asked civetweb for */
 
 struct mg_context *mg_start(const struct mg_callbacks *cb, void *user_data, const char **opts)
 {
     (void)cb;
     (void)user_data;
-    (void)opts;
+    g_num_threads[0] = '\0';
+    for (int i = 0; opts[i] && opts[i + 1]; i += 2)
+        if (strcmp(opts[i], "num_threads") == 0)
+            snprintf(g_num_threads, sizeof(g_num_threads), "%s", opts[i + 1]);
     static int dummy;
     return (struct mg_context *)&dummy;
 }
@@ -354,6 +358,82 @@ static int test_stream_sends_keepalive_comments(void)
     return fixture_done(rc == 200 && has(": keepalive"));
 }
 
+/* --- SSE slot cap ---
+ *
+ * A stream holds its civetweb worker until the client leaves, so without a cap
+ * enough dashboards take every worker and nothing else gets served. The pool is
+ * sized at max_dashboards plus a reserve, so honouring the cap is what
+ * keeps the reserve reserved. */
+
+static int test_stream_returns_its_slot(void)
+{
+    http_ctx_t *ctx = fixture_ctx();
+    insert_sample();
+    ctx->stopping = 1;
+    request(NULL);
+    handler_stream(NULL, ctx);
+    return fixture_done(atomic_load(&ctx->sse_active) == 0);
+}
+
+static int test_stream_refuses_when_the_cap_is_full(void)
+{
+    http_ctx_t *ctx = fixture_ctx();
+    insert_sample();
+    atomic_store(&ctx->sse_active, g_cfg.max_dashboards);
+    request(NULL);
+    int rc = handler_stream(NULL, ctx);
+    /* Refused, and the count is untouched: a rejection must not consume a slot. */
+    return fixture_done(rc == 503 && has("503 Service Unavailable") && has("Retry-After") &&
+                        !has("text/event-stream") &&
+                        atomic_load(&ctx->sse_active) == g_cfg.max_dashboards);
+}
+
+static int test_stream_cap_leaves_workers_for_the_rest(void)
+{
+    http_ctx_t *ctx = fixture_ctx();
+    int         taken = 0;
+    while (sse_acquire(ctx))
+        if (++taken > 1000)
+            break; /* a cap that never bites would loop forever */
+
+    return fixture_done(taken == g_cfg.max_dashboards && atomic_load(&ctx->sse_active) == taken);
+}
+
+/* max_dashboards = 1 is the configured minimum and has to mean one working
+ * dashboard: the reserve is added to the pool, so it can never eat the slot. */
+static int test_stream_cap_at_the_minimum(void)
+{
+    http_ctx_t *ctx = fixture_ctx();
+    g_cfg.max_dashboards = 1;
+    int first = sse_acquire(ctx);
+    int second = sse_acquire(ctx);
+    return fixture_done(first == 1 && second == 0);
+}
+
+/* The pool size http_start actually asked civetweb for, which is the number the
+ * reserve has to reach: getting sse_reserve right proves nothing on its own. */
+static int pool_for(int max_dashboards)
+{
+    http_ctx_t *ctx = fixture_ctx();
+    g_cfg.max_dashboards = max_dashboards;
+    g_num_threads[0] = '\0';
+    http_start(ctx, &g_cfg, &g_db);
+    http_stop(ctx);
+    int pool = atoi(g_num_threads);
+    db_close(&g_db);
+    unlink(g_dbpath);
+    return pool;
+}
+
+static int test_pool_adds_the_reserve(void)
+{
+    /* the floor wins until the ratio overtakes it */
+    return (pool_for(1) == 3 && pool_for(8) == 10 && pool_for(32) == 34 && pool_for(48) == 51 &&
+            pool_for(64) == 68 && pool_for(256) == 272)
+               ? 0
+               : 1;
+}
+
 /* --- Start/stop plumbing --- */
 
 static int test_http_start_registers_every_route(void)
@@ -380,6 +460,11 @@ static const test_t ALL_TESTS[] = {
     T(stream_sends_a_frame_then_stops),
     T(stream_stops_when_the_client_hangs_up),
     T(stream_sends_keepalive_comments),
+    T(stream_returns_its_slot),
+    T(stream_refuses_when_the_cap_is_full),
+    T(stream_cap_leaves_workers_for_the_rest),
+    T(stream_cap_at_the_minimum),
+    T(pool_adds_the_reserve),
     T(http_start_registers_every_route),
 };
 

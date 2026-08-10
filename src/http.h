@@ -19,6 +19,8 @@
 #ifndef MINIMONI_HTTP_H
 #define MINIMONI_HTTP_H
 
+#include <stdatomic.h>
+
 #include "config.h"
 #include "db.h"
 
@@ -33,6 +35,9 @@ typedef struct {
     int                temp_critical_valid;
     int          net_speed_mbit; /* link speed sum, 0 if none reported (see config fallback) */
     volatile int stopping;
+    /* Open SSE streams. Each one parks a civetweb worker for as long as the
+     * client stays connected, so the count is capped at cfg->max_dashboards. */
+    atomic_int sse_active;
 } http_ctx_t;
 
 /* Bind to cfg->listen, register all route handlers, and start the civetweb

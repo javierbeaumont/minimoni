@@ -123,7 +123,7 @@ static void unit_copy(char *dst, size_t dsize, toml_datum_t v, const char *key,
 /* Canonical keys per table; a key outside these is a typo the TOML reader would
  * otherwise silently ignore, leaving the user wondering why their setting did
  * not take effect. */
-static const char *const SERVER_KEYS[] = {"listen", "sse_keepalive", "threads"};
+static const char *const SERVER_KEYS[] = {"listen", "max_dashboards", "sse_keepalive"};
 static const char *const COLLECT_KEYS[] = {"db", "disk_path", "interval"};
 static const char *const DASHBOARD_KEYS[] = {"cards",
                                              "charts",
@@ -280,7 +280,7 @@ void config_defaults(config_t *cfg)
     snprintf(cfg->ranges[2], sizeof(cfg->ranges[2]), "%s", "30d");
     snprintf(cfg->ranges[3], sizeof(cfg->ranges[3]), "%s", "90d");
     cfg->range_count = 4;
-    cfg->threads = 8;
+    cfg->max_dashboards = 8;
     cfg->sse_keepalive_seconds = 1;
     cfg->interval_seconds = 60;
     cfg->refresh_seconds = 30;
@@ -302,15 +302,16 @@ int config_load(config_t *cfg, const char *path)
     /* [server] */
     v = toml_seek(root, "server.listen");
     str_copy(cfg->listen, sizeof(cfg->listen), v);
-    v = toml_seek(root, "server.threads");
-    if (v.type == TOML_INT64 && v.u.int64 >= 2 && v.u.int64 <= 256)
-        cfg->threads = (int)v.u.int64;
-    else if (v.type == TOML_INT64 && v.u.int64 < 2) {
-        fprintf(stderr, "config: threads must be >= 2 (got %ld); aborting\n", (long)v.u.int64);
+    v = toml_seek(root, "server.max_dashboards");
+    if (v.type == TOML_INT64 && v.u.int64 >= 1 && v.u.int64 <= 256)
+        cfg->max_dashboards = (int)v.u.int64;
+    else if (v.type == TOML_INT64 && v.u.int64 < 1) {
+        fprintf(stderr, "config: max_dashboards must be >= 1 (got %ld); aborting\n",
+                (long)v.u.int64);
         toml_free(res);
         return -1;
     } else if (v.type == TOML_INT64)
-        fprintf(stderr, "config: threads must be <= 256 (got %ld); using default\n",
+        fprintf(stderr, "config: max_dashboards must be <= 256 (got %ld); using default\n",
                 (long)v.u.int64);
     v = toml_seek(root, "server.sse_keepalive");
     if (v.type == TOML_INT64 && v.u.int64 > 0)
