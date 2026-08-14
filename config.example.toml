@@ -1,6 +1,6 @@
 [server]
 listen        = "0.0.0.0:8080"
-# max_dashboards = 8 # live dashboards allowed at once; 1-256 (default: 8)
+# max_dashboards = 4 # live dashboards allowed at once; 1-256 (default: 4)
 # sse_keepalive = 1 # seconds between SSE keepalives; 1..refresh-1 (default: 1)
 
 [collect]

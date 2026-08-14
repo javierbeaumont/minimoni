@@ -280,7 +280,7 @@ void config_defaults(config_t *cfg)
     snprintf(cfg->ranges[2], sizeof(cfg->ranges[2]), "%s", "30d");
     snprintf(cfg->ranges[3], sizeof(cfg->ranges[3]), "%s", "90d");
     cfg->range_count = 4;
-    cfg->max_dashboards = 8;
+    cfg->max_dashboards = 4;
     cfg->sse_keepalive_seconds = 1;
     cfg->interval_seconds = 60;
     cfg->refresh_seconds = 30;

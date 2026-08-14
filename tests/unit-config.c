@@ -580,7 +580,7 @@ static int test_server_max_dashboards_above_max_defaults(void)
     config_t cfg;
     if (load_cfg(&cfg, "[server]\nmax_dashboards = 999\n") != 0)
         return 1;
-    return cfg.max_dashboards == 8 ? 0 : 1;
+    return cfg.max_dashboards == 4 ? 0 : 1;
 }
 
 static int test_server_sse_keepalive_invalid_defaults(void)

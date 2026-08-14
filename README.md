@@ -47,7 +47,7 @@ at build time, so there are no files to deploy alongside the binary.
 
 |                    | minimoni            | [Beszel][b]           | [Netdata][n]       |
 |--------------------|---------------------|-----------------------|--------------------|
-| RAM (daemon)       | ~1.7 MB [1]         | ~5-10 MB + ~75 MB hub | ~150-200 MB        |
+| RAM (daemon)       | ~1.7-1.8 MB [1]     | ~5-10 MB + ~75 MB hub | ~150-200 MB        |
 | Architecture       | single binary       | agent + hub           | agent (complex)    |
 | Runtime deps       | none                | none                  | many               |
 | Dashboard          | yes (canvas)        | yes (web UI)          | yes (web UI)       |
@@ -56,8 +56,7 @@ at build time, so there are no files to deploy alongside the binary.
 | License            | GPLv3+              | MIT                   | GPLv3+ / NCUL1 [2] |
 
 [1] Measured on a Raspberry Pi 3B (Raspberry Pi OS, kernel 6.18, arm64): ~1.7 MB PSS at idle,
-trimming to ~1.6 MB under sustained query load. The static musl build keeps a flat memory
-profile; it self-trims under query pressure rather than accumulating, and never touches swap.
+~1.8 MB under sustained query load. The static musl build never touches swap.
 [2] Netdata agent is GPLv3+; the v2 dashboard is under NCUL1, a proprietary licence.
 
 RAM sources. Beszel: [HowToGeek (2026)][s1], [instapods (2026)][s2].
@@ -78,7 +77,7 @@ with the CI-built static musl binary (`-Os -flto`), against a live production da
 | Metric                          |                                                         Value |
 |---------------------------------|--------------------------------------------------------------:|
 | Binary size                     |                                                       1.24 MB |
-| PSS (idle and under query load) |                                     ~1.7 MB, trims under load |
+| PSS (idle and under query load) |                              ~1.7 MB idle, ~1.8 MB under load |
 | CPU per collect cycle           | ~11 ms (excl. the 250 ms intentional sleep for the CPU delta) |
 | Disk writes per 1-min cycle     |                                           24 KiB (SQLite WAL) |
 | `/api/metrics?range=1d`         |                                                        ~50 ms |
@@ -87,9 +86,9 @@ with the CI-built static musl binary (`-Os -flto`), against a live production da
 | `/api/metrics?range=90d`        |                                                       ~430 ms |
 | `/api/current`, `/api/health`   |                                                  ~2 ms, ~1 ms |
 
-PSS does not grow under query load; the daemon self-trims rather than accumulating, and
-Swap stays at 0 throughout. Tiered write-time consolidation keeps 30d and 90d queries
-flat in the hundreds of ms rather than scaling with the row count.
+PSS rises about 0.2 MB while heavy queries are being served, and Swap stays at 0 throughout.
+Tiered write-time consolidation keeps 30d and 90d queries flat in the hundreds of ms rather
+than scaling with the row count.
 
 ## Installation
 
@@ -336,7 +335,7 @@ mounted at `/data`, set `disk_path = "/data"`.
 ```toml
 [server]
 listen         = "0.0.0.0:8080"
-max_dashboards = 8
+max_dashboards = 4
 sse_keepalive  = 1
 ```
 
@@ -347,9 +346,11 @@ sse_keepalive  = 1
 tab holds one server-sent-events connection for as long as it stays open, so this is the number
 that matters in practice. Beyond it, `/stream` answers `503 Service Unavailable`: that tab still
 loads the page and keeps retrying, it just does not update live, and every other route keeps
-answering normally. Raising it is cheap in memory: measured on arm64, the daemon sits at about
-1.5 MB of RSS at the default, 1.8 MB at `32` and 2.2 MB at `64`. Values below `1` are rejected
-with an error. Values above `256` fall back to the default with a warning. Range: 1-256.
+answering normally. Raising it costs memory in proportion: each extra dashboard adds a worker
+thread, measured on a Pi 3B at ~13 kB idle and ~38 kB while queries are being served. At the
+default the daemon sits at ~1.7 MB idle and ~1.8 MB under load, at `32` ~2.0 MB idle and ~2.9 MB
+under load, and at `64` ~2.5 MB idle and ~4.2 MB under load. Values below `1` are rejected with
+an error. Values above `256` fall back to the default with a warning. Range: 1-256.
 
 **`sse_keepalive`**: how often (in seconds) a keepalive comment is sent over each SSE connection
 between data pushes. Allows the server to detect a closed browser tab and free its thread without
@@ -388,7 +389,9 @@ net_chart_unit         = "bytes" # chart Y-axis: "%" | "bytes" | "bits"
 uptime_unit            = "auto" # uptime display: "auto" | "h" | "d"
 ```
 
-All keys are optional. The values shown above are the defaults.
+All keys are optional. The values above are the defaults, with three exceptions: `title` defaults
+to `minimoni`, and `charts` and `cards` are unset by default, which shows every metric in the
+order listed above.
 
 **`title`**: browser tab text, dashboard header, and the `hostname` field in webhook alert
 payloads. If omitted, the dashboard shows "minimoni" and webhook payloads use the system
