@@ -1,7 +1,7 @@
 # ADR-0001: SQLite as the metric store
 
 **Date:** 2026-06-01
-**Status:** Accepted
+**Status:** Accepted; partially superseded by [ADR-0005](0005-tiered-consolidation.md)
 
 > **Note:** the downsampling strategy and DB-size figures below describe the original
 > design. [ADR-0005](0005-tiered-consolidation.md) moved consolidation to write time;
@@ -31,18 +31,12 @@ Use the **SQLite amalgamation** (`sqlite3.c` + `sqlite3.h`, public domain).
 Compiles directly into the binary. WAL mode enables concurrent readers with a single writer
 without application-level mutexes.
 
-Compiled with four tuning flags; dead code removal is delegated to LTO and linker stripping
-rather than `SQLITE_OMIT_*` flags. LTO alone reduces the vendor contribution more effectively
-than the OMIT flags would, and avoids hard-to-debug linker issues.
+Compiled with a small set of tuning flags; dead code removal is delegated to LTO and linker
+stripping rather than `SQLITE_OMIT_*` flags. LTO alone reduces the vendor contribution more
+effectively than the OMIT flags would, and avoids hard-to-debug linker issues.
 
-```
--DSQLITE_THREADSAFE=0
--DSQLITE_DEFAULT_MEMSTATUS=0
--DSQLITE_DEFAULT_WAL_SYNCHRONOUS=1
--DSQLITE_LIKE_DOESNT_MATCH_BLOBS
-```
-
-At runtime: `PRAGMA journal_mode=WAL` and `PRAGMA cache_size=-256` (256 KB cap).
+The page cache is capped rather than left at SQLite's default, so memory stays within the
+budget above. The flags and the cap live in the Makefile and `db.c`.
 
 ## Consequences
 

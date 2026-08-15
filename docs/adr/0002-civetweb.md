@@ -27,15 +27,15 @@ Use **civetweb** (MIT). It is the MIT-licensed continuation of the original mong
 codebase, maintained by the same original author (Sergey Lyubka), with 15+ years of
 battle-tested HTTP handling. Vendored as `civetweb.c` + `civetweb.h` + `.inl` files.
 
-Compile-time flags strip all unused features:
-
-```
--DNO_SSL -DNO_CGI -DNO_CACHING -DUSE_WEBSOCKET=0 -DUSE_IPV6=0 -DNO_FILES -DNDEBUG
-```
+Everything the daemon does not use is compiled out: TLS, CGI, websockets, IPv6, and serving
+files from disk. What remains answers only the routes minimoni registers itself. The exact
+flags live in the Makefile.
 
 ## Consequences
 
 - No TLS: a reverse proxy (nginx, Caddy) is required for HTTPS.
 - No IPv6 in v1.
+- No static file serving: civetweb's document-root handling is not compiled in, so flaws in
+  that path cannot be reached from this build. Re-evaluate if file serving is ever added.
 - ~16 KB stack per connection thread.
 - Compile-time flags significantly reduce binary contribution vs. the full civetweb build.
