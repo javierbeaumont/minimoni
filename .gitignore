@@ -22,7 +22,3 @@ vendor/bearssl/build/
 metrics.db
 metrics.db-wal
 metrics.db-shm
-
-# Python bytecode cache (from the dev-server tooling in tools/)
-__pycache__/
-*.pyc
