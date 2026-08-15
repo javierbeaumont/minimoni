@@ -36,6 +36,11 @@ PORT=18099
 pass=0
 fail=0
 
+if ! command -v sqlite3 >/dev/null 2>&1; then
+    echo "  sqlite3 CLI not found in PATH; install it to run cli tests" >&2
+    exit 2
+fi
+
 check_rc() { # DESC EXPECTED ACTUAL
     if [ "$2" -eq "$3" ]; then
         pass=$((pass + 1))
@@ -185,7 +190,7 @@ usv=$!
 sleep 1
 kill -TERM "$usv" 2>/dev/null
 wait "$usv" 2>/dev/null
-"$BIN" db exec "$udb" "INSERT INTO metrics (timestamp, load_1m, load_5m, \
+sqlite3 "$udb" "INSERT INTO metrics (timestamp, load_1m, load_5m, \
   load_15m, cpu_user_percent, cpu_system_percent, cpu_idle_percent, mem_total_mb, \
   mem_used_mb, mem_available_mb, mem_percent, disk_total_gb, disk_used_gb, disk_free_gb, \
   disk_percent, temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds, bucket_sec) VALUES \

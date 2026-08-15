@@ -40,6 +40,8 @@ static void handle_signal(int sig)
     shutdown_flag = 1;
 }
 
+/* `db exec` is absent on purpose: it exists for minimoni-migrate (ADR-0006),
+ * and listing it would offer arbitrary SQL on a live database as a command. */
 static void usage(const char *prog)
 {
     fprintf(stderr,
@@ -47,10 +49,9 @@ static void usage(const char *prog)
             "  %s serve    [--config PATH]\n"
             "  %s collect  [--config PATH]\n"
             "  %s db info  <db_path>\n"
-            "  %s db exec  <db_path> <SQL>\n"
             "  %s --version\n"
             "  %s --help, -h\n",
-            prog, prog, prog, prog, prog, prog);
+            prog, prog, prog, prog, prog);
 }
 
 static const char *parse_config_flag(int argc, char **argv, int start)

@@ -62,8 +62,8 @@ final step of each migration.
 - minimoni-migrate can be cut as its own GitHub release if a user
   needs to migrate a corrupt or stalled DB without upgrading the
   daemon.
-- The `minimoni db exec` contract becomes a public, stable API:
-  any change to it requires bumping the consumer alongside.
+- The two binaries couple through one narrow contract, internal to
+  the pair rather than a command offered to operators.
 
 **Negative**
 
