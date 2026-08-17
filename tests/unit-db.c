@@ -1004,6 +1004,62 @@ static int test_consolidate_boundary_bucket_not_due(void)
     return (raw == T1_BUCKET && agg == 0) ? 0 : 1;
 }
 
+/* --- db_open_readonly ---
+ *
+ * What these pin is not that the handle reads, but that it cannot write: a
+ * future read path can then never share the writer's connection by accident. */
+
+static int test_readonly_reads_an_existing_db(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+    insert_raw_row(db.handle, time(NULL) - 60);
+    db_close(&db);
+
+    db_t ro;
+    if (db_open_readonly(&ro, g_tmpdb_path) != 0)
+        return 1;
+    int seen = count_rows(ro.handle, "1");
+    db_close(&ro);
+    unlink(g_tmpdb_path);
+    return seen == 1 ? 0 : 1;
+}
+
+static int test_readonly_refuses_to_write(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+    db_close(&db);
+
+    db_t ro;
+    if (db_open_readonly(&ro, g_tmpdb_path) != 0)
+        return 1;
+    int rc =
+        sqlite3_exec(ro.handle, "INSERT INTO metrics (timestamp) VALUES ('x')", NULL, NULL, NULL);
+    db_close(&ro);
+    unlink(g_tmpdb_path);
+    return rc == SQLITE_READONLY ? 0 : 1;
+}
+
+/* db_open creates a missing file; this one must not, or a typo in the path
+ * would leave the server reading an empty database it made itself. */
+static int test_readonly_does_not_create(void)
+{
+    char path[280];
+    snprintf(path, sizeof(path), "/tmp/minimoni-ro-absent-%d.db", (int)getpid());
+    unlink(path);
+
+    db_t ro;
+    int  rc = db_open_readonly(&ro, path);
+    int  created = access(path, F_OK) == 0;
+    if (rc == 0)
+        db_close(&ro);
+    unlink(path);
+    return (rc == -1 && !created) ? 0 : 1;
+}
+
 static const test_t ALL_TESTS[] = {
     /* db_open validate-on-open state machine */
     T(db_open_fresh_install),
@@ -1016,6 +1072,9 @@ static const test_t ALL_TESTS[] = {
     T(db_open_directory_as_path),
     T(db_open_reopen_after_fresh),
     T(db_open_path_in_nonexistent_dir),
+    T(readonly_reads_an_existing_db),
+    T(readonly_refuses_to_write),
+    T(readonly_does_not_create),
     /* db_insert and query round-trip */
     T(db_insert_roundtrip),
     T(db_insert_null_gating),

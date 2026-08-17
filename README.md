@@ -47,7 +47,7 @@ at build time, so there are no files to deploy alongside the binary.
 
 |                    | minimoni            | [Beszel][b]           | [Netdata][n]       |
 |--------------------|---------------------|-----------------------|--------------------|
-| RAM (daemon)       | ~1.7-1.8 MB [1]     | ~5-10 MB + ~75 MB hub | ~150-200 MB        |
+| RAM (daemon)       | ~1.7 MB [1]         | ~5-10 MB + ~75 MB hub | ~150-200 MB        |
 | Architecture       | single binary       | agent + hub           | agent (complex)    |
 | Runtime deps       | none                | none                  | many               |
 | Dashboard          | yes (canvas)        | yes (web UI)          | yes (web UI)       |
@@ -55,8 +55,9 @@ at build time, so there are no files to deploy alongside the binary.
 | Alerts             | yes (webhook + cmd) | yes                   | yes                |
 | License            | GPLv3+              | MIT                   | GPLv3+ / NCUL1 [2] |
 
-[1] Measured on a Raspberry Pi 3B (Raspberry Pi OS, kernel 6.18, arm64): ~1.7 MB PSS at idle,
-~1.8 MB under sustained query load. The static musl build never touches swap.
+[1] Measured on a Raspberry Pi 3B (Raspberry Pi OS, kernel 6.18, arm64): ~1.7 MB PSS, with little
+difference between an idle daemon and one serving queries. The static musl build never touches
+swap.
 [2] Netdata agent is GPLv3+; the v2 dashboard is under NCUL1, a proprietary licence.
 
 RAM sources. Beszel: [HowToGeek (2026)][s1], [instapods (2026)][s2].
@@ -70,25 +71,27 @@ Netdata: [official docs][s3], [instapods (2026)][s2].
 
 ## Performance
 
-Measured on a Raspberry Pi 3B (Cortex-A53, 1 GB RAM, Raspberry Pi OS, kernel 6.18, arm64)
-with the CI-built static musl binary (`-Os -flto`), against a live production database
-(~24k consolidated rows, ~23 MB):
+Measured on a Raspberry Pi 3B (Cortex-A53, 1 GB RAM, Raspberry Pi OS, kernel 6.18, arm64) with the
+static musl binary (`-Os -flto`), against a copy of a live production database (23 769 rows over
+90 days, 23 MB), after letting the daemon settle for two hours:
 
 | Metric                          |                                                         Value |
 |---------------------------------|--------------------------------------------------------------:|
-| Binary size                     |                                                       1.24 MB |
-| PSS (idle and under query load) |                              ~1.7 MB idle, ~1.8 MB under load |
-| CPU per collect cycle           | ~11 ms (excl. the 250 ms intentional sleep for the CPU delta) |
-| Disk writes per 1-min cycle     |                                           24 KiB (SQLite WAL) |
-| `/api/metrics?range=1d`         |                                                        ~50 ms |
-| `/api/metrics?range=7d`         |                                                       ~150 ms |
-| `/api/metrics?range=30d`        |                                                       ~270 ms |
-| `/api/metrics?range=90d`        |                                                       ~430 ms |
+| Binary size                     |                                                       1.23 MB |
+| PSS (idle and under query load) |                             ~1.7 MB, little change under load |
+| CPU per collect cycle           | ~15 ms (excl. the 250 ms intentional sleep for the CPU delta) |
+| Disk writes per 1-min cycle     |                                          ~30 KiB (SQLite WAL) |
+| `/api/metrics?range=1d`         |                                                        ~60 ms |
+| `/api/metrics?range=7d`         |                                                       ~155 ms |
+| `/api/metrics?range=30d`        |                                                       ~285 ms |
+| `/api/metrics?range=90d`        |                                                       ~450 ms |
 | `/api/current`, `/api/health`   |                                                  ~2 ms, ~1 ms |
 
-PSS rises about 0.2 MB while heavy queries are being served, and Swap stays at 0 throughout.
-Tiered write-time consolidation keeps 30d and 90d queries flat in the hundreds of ms rather
-than scaling with the row count.
+Serving queries barely moves PSS, and repeated bursts do not move it further; Swap stays at 0
+throughout. Disk writes track the database's own maintenance rather than the traffic served: the
+WAL checkpoints about every five hours, which amortises to roughly 1 KiB per cycle on top of the
+baseline above. Tiered write-time consolidation keeps 30d and 90d queries flat in the hundreds of
+ms rather than scaling with the row count.
 
 ## Installation
 
@@ -347,10 +350,9 @@ tab holds one server-sent-events connection for as long as it stays open, so thi
 that matters in practice. Beyond it, `/stream` answers `503 Service Unavailable`: that tab still
 loads the page and keeps retrying, it just does not update live, and every other route keeps
 answering normally. Raising it costs memory in proportion: each extra dashboard adds a worker
-thread, measured on a Pi 3B at ~13 kB idle and ~38 kB while queries are being served. At the
-default the daemon sits at ~1.7 MB idle and ~1.8 MB under load, at `32` ~2.0 MB idle and ~2.9 MB
-under load, and at `64` ~2.5 MB idle and ~4.2 MB under load. Values below `1` are rejected with
-an error. Values above `256` fall back to the default with a warning. Range: 1-256.
+thread, measured on a Pi 3B at ~13 kB idle and ~38 kB while queries are being served. Values below
+`1` are rejected with an error. Values above `256` fall back to the default with a warning.
+Range: 1-256.
 
 **`sse_keepalive`**: how often (in seconds) a keepalive comment is sent over each SSE connection
 between data pushes. Allows the server to detect a closed browser tab and free its thread without

@@ -147,12 +147,23 @@ static int run_serve(const char *config_path)
     if (config_open(&cfg, config_path) != 0)
         return 1;
 
+    /* Two connections on purpose. Sharing one put the collector behind the
+     * HTTP workers, because SQLite serialises a connection on a single mutex,
+     * and a burst of range queries left samples unstored. In WAL a writer and
+     * readers run concurrently only across separate connections. */
     db_t db;
     if (db_open(&db, cfg.db_path, cfg.interval_seconds) != 0)
         return 1;
 
+    db_t db_ro;
+    if (db_open_readonly(&db_ro, cfg.db_path) != 0) {
+        db_close(&db);
+        return 1;
+    }
+
     http_ctx_t http;
-    if (http_start(&http, &cfg, &db) != 0) {
+    if (http_start(&http, &cfg, &db_ro) != 0) {
+        db_close(&db_ro);
         db_close(&db);
         return 1;
     }
@@ -191,6 +202,7 @@ static int run_serve(const char *config_path)
     }
 
     http_stop(&http);
+    db_close(&db_ro);
     db_close(&db);
     return 0;
 }

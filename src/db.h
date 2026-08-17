@@ -43,11 +43,15 @@ typedef struct {
 } db_t;
 
 /* Open (or create) the database at path. Enables WAL mode, sets cache
- * to 256 KB, creates the schema, stamps the "moni" application_id and the
+ * to 64 KB, creates the schema, stamps the "moni" application_id and the
  * schema user_version into the file header, and prepares reusable statements.
  * interval_sec is the collect interval, stored as the bucket_sec of raw rows.
  * Returns 0 on success, -1 on error (message written to stderr). */
 int db_open(db_t *db, const char *path, long interval_sec);
+
+/* Open an existing database read-only, for the HTTP server. Does not create
+ * one. Returns 0, or -1 with a message on stderr. Close with db_close(). */
+int db_open_readonly(db_t *db, const char *path);
 
 /* Finalize prepared statements and close the database handle. */
 void db_close(db_t *db);

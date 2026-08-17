@@ -139,7 +139,9 @@ int db_open(db_t *db, const char *path, long interval_sec)
         sqlite3_free(errmsg);
         errmsg = NULL;
     }
-    sqlite3_exec(db->handle, "PRAGMA cache_size=-256", NULL, NULL, NULL);
+    /* 64 KB on both connections (below ~32 KB the read syscalls explode).
+     * A floor with margin, not a minimum. */
+    sqlite3_exec(db->handle, "PRAGMA cache_size=-64", NULL, NULL, NULL);
 
     if (existed_before) {
         /* Pre-existing file. Validate that we know how to talk to it BEFORE
@@ -217,6 +219,20 @@ int db_open(db_t *db, const char *path, long interval_sec)
         return -1;
     }
 
+    return 0;
+}
+
+int db_open_readonly(db_t *db, const char *path)
+{
+    memset(db, 0, sizeof(*db));
+
+    if (sqlite3_open_v2(path, &db->handle, SQLITE_OPEN_READONLY, NULL) != SQLITE_OK) {
+        fprintf(stderr, "db: cannot open %s read-only: %s\n", path, sqlite3_errmsg(db->handle));
+        sqlite3_close(db->handle);
+        db->handle = NULL;
+        return -1;
+    }
+    sqlite3_exec(db->handle, "PRAGMA cache_size=-64", NULL, NULL, NULL);
     return 0;
 }
 
@@ -701,10 +717,6 @@ int db_consolidate(db_t *db)
         sqlite3_exec(db->handle, "ROLLBACK", NULL, NULL, NULL);
         return -1;
     }
-    /* No db_release_memory() here: the metrics handler already releases after
-     * heavy range queries, and the musl release build trims on its own, so a
-     * release in the write path would be redundant. Under glibc no placement
-     * escapes the arena retention anyway (PSS holds ~13 MB under load). See
-     * ADR-0008. */
+    /* No db_release_memory() here: cache_size bounds the page cache and SQLite trims within it. */
     return 0;
 }
