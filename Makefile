@@ -16,7 +16,7 @@
 
 CC = gcc
 VERSION := $(shell git describe --tags --always 2>/dev/null || echo unknown)
-CFLAGS = -Wall -Wextra -std=c11 -DMINIMONI_VERSION=\"$(VERSION)\"
+CFLAGS = -Wall -Wextra -std=c23 -DMINIMONI_VERSION=\"$(VERSION)\"
 LDFLAGS = -static -lpthread
 LDFLAGS_DEBUG = -lpthread
 
@@ -133,28 +133,28 @@ test-unit: ci-image \
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
 	  sh -c "mkdir -p build && \
 	    sh tests/mirror-consolidate.sh && \
-	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Itests \
+	    gcc -Wall -Wextra -std=c23 -Isrc -Ivendor -Itests \
 	      tests/unit-config.c vendor/tomlc17.c -o build/unit-config-test && \
-	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Itests $(SQLITE_FLAGS) \
+	    gcc -Wall -Wextra -std=c23 -Isrc -Ivendor -Itests $(SQLITE_FLAGS) \
 	      tests/unit-db.c vendor/sqlite3.c -o build/unit-db-test -lpthread && \
-	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Itests $(SQLITE_FLAGS) \
+	    gcc -Wall -Wextra -std=c23 -Isrc -Ivendor -Itests $(SQLITE_FLAGS) \
 	      tests/unit-db_cmd.c vendor/sqlite3.c -o build/unit-db_cmd-test -lpthread && \
-	    gcc -Wall -Wextra -std=c11 -Isrc -Itests \
+	    gcc -Wall -Wextra -std=c23 -Isrc -Itests \
 	      tests/unit-downsample.c -o build/unit-downsample-test && \
-	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Itests $(SQLITE_FLAGS) \
+	    gcc -Wall -Wextra -std=c23 -Isrc -Ivendor -Itests $(SQLITE_FLAGS) \
 	      $(CIVETWEB_FLAGS) \
 	      tests/unit-http.c src/db.c src/json.c src/units.c src/downsample.c \
 	      src/config.c src/metrics.c vendor/sqlite3.c vendor/tomlc17.c \
 	      -o build/unit-http-test -lpthread && \
-	    gcc -Wall -Wextra -std=c11 -Isrc -Ivendor -Itests \
+	    gcc -Wall -Wextra -std=c23 -Isrc -Ivendor -Itests \
 	      tests/unit-json.c vendor/tomlc17.c -o build/unit-json-test && \
-	    gcc -Wall -Wextra -std=c11 -Isrc -Itests \
+	    gcc -Wall -Wextra -std=c23 -Isrc -Itests \
 	      tests/unit-metrics.c -o build/unit-metrics-test && \
-	    gcc -Wall -Wextra -std=c11 -Isrc -Itests \
+	    gcc -Wall -Wextra -std=c23 -Isrc -Itests \
 	      tests/unit-migrate.c -o build/unit-migrate-test && \
-	    gcc -Wall -Wextra -std=c11 -Isrc -Itests \
+	    gcc -Wall -Wextra -std=c23 -Isrc -Itests \
 	      tests/unit-units.c -o build/unit-units-test && \
-	    gcc -Wall -Wextra -std=c11 -Isrc -Itests \
+	    gcc -Wall -Wextra -std=c23 -Isrc -Itests \
 	      tests/contract-units.c -o build/contract-units && \
 	    ./build/unit-config-test && ./build/unit-db-test && ./build/unit-db_cmd-test && \
 	    ./build/unit-downsample-test && ./build/unit-http-test && ./build/unit-json-test && \

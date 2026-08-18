@@ -25,7 +25,7 @@ docker run --rm -v "$PWD":/work -w /work minimoni-toolchain-tidy sh -c '
   mkdir -p build
   sh tools/bundle.sh | xxd -i -n dashboard_index_html - > build/embed.h
   clang-tidy src/*.c -- \
-    -std=c11 -DMINIMONI_VERSION=\"dev\" \
+    -std=c23 -DMINIMONI_VERSION=\"dev\" \
     -DSQLITE_THREADSAFE=1 -DSQLITE_DEFAULT_MEMSTATUS=0 \
     -DSQLITE_DEFAULT_WAL_SYNCHRONOUS=1 -DSQLITE_LIKE_DOESNT_MATCH_BLOBS \
     -DNO_SSL -DNO_CGI -DNO_CACHING -DUSE_WEBSOCKET=0 -DUSE_IPV6=0 \

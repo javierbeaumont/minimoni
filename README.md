@@ -145,6 +145,8 @@ CycloneDX SBOM (`sbom.cdx.json`) listing the vendored dependencies compiled into
 
 ### Prerequisites
 
+Building from source needs **GCC 14 or newer**: minimoni is C23.
+
 ```sh
 # Debian / Ubuntu / Raspberry Pi OS
 sudo apt-get install gcc make xxd git
