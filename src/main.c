@@ -54,13 +54,29 @@ static void usage(const char *prog)
             prog, prog, prog, prog, prog);
 }
 
-static const char *parse_config_flag(int argc, char **argv, int start)
+/* Concatenate at compile time, so -Wformat still checks the callers. */
+#define arg_error(prog, fmt, ...)                                                                  \
+    (fprintf(stderr, "minimoni: " fmt "\n" __VA_OPT__(, ) __VA_ARGS__), usage(prog))
+
+/* Consume `--config PATH` into *out (NULL when absent), rejecting anything else. */
+static int parse_config_flag(int argc, char **argv, const char **out)
 {
-    for (int i = start; i < argc - 1; i++) {
-        if (strcmp(argv[i], "--config") == 0)
-            return argv[i + 1];
+    *out = NULL;
+    /* Options start after argv[1] subcommand. */
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--config") != 0) {
+            arg_error(argv[0], "unexpected argument '%s'", argv[i]);
+            return -1;
+        }
+        if (i + 1 >= argc) {
+            arg_error(argv[0], "--config requires a path");
+            return -1;
+        }
+
+        *out = argv[++i];
     }
-    return NULL;
+
+    return 0;
 }
 
 /* Convert a range string ("1d", "24h", "30m", ...) to days (ceiling).
@@ -226,10 +242,17 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    if (strcmp(argv[1], "collect") == 0)
-        return run_collect(parse_config_flag(argc, argv, 2));
+    if (strcmp(argv[1], "collect") == 0) {
+        const char *cfg_path;
+        if (parse_config_flag(argc, argv, &cfg_path) != 0)
+            return 1;
+        return run_collect(cfg_path);
+    }
 
     if (strcmp(argv[1], "serve") == 0) {
+        const char *cfg_path;
+        if (parse_config_flag(argc, argv, &cfg_path) != 0)
+            return 1;
         struct sigaction sa;
         memset(&sa, 0, sizeof(sa));
         sa.sa_handler = handle_signal;
@@ -237,21 +260,19 @@ int main(int argc, char **argv)
         sigaction(SIGTERM, &sa, NULL);
         sigaction(SIGINT, &sa, NULL);
         signal(SIGHUP, SIG_IGN);
-        return run_serve(parse_config_flag(argc, argv, 2));
+        return run_serve(cfg_path);
     }
 
     if (strcmp(argv[1], "db") == 0) {
         if (argc < 3) {
-            fprintf(stderr, "minimoni: 'db' requires <action>\n");
-            usage(argv[0]);
+            arg_error(argv[0], "'db' requires <action>");
             return 1;
         }
         const char *action = argv[2];
 
         if (strcmp(action, "info") == 0) {
             if (argc < 4) {
-                fprintf(stderr, "minimoni: 'db info' requires <db_path>\n");
-                usage(argv[0]);
+                arg_error(argv[0], "'db info' requires <db_path>");
                 return 1;
             }
             return db_cmd_info(argv[3]);
@@ -259,19 +280,16 @@ int main(int argc, char **argv)
 
         if (strcmp(action, "exec") == 0) {
             if (argc != 5) {
-                fprintf(stderr, "minimoni: 'db exec' requires <db_path> <SQL>\n");
-                usage(argv[0]);
+                arg_error(argv[0], "'db exec' requires <db_path> <SQL>");
                 return 1;
             }
             return db_cmd_exec(argv[3], argv[4]);
         }
 
-        fprintf(stderr, "minimoni: unknown 'db' action '%s'\n", action);
-        usage(argv[0]);
+        arg_error(argv[0], "unknown 'db' action '%s'", action);
         return 1;
     }
 
-    fprintf(stderr, "minimoni: unknown subcommand '%s'\n", argv[1]);
-    usage(argv[0]);
+    arg_error(argv[0], "unknown subcommand '%s'", argv[1]);
     return 1;
 }

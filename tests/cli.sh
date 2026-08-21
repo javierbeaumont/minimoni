@@ -120,6 +120,11 @@ else
 fi
 expect_rc 1 "collect with missing config exits 1" "$BIN" collect --config "$work/none.toml"
 
+expect_rc 1 "serve rejects a positional config path" "$BIN" serve "$cfg"
+expect_rc 1 "collect rejects a positional config path" "$BIN" collect "$cfg"
+expect_rc 1 "serve rejects --config with no path" "$BIN" serve --config
+expect_rc 1 "collect rejects an unknown flag" "$BIN" collect --nope
+
 # --- db info ---
 info=$("$BIN" db info "$work/metrics.db" 2>/dev/null)
 rc=$?
