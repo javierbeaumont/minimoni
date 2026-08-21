@@ -199,7 +199,7 @@ static void insert_sample(void)
     m.disk_total_gb = 100.0;
     m.disk_percent = 40.0;
     m.uptime_seconds = 3600.0;
-    db_insert(&g_db, &m);
+    (void)db_insert(&g_db, &m);
 }
 
 static void request(const char *query)
@@ -417,7 +417,7 @@ static int pool_for(int max_dashboards)
     http_ctx_t *ctx = fixture_ctx();
     g_cfg.max_dashboards = max_dashboards;
     g_num_threads[0] = '\0';
-    http_start(ctx, &g_cfg, &g_db);
+    (void)http_start(ctx, &g_cfg, &g_db);
     http_stop(ctx);
     int pool = atoi(g_num_threads);
     db_close(&g_db);

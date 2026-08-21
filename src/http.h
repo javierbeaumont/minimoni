@@ -43,7 +43,7 @@ typedef struct {
 /* Bind to cfg->listen, register all route handlers, and start the civetweb
  * thread pool.  ctx must remain valid until http_stop() returns.
  * Returns 0 on success, -1 on failure (message written to stderr). */
-int http_start(http_ctx_t *ctx, const config_t *cfg, db_t *db);
+[[nodiscard]] int http_start(http_ctx_t *ctx, const config_t *cfg, db_t *db);
 
 /* Signal all SSE connections to close, stop the HTTP server, and block
  * until the civetweb thread pool has exited. */

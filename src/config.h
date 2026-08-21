@@ -90,7 +90,7 @@ int config_load(config_t *cfg, const char *path);
  * If explicit_path is non-NULL it is used as-is (returns -1 on failure).
  * Otherwise tries "./config.toml", then "/etc/minimoni/config.toml",
  * then silently keeps defaults. Always returns 0 when explicit_path is NULL. */
-int config_open(config_t *cfg, const char *explicit_path);
+[[nodiscard]] int config_open(config_t *cfg, const char *explicit_path);
 
 /* Membership test for the charts/cards visibility lists: 1 if `name` is
  * configured (or the list is the default show-all, count==0), 0 otherwise

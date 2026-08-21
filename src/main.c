@@ -59,7 +59,7 @@ static void usage(const char *prog)
     (fprintf(stderr, "minimoni: " fmt "\n" __VA_OPT__(, ) __VA_ARGS__), usage(prog))
 
 /* Consume `--config PATH` into *out (NULL when absent), rejecting anything else. */
-static int parse_config_flag(int argc, char **argv, const char **out)
+[[nodiscard]] static int parse_config_flag(int argc, char **argv, const char **out)
 {
     *out = NULL;
     /* Options start after argv[1] subcommand. */

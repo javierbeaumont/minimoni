@@ -379,7 +379,11 @@ int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row)
         if (a->command[0])
             run_command(a, value);
 
-        db_alert_log_fire(db, a->name);
+        if (db_alert_log_fire(db, a->name) != 0)
+            fprintf(stderr,
+                    "alerts: '%s' fired but its cooldown was not recorded; it will fire "
+                    "again next cycle\n",
+                    a->name);
     }
 
     return 0;

@@ -47,11 +47,11 @@ typedef struct {
  * schema user_version into the file header, and prepares reusable statements.
  * interval_sec is the collect interval, stored as the bucket_sec of raw rows.
  * Returns 0 on success, -1 on error (message written to stderr). */
-int db_open(db_t *db, const char *path, long interval_sec);
+[[nodiscard]] int db_open(db_t *db, const char *path, long interval_sec);
 
 /* Open an existing database read-only, for the HTTP server. Does not create
  * one. Returns 0, or -1 with a message on stderr. Close with db_close(). */
-int db_open_readonly(db_t *db, const char *path);
+[[nodiscard]] int db_open_readonly(db_t *db, const char *path);
 
 /* Finalize prepared statements and close the database handle. */
 void db_close(db_t *db);
@@ -61,7 +61,7 @@ void db_close(db_t *db);
  * invalid so they do not distort averages in downsampled queries.
  * Retries up to 3 times on SQLITE_BUSY with 100ms backoff.
  * Returns 0 on success, -1 on error. */
-int db_insert(db_t *db, const metrics_t *m);
+[[nodiscard]] int db_insert(db_t *db, const metrics_t *m);
 
 /* Delete rows older than retention_days from metrics and alert_log.
  * Returns 0 on success, -1 on error. */
@@ -142,6 +142,6 @@ int db_alert_on_cooldown(db_t *db, const char *alert_name, long cooldown_seconds
 
 /* Record a fire event for alert_name in alert_log with the current UTC time.
  * Returns 0 on success, -1 on error. */
-int db_alert_log_fire(db_t *db, const char *alert_name);
+[[nodiscard]] int db_alert_log_fire(db_t *db, const char *alert_name);
 
 #endif /* MINIMONI_DB_H */
