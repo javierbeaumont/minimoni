@@ -60,14 +60,14 @@ repos:
       - id: clang-format
         files: '\.(c|h)$'
   - repo: https://github.com/pre-commit/mirrors-eslint
-    rev: v10.7.0
+    rev: v10.9.0
     hooks:
       - id: eslint
         files: '\.js$'
         additional_dependencies:
-          - eslint@10.8.0
+          - eslint@10.9.1
           - '@eslint/js@10.0.1'
-          - globals@17.7.0
+          - globals@17.11.0
   - repo: local
     hooks:
       - id: sbom-sync
