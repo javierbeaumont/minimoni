@@ -23,12 +23,12 @@ jobs:
           persist-credentials: false
       - run: make test-unit
 
-  integration:
-    name: Integration
+  e2e:
+    name: E2E
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: make test-integration
+      - run: make test-e2e

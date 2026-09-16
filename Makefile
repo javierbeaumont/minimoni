@@ -59,7 +59,7 @@ VENDOR_CC = $(CC) $(CFLAGS) -Wno-unused-but-set-variable $(SQLITE_FLAGS) \
   $(CIVETWEB_FLAGS) $(BEARSSL_INC) -Ivendor -Isrc -Ibuild -c
 
 .PHONY: all embed release release-linux ci-image debug tidy \
-        test-unit test-integration test fmt clean-build clean
+        test-unit test-e2e test fmt clean-build clean
 
 all: embed minimoni minimoni-migrate
 
@@ -118,12 +118,11 @@ debug: embed $(VENDOR_OBJ_DEBUG) $(BEARSSL_LIB)
 tidy:
 	pre-commit run clang-tidy --all-files --hook-stage pre-push
 
-# Unit tests (Docker): the db.c <-> migrate mirror check, then one C suite per module
-# (shared tests/runner.h; unit-config/json link tomlc17; unit-http uses
-# tests/embed.h, hence no -Ibuild), plus the JS suites via
-# node --test with a coverage gate (thresholds apply to the loaded non-DOM JS:
-# dashboard/format.js + tools/devserver; the DOM files are covered by the browser paths
-# and the cli.sh bundle check instead).
+# Unit tests (Docker): the db.c <-> migrate mirror check, then one C suite per module (shared
+# tests/runner.h; unit-config/json link tomlc17; unit-http uses tests/embed.h, hence no -Ibuild),
+# plus the JS suites via node --test with a coverage gate (thresholds apply to the loaded non-DOM
+# JS: dashboard/format.js + tools/devserver; the DOM files are covered by the browser paths and the
+# e2e-cli.sh bundle check instead).
 test-unit: ci-image \
       tests/unit-config.c tests/unit-db.c tests/unit-db_cmd.c tests/unit-downsample.c \
       tests/unit-http.c tests/unit-json.c tests/unit-metrics.c tests/unit-migrate.c \
@@ -169,13 +168,13 @@ test-unit: ci-image \
       --test-coverage-exclude='tests/*' \
       tests/*.test.js"
 
-# Integration (Docker): build release once, then the black-box suites cli.sh + migrate.sh.
-test-integration: ci-image
+# End to end (Docker): build release once, then the black-box suites that drive it.
+test-e2e: ci-image
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
 	  sh -c "make release && \
-	    sh tests/cli.sh && sh tests/migrate.sh"
+	    sh tests/e2e-cli.sh && sh tests/e2e-migrate.sh"
 
-test: test-unit test-integration
+test: test-unit test-e2e
 
 fmt:
 	find src tests -name '*.[ch]' | xargs $(CLANG_FORMAT) -i

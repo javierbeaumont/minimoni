@@ -15,20 +15,18 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# CLI integration smoke test: exercises the built `minimoni` binary across every
-# subcommand path (exit codes + key output) and the serve daemon (bind, health,
-# clean SIGTERM shutdown). Run via `make test-cli`, which builds the release
-# binary in Docker and then runs this script against it.
+# CLI end-to-end smoke test: exercises the built `minimoni` binary across every subcommand path
+# (exit codes + key output) and the serve daemon (bind, health, clean SIGTERM shutdown). Run via
+# `make test-e2e`, which builds the release binary in Docker once, then runs this script and
+# e2e-migrate.sh against it.
 #
-# Scope: this is a SMOKE / contract harness, not a behaviour suite. Per CLI
-# path, assert only that it exists, exits with the right code, and emits its
-# key output line: the happy path plus at most one representative error.
-# Behavioural depth (branch combinatorics, edge cases) belongs in the C unit
-# suites, which are faster and need no built binary. For example, db_cmd_info's
-# foreign-DB / no-metrics / v0.1 branches live in tests/unit-db_cmd.c, not
-# here. If this file passes ~30 checks, stop and re-evaluate: either scope crept
-# down from a unit test, or the CLI genuinely outgrew a shell smoke test (in
-# which case reconsider its structure).
+# Scope: this is a SMOKE / contract harness, not a behaviour suite. Per CLI path, assert only that
+# it exists, exits with the right code, and emits its key output line: the happy path plus at most
+# one representative error. Behavioural depth (branch combinatorics, edge cases) belongs in the C
+# unit suites, which are faster and need no built binary. For example, db_cmd_info's foreign-DB,
+# no-metrics or v0.1 branches live in tests/unit-db_cmd.c, not here. If this file passes ~30 checks,
+# stop and re-evaluate: either scope crept down from a unit test, or the CLI genuinely outgrew a
+# shell smoke test (in which case reconsider its structure).
 set -u
 
 BIN=./minimoni
@@ -81,7 +79,7 @@ expect_rc() { # EXPECTED DESC CMD...
 }
 
 [ -x "$BIN" ] || {
-    echo "cli.sh: $BIN not built (run 'make release' first)" >&2
+    echo "e2e-cli.sh: $BIN not built (run 'make release' first)" >&2
     exit 1
 }
 
@@ -97,7 +95,7 @@ disk_path = "/"
 listen = "127.0.0.1:$PORT"
 EOF
 
-echo "CLI integration tests:"
+echo "CLI end-to-end tests:"
 
 # --- meta ---
 v=$("$BIN" --version 2>/dev/null)

@@ -25,7 +25,7 @@ For security-sensitive issues, see [SECURITY.md](SECURITY.md).
 - Discuss in an issue before sending non-trivial PRs.
 - Keep commits small and focused. Format: `<module>: <imperative>` subject;
   keep the body minimal: subject-only unless it adds what the diff doesn't show.
-- Code must compile cleanly with `-Wall -Wextra` (`make`) and pass `make test` (unit + integration).
+- Code must compile cleanly with `-Wall -Wextra` (`make`) and pass `make test` (unit + end to end).
 - New functionality with testable logic should come with a test: add it under `tests/` so it
   runs as part of `make test`.
 - Follow the existing K&R/Linux style (4-space indent, 100-col limit).
@@ -38,8 +38,15 @@ For security-sensitive issues, see [SECURITY.md](SECURITY.md).
 make embed   # bundle dashboard into build/embed.h
 make         # development build (-O2)
 make release # release build (-Os -flto, stripped)
-make test    # all tests (unit + integration) in Docker
+make test    # all tests (unit + end to end) in Docker
 ```
+
+The filename prefix says which tier a suite belongs to. A `unit-*` suite links no vendored code.
+An `e2e-*` suite drives the built binary, with real ports and real peers.
+
+Two files under `tests/` are deliberately unprefixed: `mirror-consolidate.sh` compares two copies
+of one function that are duplicated on purpose, and `runner.h` is the harness the C suites share.
+Neither is a test tier.
 
 For release-equivalent binaries identical to the published ones, use the
 Alpine Docker target:

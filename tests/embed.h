@@ -16,9 +16,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Stand-in for the generated build/embed.h, pulled in because unit-http.c includes
- * src/http.c: the two symbols xxd -i emits, so no unit test needs the dashboard
- * bundle. cli.sh checks the real one is embedded and served. */
+/* Stand-in for the generated build/embed.h, pulled in because unit-http.c includes src/http.c: the
+ * two symbols xxd -i emits, so no unit test needs the dashboard bundle. e2e-cli.sh checks the real
+ * one is embedded and served. */
 
 unsigned char dashboard_index_html[] = "<!doctype html><canvas></canvas>";
 unsigned int  dashboard_index_html_len = sizeof(dashboard_index_html) - 1;

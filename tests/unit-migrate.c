@@ -16,20 +16,17 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Unit tests for the parts of minimoni-migrate that are testable without the
- * fork+exec to `minimoni db exec`:
- *
- *   - migrations.c: the in-binary migration registry (pure data + tiny
- *     accessors).
+/* Unit tests for the parts of minimoni-migrate that are testable without the fork+exec to
+ * `minimoni db exec`:
+ *   - migrations.c: the in-binary migration registry (pure data + tiny accessors).
  *   - snapshot.c:   the pre-migration backup file copy.
  *
- * preflight.c, exec.c and main.c are covered end-to-end by the shell suite
- * tests/migrate.sh because they all depend on the live `minimoni` binary
- * being present at run time (unit-testing them would require injecting the SQL
- * executor as a callback).
+ * preflight.c, exec.c and main.c are covered end-to-end by the shell suite tests/e2e-migrate.sh
+ * because they all depend on the live `minimoni` binary being present at run time (unit-testing
+ * them would require injecting the SQL executor as a callback).
  *
- * Standalone (no framework). #includes the migrate .c modules directly so the
- * static helpers are reachable. */
+ * Standalone (no framework). #includes the migrate .c modules directly so the static helpers are
+ * reachable. */
 
 #define _POSIX_C_SOURCE 200809L
 

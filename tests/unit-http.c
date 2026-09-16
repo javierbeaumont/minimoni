@@ -16,9 +16,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Unit tests for src/http.c: the handlers are called directly with the civetweb
- * entry points stubbed below, no live server. tests/cli.sh stays the contract
- * that real civetweb drives them the way these stubs assume. */
+/* Unit tests for src/http.c: the handlers are called directly with the civetweb entry points
+ * stubbed below, no live server. tests/e2e-cli.sh stays the contract that real civetweb drives
+ * them the way these stubs assume. */
 
 #define _POSIX_C_SOURCE 200809L
 

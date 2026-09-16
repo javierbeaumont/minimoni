@@ -15,23 +15,20 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# Integration tests for minimoni-migrate. Treats the binary as a black box:
-# builds test databases via the sqlite3 CLI, runs minimoni-migrate, verifies
-# observable post-state.
+# End-to-end tests for minimoni-migrate. Treats the binary as a black box: builds test databases via
+# the sqlite3 CLI, runs minimoni-migrate, verifies observable post-state.
 #
 # Requirements: sqlite3 CLI in PATH, ./minimoni and ./minimoni-migrate built.
-# Run with: make test-migrate
+# Run with: make test-e2e
 #
-# Scope: this is the END-TO-END suite for minimoni-migrate, not a smoke harness
-# like cli.sh. Migrate's logic (preflight, version routing, structural
-# fingerprint, snapshot, dry-run, --force) only runs through a live
-# `minimoni db exec` fork+exec, so it cannot be unit-tested the way db_cmd can:
-# behavioural depth lives here by necessity, and cli.sh's ~30-check smoke
-# ceiling does NOT apply (this file's size tracks the number of real migrate
-# behaviours, not scope creep). What is unit-testable in pure C (the migration
-# registry, the snapshot copy) lives in tests/unit-migrate.c. Before adding a
-# case, ask whether it can be a unit test there first; if it needs the live
-# binary, it belongs here.
+# Scope: this is the END-TO-END suite for minimoni-migrate, not a smoke harness like e2e-cli.sh.
+# Migrate's logic (preflight, version routing, structural fingerprint, snapshot, dry-run, --force)
+# only runs through a live `minimoni db exec` fork+exec, so it cannot be unit-tested the way db_cmd
+# can: behavioural depth lives here by necessity, and e2e-cli.sh's ~30-check smoke ceiling does NOT
+# apply (this file's size tracks the number of real migrate behaviours, not scope creep). What is
+# unit-testable in pure C (the migration registry, the snapshot copy) lives in tests/unit-migrate.c.
+# Before adding a case, ask whether it can be a unit test there first; if it needs the live binary,
+# it belongs here.
 
 set -eu
 
