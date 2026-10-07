@@ -155,42 +155,20 @@ static void write_all(int fd, const char *buf, size_t len)
     }
 }
 
-/* BearSSL x509 engine that accepts any server certificate */
-static void xc_start_chain(const br_x509_class **ctx, const char *n)
+/* Encrypt without authenticating. The real engine still parses the chain, which is where the public
+ * key comes from. Passing no server name is how br_x509_minimal is told to skip the name check; the
+ * SNI the engine sends is unaffected. */
+static void xi_start_chain(const br_x509_class **ctx, const char *server_name)
 {
-    (void)ctx;
-    (void)n;
+    (void)server_name;
+    br_x509_minimal_vtable.start_chain(ctx, NULL);
 }
-static void xc_start_cert(const br_x509_class **ctx, uint32_t l)
+
+static unsigned xi_end_chain(const br_x509_class **ctx)
 {
-    (void)ctx;
-    (void)l;
+    unsigned err = br_x509_minimal_vtable.end_chain(ctx);
+    return err == BR_ERR_X509_NOT_TRUSTED ? 0 : err;
 }
-static void xc_append(const br_x509_class **ctx, const unsigned char *b, size_t l)
-{
-    (void)ctx;
-    (void)b;
-    (void)l;
-}
-static void     xc_end_cert(const br_x509_class **ctx) { (void)ctx; }
-static unsigned xc_end_chain(const br_x509_class **ctx)
-{
-    (void)ctx;
-    return 0;
-}
-static const br_x509_pkey *xc_get_pkey(const br_x509_class *const *ctx, unsigned *u)
-{
-    (void)ctx;
-    (void)u;
-    return NULL;
-}
-static const br_x509_class x509_noverify = {sizeof(br_x509_minimal_context),
-                                            xc_start_chain,
-                                            xc_start_cert,
-                                            xc_append,
-                                            xc_end_cert,
-                                            xc_end_chain,
-                                            xc_get_pkey};
 
 static int tls_sock_read(void *ctx, unsigned char *buf, size_t len)
 {
@@ -299,18 +277,28 @@ static void post_webhook(const alert_cfg_t *a, double value, const char *timesta
         unsigned char           iobuf[BR_SSL_BUFSIZE_BIDI];
         br_sslio_context        ioc;
 
+        /* Not a constant expression, so this cannot be a static initialiser. */
+        br_x509_class insecure_vt = br_x509_minimal_vtable;
+        insecure_vt.start_chain = xi_start_chain;
+        insecure_vt.end_chain = xi_end_chain;
+
         br_ssl_client_init_full(&sc, &xc, NULL, 0);
-        xc.vtable = &x509_noverify;
+        xc.vtable = &insecure_vt;
         br_ssl_engine_set_buffer(&sc.eng, iobuf, sizeof(iobuf), 1);
         br_ssl_client_reset(&sc, host, 0);
         br_sslio_init(&ioc, &sc.eng, tls_sock_read, &fd, tls_sock_write, &fd);
 
-        br_sslio_write_all(&ioc, req, (size_t)rlen);
-        br_sslio_flush(&ioc);
-        char buf[256];
-        while (br_sslio_read(&ioc, buf, sizeof(buf)) > 0)
-            ;
-        br_sslio_close(&ioc);
+        /* Only delivery is checked: plenty of endpoints close without close_notify, which BearSSL
+         * reports as an error even though the POST did arrive. */
+        if (br_sslio_write_all(&ioc, req, (size_t)rlen) != 0 || br_sslio_flush(&ioc) != 0) {
+            fprintf(stderr, "alerts: webhook to %s not delivered, TLS error %d\n", host,
+                    br_ssl_engine_last_error(&sc.eng));
+        } else {
+            char buf[256];
+            while (br_sslio_read(&ioc, buf, sizeof(buf)) > 0)
+                ;
+            br_sslio_close(&ioc);
+        }
     }
 
     close(fd);

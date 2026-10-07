@@ -39,17 +39,15 @@ algorithms (e.g. `ec_prime_i15.c` and `ec_prime_i31.c` both define `static api_g
 that are designed to be compiled as separate translation units and dead-code-stripped by
 the linker.
 
-Certificate verification is intentionally skipped via a no-op `br_x509_class` vtable.
-Webhook URLs are operator-configured in `config.toml`; the operator controls the endpoint.
-Transport encryption (confidentiality and integrity of the alert payload in transit) is
-provided without the operational burden of bundling a CA trust store on a constrained device.
+Certificate verification is intentionally skipped. Webhook URLs are operator-configured in
+`config.toml`; the operator controls the endpoint. Transport encryption (confidentiality and
+integrity of the alert payload in transit) is provided without the operational burden of bundling a
+CA trust store on a constrained device.
 
 ## Consequences
 
-- Vendor binary contribution: ~64 KB stripped (eliminated almost entirely by `--gc-sections`
-  for the plain-HTTP path; active when at least one `webhook = "https://..."` is configured).
+- The binary carries BearSSL's TLS client, which only runs when an `https://` webhook fires.
 - `vendor/bearssl/build/` is generated at build time and gitignored.
-- `BR_SSL_BUFSIZE_BIDI` (~32.5 KB) is allocated on the stack inside `post_webhook()`,
-  called at most once per alert firing, never in the hot collect path.
+- TLS buffers exist only while a webhook is being delivered, not on every collection cycle.
 - No certificate verification. Acceptable for outbound alert delivery; not acceptable for
   any inbound or authentication use case.

@@ -126,7 +126,7 @@ tidy:
 test-unit: ci-image \
       tests/unit-config.c tests/unit-db.c tests/unit-db_cmd.c tests/unit-downsample.c \
       tests/unit-http.c tests/unit-json.c tests/unit-metrics.c tests/unit-migrate.c \
-      tests/unit-units.c \
+      tests/unit-units.c tests/unit-alerts.c \
       tests/contract-units.c tests/embed.h tests/runner.h tests/devserver.test.js \
       tests/devserver-http.test.js tests/dashboard.test.js tests/mirror-consolidate.sh
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
@@ -153,12 +153,14 @@ test-unit: ci-image \
 	      tests/unit-migrate.c -o build/unit-migrate-test && \
 	    gcc -Wall -Wextra -std=c23 -Isrc -Itests \
 	      tests/unit-units.c -o build/unit-units-test && \
+	    gcc -Wall -Wextra -std=c23 -Isrc -Ivendor -Itests -Ivendor/bearssl/inc \
+	      tests/unit-alerts.c -o build/unit-alerts-test && \
 	    gcc -Wall -Wextra -std=c23 -Isrc -Itests \
 	      tests/contract-units.c -o build/contract-units && \
 	    ./build/unit-config-test && ./build/unit-db-test && ./build/unit-db_cmd-test && \
 	    ./build/unit-downsample-test && ./build/unit-http-test && ./build/unit-json-test && \
 	    ./build/unit-metrics-test && \
-	    ./build/unit-migrate-test && ./build/unit-units-test && \
+	    ./build/unit-migrate-test && ./build/unit-units-test && ./build/unit-alerts-test && \
 	    node --test --experimental-test-coverage --test-coverage-lines=97 \
       --test-coverage-branches=90 --test-coverage-functions=92 \
       --test-coverage-exclude='dashboard/app.js' \
@@ -172,7 +174,7 @@ test-unit: ci-image \
 test-e2e: ci-image
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
 	  sh -c "make release && \
-	    sh tests/e2e-cli.sh && sh tests/e2e-migrate.sh"
+	    sh tests/e2e-cli.sh && sh tests/e2e-webhook.sh && sh tests/e2e-migrate.sh"
 
 test: test-unit test-e2e
 
