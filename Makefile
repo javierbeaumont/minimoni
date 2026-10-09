@@ -58,8 +58,8 @@ VENDOR_OBJ_DEBUG   = $(patsubst vendor/%.c,build/debug/%.o,$(VENDOR))
 VENDOR_CC = $(CC) $(CFLAGS) -Wno-unused-but-set-variable $(SQLITE_FLAGS) \
   $(CIVETWEB_FLAGS) $(BEARSSL_INC) -Ivendor -Isrc -Ibuild -c
 
-.PHONY: all embed release release-linux ci-image debug tidy \
-        test-unit test-e2e test fmt clean-build clean
+.PHONY: all embed release release-linux ci-image debug tidy test-unit test-integration test-e2e \
+        test fmt clean-build clean
 
 all: embed minimoni minimoni-migrate
 
@@ -170,13 +170,25 @@ test-unit: ci-image \
       --test-coverage-exclude='tests/*' \
       tests/*.test.js"
 
+# Integration (Docker): our X.509 policy against the real br_x509_minimal engine, in process and
+# with no sockets. Needs only the BearSSL library, not a built binary. The certificate is generated,
+# never stored: a committed one would expire and flip the verdict it expects.
+test-integration: ci-image
+	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
+	  sh -c "mkdir -p build && make $(BEARSSL_LIB) && \
+	    openssl req -quiet -x509 -newkey rsa:2048 -nodes -days 1 -outform DER \
+	      -keyout /dev/null -out build/x509-selfsigned.der -subj '/CN=minimoni.test' && \
+	    gcc -Wall -Wextra -std=c23 -Isrc -Ivendor -Itests $(BEARSSL_INC) \
+	      tests/integration-alerts.c $(BEARSSL_LIB) -o build/integration-alerts-test && \
+	    ./build/integration-alerts-test"
+
 # End to end (Docker): build release once, then the black-box suites that drive it.
 test-e2e: ci-image
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
 	  sh -c "make release && \
 	    sh tests/e2e-cli.sh && sh tests/e2e-webhook.sh && sh tests/e2e-migrate.sh"
 
-test: test-unit test-e2e
+test: test-unit test-integration test-e2e
 
 fmt:
 	find src tests -name '*.[ch]' | xargs $(CLANG_FORMAT) -i
