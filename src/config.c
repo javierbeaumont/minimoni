@@ -125,6 +125,7 @@ static void unit_copy(char *dst, size_t dsize, toml_datum_t v, const char *key,
  * not take effect. */
 static const char *const SERVER_KEYS[] = {"listen", "max_dashboards", "sse_keepalive"};
 static const char *const COLLECT_KEYS[] = {"db", "disk_path", "interval"};
+static const char *const WEBHOOK_KEYS[] = {"insecure_skip_verify"};
 static const char *const DASHBOARD_KEYS[] = {"cards",
                                              "charts",
                                              "cpu_load_card_unit",
@@ -214,16 +215,7 @@ static int config_warn_unknown(toml_datum_t root)
     for (int i = 0; i < root.u.tab.size; i++) {
         const char  *k = root.u.tab.key[i];
         toml_datum_t v = root.u.tab.value[i];
-        if (strcmp(k, "server") == 0) {
-            if (v.type == TOML_TABLE)
-                unknown += warn_unknown_in(v, k, SERVER_KEYS, N_KEYS(SERVER_KEYS));
-        } else if (strcmp(k, "collect") == 0) {
-            if (v.type == TOML_TABLE)
-                unknown += warn_unknown_in(v, k, COLLECT_KEYS, N_KEYS(COLLECT_KEYS));
-        } else if (strcmp(k, "dashboard") == 0) {
-            if (v.type == TOML_TABLE)
-                unknown += warn_unknown_in(v, k, DASHBOARD_KEYS, N_KEYS(DASHBOARD_KEYS));
-        } else if (strcmp(k, "alert") == 0) {
+        if (strcmp(k, "alert") == 0) {
             if (v.type != TOML_ARRAY)
                 continue;
             for (int a = 0; a < v.u.arr.size; a++) {
@@ -233,8 +225,21 @@ static int config_warn_unknown(toml_datum_t root)
                 snprintf(where, sizeof(where), "alert[%d]", a);
                 unknown += warn_unknown_in(v.u.arr.elem[a], where, ALERT_KEYS, N_KEYS(ALERT_KEYS));
             }
+        } else if (strcmp(k, "collect") == 0) {
+            if (v.type == TOML_TABLE)
+                unknown += warn_unknown_in(v, k, COLLECT_KEYS, N_KEYS(COLLECT_KEYS));
+        } else if (strcmp(k, "dashboard") == 0) {
+            if (v.type == TOML_TABLE)
+                unknown += warn_unknown_in(v, k, DASHBOARD_KEYS, N_KEYS(DASHBOARD_KEYS));
+        } else if (strcmp(k, "server") == 0) {
+            if (v.type == TOML_TABLE)
+                unknown += warn_unknown_in(v, k, SERVER_KEYS, N_KEYS(SERVER_KEYS));
+        } else if (strcmp(k, "webhook") == 0) {
+            if (v.type == TOML_TABLE)
+                unknown += warn_unknown_in(v, k, WEBHOOK_KEYS, N_KEYS(WEBHOOK_KEYS));
         } else {
-            static const char *const TABLES[] = {"alert", "collect", "dashboard", "server"};
+            static const char *const TABLES[] = {"alert", "collect", "dashboard", "server",
+                                                 "webhook"};
             unknown++;
             const char *close = NULL;
             for (int j = 0; j < N_KEYS(TABLES) && !close; j++)
@@ -351,6 +356,11 @@ int config_load(config_t *cfg, const char *path)
     str_copy(cfg->db_path, sizeof(cfg->db_path), v);
     v = toml_seek(root, "collect.disk_path");
     str_copy(cfg->disk_path, sizeof(cfg->disk_path), v);
+
+    /* [webhook] */
+    v = toml_seek(root, "webhook.insecure_skip_verify");
+    if (v.type == TOML_BOOLEAN)
+        cfg->insecure_skip_verify = v.u.boolean ? 1 : 0;
 
     /* [dashboard] */
     v = toml_seek(root, "dashboard.title");

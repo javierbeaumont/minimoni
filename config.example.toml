@@ -8,6 +8,9 @@ db        = "/var/lib/minimoni/metrics.db"
 interval  = 60                              # seconds between samples (range: 1-3600)
 disk_path = "/"
 
+[webhook]
+# insecure_skip_verify = true # required to POST to an https:// webhook
+
 [dashboard]
 # title       = "My Server"
 # theme       = "auto"      # "auto" | "light" | "dark"; "auto" follows OS preference

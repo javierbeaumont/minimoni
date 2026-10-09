@@ -117,6 +117,41 @@ static int test_interval_missing(void)
     return cfg.interval_seconds == 60 ? 0 : 1;
 }
 
+/* --- [webhook] insecure_skip_verify --- */
+
+static int test_insecure_skip_verify_default_false(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[collect]\ndb = \"/tmp/x.db\"\n") != 0)
+        return 1;
+    return cfg.insecure_skip_verify == 0 ? 0 : 1;
+}
+
+static int test_insecure_skip_verify_true(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[webhook]\ninsecure_skip_verify = true\n") != 0)
+        return 1;
+    return cfg.insecure_skip_verify == 1 ? 0 : 1;
+}
+
+static int test_insecure_skip_verify_explicit_false(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[webhook]\ninsecure_skip_verify = false\n") != 0)
+        return 1;
+    return cfg.insecure_skip_verify == 0 ? 0 : 1;
+}
+
+/* A quoted "true" is not a boolean: it is dropped and https stays refused. */
+static int test_insecure_skip_verify_wrong_type_ignored(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[webhook]\ninsecure_skip_verify = \"true\"\n") != 0)
+        return 1;
+    return cfg.insecure_skip_verify == 0 ? 0 : 1;
+}
+
 /* --- Interval: wrong types --- */
 
 static int test_interval_legacy_string(void)
@@ -803,6 +838,7 @@ static int test_keys_all_known(void)
 {
     return count_unknown("[server]\nlisten = \"0.0.0.0:1\"\nmax_dashboards = 4\n"
                          "[collect]\ninterval = 60\ndb = \"x\"\ndisk_path = \"/\"\n"
+                         "[webhook]\ninsecure_skip_verify = true\n"
                          "[dashboard]\ntitle = \"t\"\ntheme = \"dark\"\nranges = [\"1d\"]\n"
                          "[[alert]]\nname = \"a\"\nmetric = \"m\"\noperator = \">\"\n"
                          "threshold = 1\nwebhook = \"w\"\ncooldown = \"5m\"\n") == 0
@@ -961,6 +997,11 @@ static const test_t ALL_TESTS[] = {
     T(net_max_speed_applied),
     T(net_max_speed_invalid),
     T(net_unit_percent_accepted),
+    /* [webhook] */
+    T(insecure_skip_verify_default_false),
+    T(insecure_skip_verify_true),
+    T(insecure_skip_verify_explicit_false),
+    T(insecure_skip_verify_wrong_type_ignored),
     /* unknown keys */
     T(keys_all_known),
     T(keys_typo_in_dashboard),

@@ -123,6 +123,33 @@ expect_rc 1 "collect rejects a positional config path" "$BIN" collect "$cfg"
 expect_rc 1 "serve rejects --config with no path" "$BIN" serve --config
 expect_rc 1 "collect rejects an unknown flag" "$BIN" collect --nope
 
+# The gate trips before any socket is opened, so neither case needs a server.
+mk_webhook_cfg() { # PATH INSECURE(0|1)
+    cat >"$1" <<EOF
+[collect]
+db = "$work/webhook.db"
+[[alert]]
+name = "probe"
+metric = "uptime_seconds"
+operator = ">"
+threshold = 0
+webhook = "https://127.0.0.1:1/hook"
+cooldown = "1h"
+EOF
+    if [ "$2" = 1 ]; then
+        printf '[webhook]\ninsecure_skip_verify = true\n' >>"$1"
+    fi
+}
+
+mk_webhook_cfg "$work/wh-closed.toml" 0
+out=$("$BIN" collect --config "$work/wh-closed.toml" 2>&1)
+check_has "https webhook is refused without the opt-out" "$out" "cannot verify certificates"
+
+rm -f "$work/webhook.db"
+mk_webhook_cfg "$work/wh-open.toml" 1
+out=$("$BIN" collect --config "$work/wh-open.toml" 2>&1)
+check_lacks "insecure_skip_verify opens the gate" "$out" "cannot verify certificates"
+
 # --- db info ---
 info=$("$BIN" db info "$work/metrics.db" 2>/dev/null)
 rc=$?

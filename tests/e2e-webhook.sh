@@ -16,7 +16,8 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 # Webhook delivery over the wire: asserts that an `https://` webhook completes a real TLS handshake
-# and that the POST arrives. Needs socat to terminate TLS.
+# and that the POST arrives. Needs socat to terminate TLS. The config gate is asserted in e2e-cli.sh
+# instead: it trips before any socket is opened, so it needs no server and always runs.
 set -u
 
 BIN=./minimoni
@@ -111,7 +112,7 @@ if [ "$ready" -ne 1 ]; then
     exit 2
 fi
 
-fire() { # URL -> sets $out (stderr) and $got (bytes the server read)
+fire() { # URL INSECURE(0|1) -> sets $out (stderr) and $got (bytes the server read)
     : >"$received"
     rm -f "$work/metrics.db"
     cat >"$work/config.toml" <<EOF
@@ -125,6 +126,10 @@ threshold = 0
 webhook = "$1"
 cooldown = "1h"
 EOF
+    if [ "$2" = 1 ]; then
+        printf '[webhook]\ninsecure_skip_verify = true\n' >>"$work/config.toml"
+    fi
+
     out=$(timeout 30 "$BIN" collect --config "$work/config.toml" 2>&1 | grep -v 'firing')
     sleep 3 # the handler holds the connection for up to 2s before replying
     got=$(cat "$received" 2>/dev/null)
@@ -132,24 +137,24 @@ EOF
 
 echo "Webhook delivery tests:"
 
-fire "https://127.0.0.1:$TLS_PORT/hook"
+fire "https://127.0.0.1:$TLS_PORT/hook" 1
 check_has "https webhook completes the handshake and arrives" "$got" "POST /hook"
 check_has "the delivered payload names the alert" "$got" '"alert":"probe"'
 check_has "the delivered payload names the metric" "$got" '"metric":"uptime_seconds"'
 check_lacks "a delivered webhook reports no failure" "$out" "not delivered"
 
-fire "https://127.0.0.1:$TCP_PORT/hook"
+fire "https://127.0.0.1:$TCP_PORT/hook" 1
 check_lacks "a failed handshake delivers nothing" "$got" "POST"
 check_has "a failed handshake is reported, not silent" "$out" "not delivered"
 
-# Deliberate: skipping verification drops the trust verdict, not the validity dates. br_x509_minimal
-# withholds the key on an expired chain, so the handshake cannot complete.
-fire "https://127.0.0.1:$EXPIRED_PORT/hook"
-check_lacks "an expired certificate is refused even with verification skipped" "$got" "POST"
+# Deliberate: the opt-out drops the trust verdict, not the validity dates. br_x509_minimal withholds
+# the key on an expired chain, so the handshake cannot complete.
+fire "https://127.0.0.1:$EXPIRED_PORT/hook" 1
+check_lacks "an expired certificate is refused even under the opt-out" "$got" "POST"
 # BR_ERR_X509_EXPIRED, pinned so this cannot pass on a dead listener or any other handshake failure.
 check_has "an expired certificate fails on its dates" "$out" "not delivered, TLS error 54"
 
-fire "http://127.0.0.1:$TCP_PORT/hook"
+fire "http://127.0.0.1:$TCP_PORT/hook" 0
 check_has "a plain http webhook still arrives" "$got" "POST /hook"
 
 printf '\n  %d passed, %d failed\n' "$pass" "$fail"

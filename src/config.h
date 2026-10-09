@@ -45,6 +45,9 @@ typedef struct {
     char db_path[256];     /* default: "./metrics.db" */
     char disk_path[256];   /* default: "/" */
 
+    /* [webhook] */
+    int insecure_skip_verify; /* 1 = POST https webhooks unverified, default: 0 */
+
     /* [dashboard] */
     char  title[128];             /* default: "minimoni" */
     char  theme[8];               /* "auto" | "light" | "dark", default: "auto" */

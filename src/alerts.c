@@ -155,9 +155,9 @@ static void write_all(int fd, const char *buf, size_t len)
     }
 }
 
-/* Encrypt without authenticating. The real engine still parses the chain, which is where the public
- * key comes from. Passing no server name is how br_x509_minimal is told to skip the name check; the
- * SNI the engine sends is unaffected. */
+/* Encrypt without authenticating, for insecure_skip_verify. The real engine still parses the chain,
+ * which is where the public key comes from. Passing no server name is how br_x509_minimal is told
+ * to skip the name check; the SNI the engine sends is unaffected. */
 static void xi_start_chain(const br_x509_class **ctx, const char *server_name)
 {
     (void)server_name;
@@ -179,14 +179,22 @@ static int tls_sock_write(void *ctx, const unsigned char *buf, size_t len)
     return (int)write(*(int *)ctx, buf, len);
 }
 
-static void post_webhook(const alert_cfg_t *a, double value, const char *timestamp,
-                         const char *hostname)
+static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
+                         const char *timestamp, const char *hostname)
 {
     char host[256], port_str[8], path[512];
     int  scheme =
         parse_url(a->webhook, host, sizeof(host), port_str, sizeof(port_str), path, sizeof(path));
     if (scheme < 0)
         return;
+
+    if (scheme == 1 && !cfg->insecure_skip_verify) {
+        fprintf(stderr,
+                "alerts: '%s' uses https but minimoni cannot verify certificates; set "
+                "insecure_skip_verify = true under [webhook] to send it unverified\n",
+                a->name);
+        return;
+    }
 
     /* Not op: valid_op() checks it at load. The other three are free-form. */
     char ename[256], emetric[256], ehost[512];
@@ -363,7 +371,7 @@ int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row)
                 a->threshold);
 
         if (a->webhook[0])
-            post_webhook(a, value, row->timestamp, hostname);
+            post_webhook(cfg, a, value, row->timestamp, hostname);
         if (a->command[0])
             run_command(a, value);
 

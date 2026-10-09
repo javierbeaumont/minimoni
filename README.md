@@ -535,6 +535,21 @@ delay the next collect cycle.
 period has elapsed. Accepts `30s`, `1m`, `1h`, `1d`. Cooldown state is stored in the database
 (`alert_log` table) and survives restarts.
 
+### Webhook TLS
+
+```toml
+[webhook]
+insecure_skip_verify = false
+```
+
+**`insecure_skip_verify`**: deliver `https://` webhooks without checking the server's certificate
+(boolean). Default: `false`. minimoni does not verify webhook certificates, so an `https://` webhook
+is refused, and logged, unless this is set. The payload is still encrypted in transit; what is
+missing is proof that the endpoint is who it claims to be.
+
+An expired certificate is refused even with this set: the option drops the trust check, not the
+validity dates.
+
 ### Public access
 
 minimoni has no built-in authentication or TLS. **Do not expose it directly to the internet.**
@@ -622,16 +637,17 @@ Significant technology choices are documented as ADRs in [`docs/adr/`](docs/adr/
 record captures the context, the alternatives considered, the decision made, and its
 consequences, so future contributors understand not just what was chosen but why.
 
-| ADR                                           | Decision                           |
-|-----------------------------------------------|------------------------------------|
-| [0001](docs/adr/0001-sqlite.md)               | SQLite as the metric store         |
-| [0002](docs/adr/0002-civetweb.md)             | civetweb as the HTTP server        |
-| [0003](docs/adr/0003-tomlc17.md)              | tomlc17 as the TOML parser         |
-| [0004](docs/adr/0004-bearssl.md)              | BearSSL for HTTPS webhook delivery |
-| [0005](docs/adr/0005-tiered-consolidation.md) | Tiered write-time consolidation    |
-| [0006](docs/adr/0006-minimoni-migrate.md)     | Separate minimoni-migrate binary   |
-| [0007](docs/adr/0007-html-minification.md)    | Optional HTML minification         |
-| [0008](docs/adr/0008-musl-static-pie.md)      | Static musl-PIE build toolchain    |
+| ADR                                                | Decision                               |
+|----------------------------------------------------|----------------------------------------|
+| [0001](docs/adr/0001-sqlite.md)                    | SQLite as the metric store             |
+| [0002](docs/adr/0002-civetweb.md)                  | civetweb as the HTTP server            |
+| [0003](docs/adr/0003-tomlc17.md)                   | tomlc17 as the TOML parser             |
+| [0004](docs/adr/0004-bearssl.md)                   | BearSSL for HTTPS webhook delivery     |
+| [0005](docs/adr/0005-tiered-consolidation.md)      | Tiered write-time consolidation        |
+| [0006](docs/adr/0006-minimoni-migrate.md)          | Separate minimoni-migrate binary       |
+| [0007](docs/adr/0007-html-minification.md)         | Optional HTML minification             |
+| [0008](docs/adr/0008-musl-static-pie.md)           | Static musl-PIE build toolchain        |
+| [0009](docs/adr/0009-webhook-certificate-trust.md) | Certificate trust for webhook delivery |
 
 ## Roadmap
 

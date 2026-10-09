@@ -1,7 +1,11 @@
 # ADR-0004: BearSSL for HTTPS webhook delivery
 
 **Date:** 2026-06-05
-**Status:** Accepted
+**Status:** Accepted; partially superseded by [ADR-0009](0009-webhook-certificate-trust.md)
+
+> **Note:** skipping certificate verification, in the decision and consequences below, describes the
+> original design. [ADR-0009](0009-webhook-certificate-trust.md) replaced it; see it for how webhook
+> endpoints are authenticated.
 
 ## Context
 

@@ -169,7 +169,7 @@ int db_alert_log_fire(db_t *db, const char *alert_name)
 
 #include "../src/alerts.c"
 
-/* --- The policy: which verdicts are dropped --- */
+/* --- The policy: which verdicts the opt-out drops --- */
 
 static unsigned verdict_for(unsigned reported)
 {
