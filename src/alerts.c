@@ -22,6 +22,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -179,6 +180,17 @@ static int tls_sock_write(void *ctx, const unsigned char *buf, size_t len)
     return (int)write(*(int *)ctx, buf, len);
 }
 
+/* snprintf that treats truncation as failure: the length written, or -1 unless it all fit. */
+[[nodiscard]] [[gnu::format(printf, 3, 4)]] static int fit_printf(char *buf, size_t cap,
+                                                                  const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(buf, cap, fmt, ap);
+    va_end(ap);
+    return n >= 0 && (size_t)n < cap ? n : -1;
+}
+
 static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
                          const char *timestamp, const char *hostname)
 {
@@ -206,11 +218,27 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
     }
 
     char body[1024];
-    int  blen = snprintf(body, sizeof(body),
-                         "{\"alert\":\"%s\",\"metric\":\"%s\",\"value\":%.6g,"
-                         "\"threshold\":%.6g,\"operator\":\"%s\","
-                         "\"timestamp\":\"%s\",\"hostname\":\"%s\"}",
-                         ename, emetric, value, a->threshold, a->op, timestamp, ehost);
+    int  blen = fit_printf(body, sizeof(body),
+                           "{\"alert\":\"%s\",\"metric\":\"%s\",\"value\":%.6g,"
+                           "\"threshold\":%.6g,\"operator\":\"%s\","
+                           "\"timestamp\":\"%s\",\"hostname\":\"%s\"}",
+                           ename, emetric, value, a->threshold, a->op, timestamp, ehost);
+    char req[1024];
+    int  rlen = blen < 0 ? -1
+                         : fit_printf(req, sizeof(req),
+                                      "POST %s HTTP/1.0\r\n"
+                                      "Host: %s\r\n"
+                                      "Content-Type: application/json\r\n"
+                                      "Content-Length: %d\r\n"
+                                      "Connection: close\r\n"
+                                      "\r\n"
+                                      "%s",
+                                      path, host, blen, body);
+    if (rlen < 0) {
+        fprintf(stderr, "alerts: '%.32s' webhook does not fit in %zu bytes; skipped\n", a->name,
+                sizeof(req));
+        return;
+    }
 
     struct addrinfo hints, *res;
     memset(&hints, 0, sizeof(hints));
@@ -262,17 +290,6 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
     struct timeval tv = {5, 0};
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-
-    char req[1024];
-    int  rlen = snprintf(req, sizeof(req),
-                         "POST %s HTTP/1.0\r\n"
-                         "Host: %s\r\n"
-                         "Content-Type: application/json\r\n"
-                         "Content-Length: %d\r\n"
-                         "Connection: close\r\n"
-                         "\r\n"
-                         "%s",
-                         path, host, blen, body);
 
     if (scheme == 0) {
         write_all(fd, req, (size_t)rlen);

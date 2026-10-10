@@ -112,14 +112,14 @@ if [ "$ready" -ne 1 ]; then
     exit 2
 fi
 
-fire() { # URL INSECURE(0|1) -> sets $out (stderr) and $got (bytes the server read)
+fire() { # URL INSECURE(0|1) [NAME] [TITLE] -> sets $out (stderr) and $got (bytes the server read)
     : >"$received"
     rm -f "$work/metrics.db"
     cat >"$work/config.toml" <<EOF
 [collect]
 db = "$work/metrics.db"
 [[alert]]
-name = "probe"
+name = "${3:-probe}"
 metric = "uptime_seconds"
 operator = ">"
 threshold = 0
@@ -128,6 +128,9 @@ cooldown = "1h"
 EOF
     if [ "$2" = 1 ]; then
         printf '[webhook]\ninsecure_skip_verify = true\n' >>"$work/config.toml"
+    fi
+    if [ -n "${4:-}" ]; then
+        printf '[dashboard]\ntitle = "%s"\n' "$4" >>"$work/config.toml"
     fi
 
     out=$(timeout 30 "$BIN" collect --config "$work/config.toml" 2>&1 | grep -v 'firing')
@@ -156,6 +159,16 @@ check_has "an expired certificate fails on its dates" "$out" "not delivered, TLS
 
 fire "http://127.0.0.1:$TCP_PORT/hook" 0
 check_has "a plain http webhook still arrives" "$got" "POST /hook"
+
+# Regression: a request longer than its 1024-byte buffer was sent at its full length, reading past
+# the end of the buffer. A long path plus a name and title of quotes, which escape to twice their
+# size, take it to about 1100 bytes.
+long_path=$(printf '%480s' '' | tr ' ' a)
+quotes63=$(printf '%63s' '' | sed 's/ /\\"/g')
+quotes127=$(printf '%127s' '' | sed 's/ /\\"/g')
+fire "http://127.0.0.1:$TCP_PORT/$long_path" 0 "$quotes63" "$quotes127"
+check_lacks "a webhook that does not fit its buffer sends nothing" "$got" "POST"
+check_has "a webhook that does not fit its buffer says so" "$out" "does not fit in 1024 bytes"
 
 printf '\n  %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

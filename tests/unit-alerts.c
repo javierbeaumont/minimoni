@@ -210,11 +210,27 @@ static int test_drops_the_server_name(void)
     return g_seen_name == NULL ? 0 : 1;
 }
 
+/* --- The request: what does not fit is not sent --- */
+
+static int test_fit_printf_exact_fit(void)
+{
+    char buf[6];
+    return fit_printf(buf, sizeof(buf), "%s", "12345") == 5 && strcmp(buf, "12345") == 0 ? 0 : 1;
+}
+
+static int test_fit_printf_one_byte_short(void)
+{
+    char buf[5];
+    return fit_printf(buf, sizeof(buf), "%s", "12345") == -1 ? 0 : 1;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
-    T(drops_not_trusted),          T(keeps_success),          T(propagates_expired),
-    T(propagates_bad_server_name), T(propagates_empty_chain), T(drops_the_server_name),
+    T(drops_not_trusted),      T(keeps_success),
+    T(propagates_expired),     T(propagates_bad_server_name),
+    T(propagates_empty_chain), T(drops_the_server_name),
+    T(fit_printf_exact_fit),   T(fit_printf_one_byte_short),
 };
 
 int main(void) { return run_tests(ALL_TESTS, sizeof(ALL_TESTS) / sizeof(ALL_TESTS[0])); }
