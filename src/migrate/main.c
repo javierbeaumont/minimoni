@@ -25,6 +25,7 @@
 #include "snapshot.h"
 
 #include <libgen.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -56,6 +57,18 @@ static void usage(const char *prog)
             prog, prog, prog, prog);
 }
 
+/* snprintf that treats truncation as failure: the length written, or -1 unless it all fit. */
+[[nodiscard]] [[gnu::format(printf, 3, 4)]] static int fit_printf(char *buf, size_t cap,
+                                                                  const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(buf, cap, fmt, ap);
+    va_end(ap);
+
+    return n >= 0 && (size_t)n < cap ? n : -1;
+}
+
 /* Resolve the path to the minimoni binary.
  *
  * Priority:
@@ -63,10 +76,9 @@ static void usage(const char *prog)
  *   2. <dirname of argv[0]>/minimoni: colocated install
  *   3. "minimoni": found via $PATH at exec time
  *
- * For (2), we stat() the candidate; if it does not exist or is not
- * executable, we fall through to (3). Returned pointer is either the
- * user-provided `cli_value`, the static buffer `colocated`, or the
- * literal "minimoni". */
+ * For (2), we stat() the candidate; if its path does not fit, or it does not exist or is not
+ * executable, we fall through to (3). Returned pointer is either the user-provided `cli_value`, the
+ * static buffer `colocated`, or the literal "minimoni". */
 static const char *resolve_minimoni_exec(const char *argv0, const char *cli_value, char *colocated,
                                          size_t colocated_size)
 {
@@ -76,9 +88,12 @@ static const char *resolve_minimoni_exec(const char *argv0, const char *cli_valu
     /* dirname() may modify its argument and may return a pointer to a
      * static buffer; copy argv0 first. */
     char argv0_copy[1024];
-    snprintf(argv0_copy, sizeof(argv0_copy), "%s", argv0);
+    if (fit_printf(argv0_copy, sizeof(argv0_copy), "%s", argv0) < 0)
+        return "minimoni";
+
     char *dir = dirname(argv0_copy);
-    snprintf(colocated, colocated_size, "%s/minimoni", dir);
+    if (fit_printf(colocated, colocated_size, "%s/minimoni", dir) < 0)
+        return "minimoni";
 
     struct stat st;
     if (stat(colocated, &st) == 0 && (st.st_mode & S_IXUSR))
@@ -166,19 +181,37 @@ static int do_migrate(const char *minimoni_exec, const char *db_path, int do_bac
     const char *target = db_path;
     char        dry_path[1024];
     if (dry_run) {
-        snprintf(dry_path, sizeof(dry_path), "%s.dry-run-%d", db_path, (int)getpid());
+        if (fit_printf(dry_path, sizeof(dry_path), "%s.dry-run-%d", db_path, (int)getpid()) < 0) {
+            fprintf(stderr, "migrate: the dry-run copy path does not fit in %zu bytes\n",
+                    sizeof(dry_path) - 1);
+            printf("status: blocked\n");
+
+            return 1;
+        }
+
         remove_db_with_sidecars(dry_path); /* clear any stale leftover */
         fprintf(stderr, "migrate: dry-run, rehearsing on copy %s\n", dry_path);
+
         if (migrate_snapshot(db_path, dry_path) != 0) {
             fprintf(stderr, "migrate: dry-run copy failed\n");
             printf("status: blocked\n");
+
             return 1;
         }
+
         target = dry_path;
     } else if (do_backup) {
         char backup_path[1024];
-        snprintf(backup_path, sizeof(backup_path), "%s.backup-pre-migrate-v%d", db_path, current);
+        if (fit_printf(backup_path, sizeof(backup_path), "%s.backup-pre-migrate-v%d", db_path,
+                       current) < 0) {
+            fprintf(stderr, "migrate: the backup path does not fit in %zu bytes; nothing changed\n",
+                    sizeof(backup_path) - 1);
+
+            return 3;
+        }
+
         fprintf(stderr, "migrate: snapshotting to %s\n", backup_path);
+
         if (migrate_snapshot(db_path, backup_path) != 0)
             return 3;
     } else {

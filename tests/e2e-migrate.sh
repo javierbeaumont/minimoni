@@ -509,6 +509,44 @@ t_force_rejects_no_backup() {
 
 # --- CLI -----------------------------------------------------------------
 
+# Regression: a 1023-byte database path left no room for the dry-run or backup suffix, so the cut
+# path was the database itself: a dry run deleted it and a migration truncated it. Slashes pad the
+# path to that length while the file stays where it is.
+long_path_to() { # FILE -> the same file, named by a 1023-byte path
+    pad=$((1023 - ${#1}))
+    printf '%s%s/%s' "${1%/*}" "$(printf '%*s' "$pad" '' | tr ' ' /)" "${1##*/}"
+}
+
+t_long_path_dry_run_keeps_db() {
+    db=$TMP/longdry.db
+    make_v01_db "$db"
+    before=$(sha256sum "$db")
+
+    out=$("$MIG" --use "$MIN" --dry-run "$(long_path_to "$db")" 2>/dev/null) && rc=0 || rc=$?
+    if [ "$rc" != 1 ] || [ "$out" != "status: blocked" ]; then
+        report "dry-run on a 1023-byte path keeps the db" "exit=$rc, '$out' (want 1, blocked)"
+    elif [ ! -f "$db" ] || [ "$(sha256sum "$db")" != "$before" ]; then
+        report "dry-run on a 1023-byte path keeps the db" "database changed or gone"
+    else
+        report "dry-run on a 1023-byte path keeps the db" ok
+    fi
+}
+
+t_long_path_migration_keeps_db() {
+    db=$TMP/longmig.db
+    make_v01_db "$db"
+    before=$(sha256sum "$db")
+
+    "$MIG" --use "$MIN" "$(long_path_to "$db")" >/dev/null 2>&1 && rc=0 || rc=$?
+    if [ "$rc" != 3 ]; then
+        report "migration on a 1023-byte path keeps the db" "exit=$rc (want 3)"
+    elif [ ! -f "$db" ] || [ "$(sha256sum "$db")" != "$before" ]; then
+        report "migration on a 1023-byte path keeps the db" "database changed or gone"
+    else
+        report "migration on a 1023-byte path keeps the db" ok
+    fi
+}
+
 t_help_and_version() {
     "$MIG" --help >/dev/null 2>&1 || { report "--help and --version work" "help nonzero"; return; }
     out=$("$MIG" --version 2>/dev/null)
@@ -601,6 +639,8 @@ t_dry_run_blocked_corrupt
 t_dry_run_blocked_structural
 t_force_migrates_past_fingerprint
 t_force_rejects_no_backup
+t_long_path_dry_run_keeps_db
+t_long_path_migration_keeps_db
 t_help_and_version
 t_auto_resolve_minimoni
 t_migration_consolidates_and_compacts
