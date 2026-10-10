@@ -171,13 +171,16 @@ test-unit: ci-image \
       tests/*.test.js"
 
 # Integration (Docker): our X.509 policy against the real br_x509_minimal engine, in process and
-# with no sockets. Needs only the BearSSL library, not a built binary. The certificate is generated,
-# never stored: a committed one would expire and flip the verdict it expects.
+# with no sockets. Needs only the BearSSL library, not a built binary. The certificates are
+# generated, never stored: a committed valid one would expire and flip the verdict it expects.
 test-integration: ci-image
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
 	  sh -c "mkdir -p build && make $(BEARSSL_LIB) && \
 	    openssl req -quiet -x509 -newkey rsa:2048 -nodes -days 1 -outform DER \
 	      -keyout /dev/null -out build/x509-selfsigned.der -subj '/CN=minimoni.test' && \
+	    openssl req -quiet -x509 -newkey rsa:2048 -nodes -outform DER \
+	      -not_before 20200101000000Z -not_after 20200201000000Z \
+	      -keyout /dev/null -out build/x509-expired.der -subj '/CN=minimoni.test' && \
 	    gcc -Wall -Wextra -std=c23 -Isrc -Ivendor -Itests $(BEARSSL_INC) \
 	      tests/integration-alerts.c $(BEARSSL_LIB) -o build/integration-alerts-test && \
 	    ./build/integration-alerts-test"
