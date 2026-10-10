@@ -224,13 +224,66 @@ static int test_fit_printf_one_byte_short(void)
     return fit_printf(buf, sizeof(buf), "%s", "12345") == -1 ? 0 : 1;
 }
 
+/* `n` copies of 'a' as the host of an http URL with a path; url must hold n + 13. */
+static const char *url_with_host(char *url, size_t n)
+{
+    memcpy(url, "http://", 7);
+    memset(url + 7, 'a', n);
+    memcpy(url + 7 + n, "/hook", 6);
+
+    return url;
+}
+
+static int test_parse_url_host_at_max(void)
+{
+    char url[300], host[256], port[8], path[512];
+    int  scheme = parse_url(url_with_host(url, 255), host, sizeof(host), port, sizeof(port), path,
+                            sizeof(path));
+
+    return scheme == 0 && strlen(host) == 255 && strcmp(path, "/hook") == 0 ? 0 : 1;
+}
+
+static int test_parse_url_host_over_max_refused(void)
+{
+    char url[300], host[256], port[8], path[512];
+
+    return parse_url(url_with_host(url, 256), host, sizeof(host), port, sizeof(port), path,
+                     sizeof(path)) == -1
+               ? 0
+               : 1;
+}
+
+static int test_parse_url_port_over_max_refused(void)
+{
+    char host[256], port[8], path[512];
+
+    return parse_url("http://h:12345678/hook", host, sizeof(host), port, sizeof(port), path,
+                     sizeof(path)) == -1
+               ? 0
+               : 1;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
-    T(drops_not_trusted),      T(keeps_success),
-    T(propagates_expired),     T(propagates_bad_server_name),
-    T(propagates_empty_chain), T(drops_the_server_name),
-    T(fit_printf_exact_fit),   T(fit_printf_one_byte_short),
+    T(drops_not_trusted),
+    T(keeps_success),
+    T(propagates_expired),
+    T(propagates_bad_server_name),
+    T(propagates_empty_chain),
+    T(drops_the_server_name),
+    T(fit_printf_exact_fit),
+    T(fit_printf_one_byte_short),
+    T(parse_url_host_at_max),
+    T(parse_url_host_over_max_refused),
+    T(parse_url_port_over_max_refused),
 };
 
-int main(void) { return run_tests(ALL_TESTS, sizeof(ALL_TESTS) / sizeof(ALL_TESTS[0])); }
+int main(void)
+{
+    /* Silence parse_url's refusals so the output stays readable. */
+    if (!freopen("/dev/null", "w", stderr))
+        return 2;
+
+    return run_tests(ALL_TESTS, sizeof(ALL_TESTS) / sizeof(ALL_TESTS[0]));
+}

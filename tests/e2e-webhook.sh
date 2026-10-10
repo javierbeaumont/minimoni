@@ -170,5 +170,10 @@ fire "http://127.0.0.1:$TCP_PORT/$long_path" 0 "$quotes63" "$quotes127"
 check_lacks "a webhook that does not fit its buffer sends nothing" "$got" "POST"
 check_has "a webhook that does not fit its buffer says so" "$out" "does not fit in 1024 bytes"
 
+# Regression: a host longer than its 255-byte field was cut and the request went to another name.
+fire "http://$(printf '%256s' '' | tr ' ' a)/hook" 0
+check_lacks "a webhook host that does not fit sends nothing" "$got" "POST"
+check_has "a webhook host that does not fit says so" "$out" "host, port or path does not fit"
+
 printf '\n  %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

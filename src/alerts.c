@@ -113,6 +113,18 @@ static int eval_op(double value, const char *op, double threshold)
 
 /* --- Webhook (HTTP and HTTPS) --- */
 
+/* snprintf that treats truncation as failure: the length written, or -1 unless it all fit. */
+[[nodiscard]] [[gnu::format(printf, 3, 4)]] static int fit_printf(char *buf, size_t cap,
+                                                                  const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(buf, cap, fmt, ap);
+    va_end(ap);
+
+    return n >= 0 && (size_t)n < cap ? n : -1;
+}
+
 static int parse_url(const char *url, char *host, size_t hsz, char *port_str, size_t psz,
                      char *path, size_t pasz)
 {
@@ -132,16 +144,22 @@ static int parse_url(const char *url, char *host, size_t hsz, char *port_str, si
     const char *slash = strchr(start, '/');
     const char *colon = memchr(start, ':', slash ? (size_t)(slash - start) : strlen(start));
 
+    int fits;
     if (colon) {
-        snprintf(host, hsz, "%.*s", (int)(colon - start), start);
         int plen = slash ? (int)(slash - colon - 1) : (int)strlen(colon + 1);
-        snprintf(port_str, psz, "%.*s", plen, colon + 1);
+        fits = fit_printf(host, hsz, "%.*s", (int)(colon - start), start) >= 0 &&
+               fit_printf(port_str, psz, "%.*s", plen, colon + 1) >= 0;
     } else {
         int hlen = slash ? (int)(slash - start) : (int)strlen(start);
-        snprintf(host, hsz, "%.*s", hlen, start);
-        snprintf(port_str, psz, https ? "443" : "80");
+        fits = fit_printf(host, hsz, "%.*s", hlen, start) >= 0 &&
+               fit_printf(port_str, psz, "%s", https ? "443" : "80") >= 0;
     }
-    snprintf(path, pasz, "%s", slash ? slash : "/");
+
+    if (!fits || fit_printf(path, pasz, "%s", slash ? slash : "/") < 0) {
+        fprintf(stderr, "alerts: webhook host, port or path does not fit (got: %.64s)\n", url);
+        return -1;
+    }
+
     return https;
 }
 
@@ -178,17 +196,6 @@ static int tls_sock_read(void *ctx, unsigned char *buf, size_t len)
 static int tls_sock_write(void *ctx, const unsigned char *buf, size_t len)
 {
     return (int)write(*(int *)ctx, buf, len);
-}
-
-/* snprintf that treats truncation as failure: the length written, or -1 unless it all fit. */
-[[nodiscard]] [[gnu::format(printf, 3, 4)]] static int fit_printf(char *buf, size_t cap,
-                                                                  const char *fmt, ...)
-{
-    va_list ap;
-    va_start(ap, fmt);
-    int n = vsnprintf(buf, cap, fmt, ap);
-    va_end(ap);
-    return n >= 0 && (size_t)n < cap ? n : -1;
 }
 
 static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
