@@ -55,6 +55,33 @@ static int load_cfg(config_t *cfg, const char *toml)
     return rc;
 }
 
+/* load_cfg, also capturing what config_load wrote to stderr into `err`. */
+static int load_cfg_err(config_t *cfg, const char *toml, char *err, size_t cap)
+{
+    char path[64];
+    snprintf(path, sizeof(path), "/tmp/minimoni-test-err-%d.txt", getpid());
+
+    fflush(stderr);
+    if (!freopen(path, "w", stderr))
+        return -2;
+
+    int rc = load_cfg(cfg, toml);
+
+    fflush(stderr);
+    if (!freopen("/dev/null", "w", stderr))
+        return -2;
+
+    FILE  *f = fopen(path, "r");
+    size_t n = f ? fread(err, 1, cap - 1, f) : 0;
+    err[n] = '\0';
+
+    if (f)
+        fclose(f);
+    unlink(path);
+
+    return rc;
+}
+
 /* --- Interval: values --- */
 
 static int test_interval_negative(void)
@@ -893,6 +920,93 @@ static int test_key_distance(void)
                : 1;
 }
 
+/* --- Values that do not fit their field --- */
+
+/* `n` copies of 'x'; buf must hold n + 1. */
+static const char *xs(char *buf, size_t n)
+{
+    memset(buf, 'x', n);
+    buf[n] = '\0';
+
+    return buf;
+}
+
+#define ALERT_HEAD                                                                                 \
+    "[[alert]]\nname = \"a\"\nmetric = \"cpu_load\"\noperator = \">\"\nthreshold = 1\n"
+
+static int test_command_over_max_fails(void)
+{
+    config_t cfg;
+    char     cmd[300], toml[512], err[512];
+    snprintf(toml, sizeof(toml), ALERT_HEAD "command = \"%s\"\n", xs(cmd, 256));
+
+    return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 &&
+                   strstr(err, "config: alert[0].command is 256 bytes; the maximum is 255")
+               ? 0
+               : 1;
+}
+
+static int test_command_at_max_loads(void)
+{
+    config_t cfg;
+    char     cmd[300], toml[512];
+    snprintf(toml, sizeof(toml), ALERT_HEAD "command = \"%s\"\n", xs(cmd, 255));
+
+    return load_cfg(&cfg, toml) == 0 && cfg.alert_count == 1 && strlen(cfg.alerts[0].command) == 255
+               ? 0
+               : 1;
+}
+
+static int test_webhook_over_max_fails(void)
+{
+    config_t cfg;
+    char     url[520], toml[700], err[512];
+    snprintf(toml, sizeof(toml), ALERT_HEAD "webhook = \"%s\"\n", xs(url, 512));
+
+    return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 &&
+                   strstr(err, "config: alert[0].webhook is 512 bytes; the maximum is 511")
+               ? 0
+               : 1;
+}
+
+static int test_db_over_max_fails(void)
+{
+    config_t cfg;
+    char     db[300], toml[512], err[512];
+    snprintf(toml, sizeof(toml), "[collect]\ndb = \"%s\"\n", xs(db, 256));
+
+    return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 &&
+                   strstr(err, "config: collect.db is 256 bytes; the maximum is 255")
+               ? 0
+               : 1;
+}
+
+/* Valid and in bounds, so only its length can refuse it; cut to 7 it would read "0000000". */
+static int test_range_over_max_fails(void)
+{
+    config_t cfg;
+    char     err[512];
+
+    return load_cfg_err(&cfg, "[dashboard]\nranges = [\"00000001d\"]\n", err, sizeof(err)) == -1 &&
+                   strstr(err, "config: dashboard.ranges[0] is 9 bytes; the maximum is 7")
+               ? 0
+               : 1;
+}
+
+static int test_every_overlong_value_is_reported(void)
+{
+    config_t cfg;
+    char     db[300], cmd[300], toml[1024], err[1024];
+    snprintf(toml, sizeof(toml), "[collect]\ndb = \"%s\"\n" ALERT_HEAD "command = \"%s\"\n",
+             xs(db, 256), xs(cmd, 256));
+
+    return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 &&
+                   strstr(err, "collect.db is 256 bytes") &&
+                   strstr(err, "alert[0].command is 256 bytes")
+               ? 0
+               : 1;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
@@ -1012,6 +1126,13 @@ static const test_t ALL_TESTS[] = {
     T(keys_removed_points_warns),
     T(keys_typo_load_still_succeeds),
     T(key_distance),
+    /* values that do not fit their field */
+    T(command_over_max_fails),
+    T(command_at_max_loads),
+    T(webhook_over_max_fails),
+    T(db_over_max_fails),
+    T(range_over_max_fails),
+    T(every_overlong_value_is_reported),
 };
 
 int main(void)

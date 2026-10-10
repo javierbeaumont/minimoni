@@ -85,8 +85,8 @@ void config_defaults(config_t *cfg);
 
 /* Load and merge TOML values from path into cfg.
  * cfg must have been initialised with config_defaults() first.
- * Returns 0 on success, -1 if the file cannot be opened or parsed
- * (message written to stderr). */
+ * Returns 0 on success, -1 if the file cannot be opened or parsed or a value is refused, such as
+ * one too long for its field (each reason written to stderr). */
 int config_load(config_t *cfg, const char *path);
 
 /* Apply config_defaults then find and load a config file.

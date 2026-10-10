@@ -310,6 +310,11 @@ minimoni works with zero config. To customize, create `config.toml` in the worki
 (or pass `--config /path/to/config.toml`). Search order: `--config` flag -> `./config.toml` ->
 `/etc/minimoni/config.toml` -> built-in defaults.
 
+String values have a maximum length, and a longer one is refused rather than cut: the config fails
+to load, and the error names the key, its length and the maximum. In bytes: `listen` 63, `db` and
+`disk_path` 255, `title` 127, each `charts` or `cards` entry 15, each `ranges` entry 7, and in an
+alert `name` 63, `metric` 31, `webhook` 511 and `command` 255.
+
 ### Collection
 
 ```toml

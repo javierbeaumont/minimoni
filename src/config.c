@@ -18,6 +18,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -50,10 +51,28 @@ static long parse_duration(const char *s)
     }
 }
 
-static void str_copy(char *dst, size_t dsize, toml_datum_t v)
+/* Copy a string value into its fixed field. A value that does not fit is an error, never cut: a
+ * truncated path, command or URL is a different one. A missing or non-string value copies nothing,
+ * so the field keeps its default. */
+[[nodiscard]] [[gnu::format(printf, 4, 5)]] static int
+str_copy(char *dst, size_t dsize, toml_datum_t v, const char *key, ...)
 {
-    if (v.type == TOML_STRING)
-        snprintf(dst, dsize, "%s", v.u.s);
+    if (v.type != TOML_STRING)
+        return 0;
+
+    size_t len = strlen(v.u.s);
+    if (len >= dsize) {
+        va_list ap;
+        va_start(ap, key);
+        fprintf(stderr, "config: ");
+        vfprintf(stderr, key, ap);
+        va_end(ap);
+        fprintf(stderr, " is %zu bytes; the maximum is %zu\n", len, dsize - 1);
+        return -1;
+    }
+
+    memcpy(dst, v.u.s, len + 1);
+    return 0;
 }
 
 static int valid_range(const char *s)
@@ -301,12 +320,13 @@ int config_load(config_t *cfg, const char *path)
 
     toml_datum_t root = res.toptab;
     toml_datum_t v;
+    int          too_long = 0;
 
     config_warn_unknown(root);
 
     /* [server] */
     v = toml_seek(root, "server.listen");
-    str_copy(cfg->listen, sizeof(cfg->listen), v);
+    too_long |= str_copy(cfg->listen, sizeof(cfg->listen), v, "server.listen") != 0;
     v = toml_seek(root, "server.max_dashboards");
     if (v.type == TOML_INT64 && v.u.int64 >= 1 && v.u.int64 <= 256)
         cfg->max_dashboards = (int)v.u.int64;
@@ -353,9 +373,9 @@ int config_load(config_t *cfg, const char *path)
         }
     }
     v = toml_seek(root, "collect.db");
-    str_copy(cfg->db_path, sizeof(cfg->db_path), v);
+    too_long |= str_copy(cfg->db_path, sizeof(cfg->db_path), v, "collect.db") != 0;
     v = toml_seek(root, "collect.disk_path");
-    str_copy(cfg->disk_path, sizeof(cfg->disk_path), v);
+    too_long |= str_copy(cfg->disk_path, sizeof(cfg->disk_path), v, "collect.disk_path") != 0;
 
     /* [webhook] */
     v = toml_seek(root, "webhook.insecure_skip_verify");
@@ -364,14 +384,14 @@ int config_load(config_t *cfg, const char *path)
 
     /* [dashboard] */
     v = toml_seek(root, "dashboard.title");
-    str_copy(cfg->title, sizeof(cfg->title), v);
+    too_long |= str_copy(cfg->title, sizeof(cfg->title), v, "dashboard.title") != 0;
     v = toml_seek(root, "dashboard.show_footer");
     if (v.type == TOML_BOOLEAN)
         cfg->show_footer = v.u.boolean ? 1 : 0;
     v = toml_seek(root, "dashboard.theme");
     if (v.type == TOML_STRING) {
         if (strcmp(v.u.s, "light") == 0 || strcmp(v.u.s, "dark") == 0 || strcmp(v.u.s, "auto") == 0)
-            str_copy(cfg->theme, sizeof(cfg->theme), v);
+            too_long |= str_copy(cfg->theme, sizeof(cfg->theme), v, "dashboard.theme") != 0;
         else
             fprintf(stderr, "config: invalid theme '%s', using default\n", v.u.s);
     }
@@ -418,7 +438,8 @@ int config_load(config_t *cfg, const char *path)
             for (int i = 0; i < v.u.arr.size && cfg->chart_count < MAX_CHARTS; i++) {
                 toml_datum_t e = v.u.arr.elem[i];
                 if (e.type == TOML_STRING)
-                    snprintf(cfg->charts[cfg->chart_count++], 16, "%s", e.u.s);
+                    too_long |= str_copy(cfg->charts[cfg->chart_count++], sizeof(cfg->charts[0]), e,
+                                         "dashboard.charts[%d]", i) != 0;
             }
         }
     }
@@ -430,7 +451,8 @@ int config_load(config_t *cfg, const char *path)
             for (int i = 0; i < v.u.arr.size && cfg->card_count < MAX_CARDS; i++) {
                 toml_datum_t e = v.u.arr.elem[i];
                 if (e.type == TOML_STRING)
-                    snprintf(cfg->cards[cfg->card_count++], 16, "%s", e.u.s);
+                    too_long |= str_copy(cfg->cards[cfg->card_count++], sizeof(cfg->cards[0]), e,
+                                         "dashboard.cards[%d]", i) != 0;
             }
         }
     }
@@ -474,7 +496,8 @@ int config_load(config_t *cfg, const char *path)
                         i, e.u.s);
                 continue;
             }
-            snprintf(cfg->ranges[count++], sizeof(cfg->ranges[0]), "%s", e.u.s);
+            too_long |= str_copy(cfg->ranges[count++], sizeof(cfg->ranges[0]), e,
+                                 "dashboard.ranges[%d]", i) != 0;
         }
         if (count > 0) {
             cfg->range_count = count;
@@ -524,12 +547,14 @@ int config_load(config_t *cfg, const char *path)
 
             alert_cfg_t *a = &cfg->alerts[cfg->alert_count];
             memset(a, 0, sizeof(*a));
-            str_copy(a->name, sizeof(a->name), dname);
-            str_copy(a->metric, sizeof(a->metric), dmet);
-            str_copy(a->op, sizeof(a->op), dop);
+            too_long |= str_copy(a->name, sizeof(a->name), dname, "alert[%d].name", i) != 0;
+            too_long |= str_copy(a->metric, sizeof(a->metric), dmet, "alert[%d].metric", i) != 0;
+            too_long |= str_copy(a->op, sizeof(a->op), dop, "alert[%d].operator", i) != 0;
             a->threshold = thr_val;
-            str_copy(a->webhook, sizeof(a->webhook), toml_get(e, "webhook"));
-            str_copy(a->command, sizeof(a->command), toml_get(e, "command"));
+            too_long |= str_copy(a->webhook, sizeof(a->webhook), toml_get(e, "webhook"),
+                                 "alert[%d].webhook", i) != 0;
+            too_long |= str_copy(a->command, sizeof(a->command), toml_get(e, "command"),
+                                 "alert[%d].command", i) != 0;
 
             toml_datum_t dcool = toml_get(e, "cooldown");
             if (dcool.type == TOML_STRING) {
@@ -551,6 +576,8 @@ int config_load(config_t *cfg, const char *path)
     }
 
     toml_free(res);
+    if (too_long)
+        return -1;
 
     if (cfg->refresh_seconds > cfg->interval_seconds) {
         fprintf(stderr, "config: refresh (%ds) > interval (%lds); clamping refresh to interval\n",
