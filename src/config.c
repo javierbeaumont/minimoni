@@ -35,8 +35,10 @@ static long parse_duration(const char *s)
 {
     char *end;
     long  n = strtol(s, &end, 10);
-    if (n <= 0 || !*end)
+
+    if (n <= 0 || !*end || end[1])
         return -1;
+
     switch (*end) {
     case 's':
         return n <= 3653L * 86400 ? n : -1;

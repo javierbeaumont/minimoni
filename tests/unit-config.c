@@ -1030,6 +1030,26 @@ static int test_cooldown_absent_is_silent(void)
     return rc == 0 && cfg.alert_count == 1 && !strstr(err, "cooldown") ? 0 : 1;
 }
 
+/* parse_duration once read only the first character after the number: "1mo" was 1m, "500ms" 500m
+ * and "1h30m" 1h. */
+static int test_cooldown_trailing_text_warns(void)
+{
+    static const char *const bad[] = {"1mo", "500ms", "1h30m"};
+
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        config_t cfg;
+        char     toml[256], err[512], want[64];
+        snprintf(toml, sizeof(toml), ALERT_HEAD "webhook = \"w\"\ncooldown = \"%s\"\n", bad[i]);
+        snprintf(want, sizeof(want), "config: alert 'a': invalid cooldown '%s'", bad[i]);
+
+        if (load_cfg_err(&cfg, toml, err, sizeof(err)) != 0 || cfg.alert_count != 1 ||
+            cfg.alerts[0].cooldown_seconds != 0 || !strstr(err, want))
+            return 1;
+    }
+
+    return 0;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
@@ -1159,6 +1179,7 @@ static const test_t ALL_TESTS[] = {
     /* cooldown: anything but a duration */
     T(cooldown_integer_warns),
     T(cooldown_absent_is_silent),
+    T(cooldown_trailing_text_warns),
 };
 
 int main(void)
