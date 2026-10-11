@@ -18,6 +18,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <ctype.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdint.h>
@@ -40,30 +41,50 @@
  * CPU count  (for load normalisation when cpu_load_unit = "%")
  * ======================================================================= */
 
-static int read_num_cores(void)
+/* CPUs in a kernel cpulist such as "0-3,8-11", or -1 unless the whole list parses. */
+static int count_cpulist(const char *s)
 {
-    FILE *f = fopen("/sys/devices/system/cpu/online", "r");
+    int n = 0;
+
+    for (;;) {
+        char *end;
+
+        if (!isdigit((unsigned char)*s))
+            return -1;
+
+        unsigned long lo = strtoul(s, &end, 10);
+        unsigned long hi = lo;
+        if (*end == '-') {
+            s = end + 1;
+            if (!isdigit((unsigned char)*s))
+                return -1;
+            hi = strtoul(s, &end, 10);
+            if (hi < lo)
+                return -1;
+        }
+
+        n += (int)(hi - lo + 1);
+
+        if (*end != ',')
+            return *end == '\n' || *end == '\0' ? n : -1;
+        s = end + 1;
+    }
+}
+
+static int read_num_cores(const char *path)
+{
+    FILE *f = fopen(path, "r");
     if (!f)
         return 1;
+
     char  buf[64];
     char *got = fgets(buf, sizeof(buf), f);
     fclose(f);
-    if (!got)
-        return 1;
 
-    char         *end;
-    unsigned long lo = strtoul(buf, &end, 10);
-    if (end == buf)
-        return 1;
+    /* A list cut at the buffer would count only its head: refused, like a missing file. */
+    int n = got && strchr(buf, '\n') ? count_cpulist(buf) : -1;
 
-    int n = 1;
-    if (*end == '-') {
-        char         *end2;
-        unsigned long hi = strtoul(end + 1, &end2, 10);
-        if (end2 != end + 1 && hi >= lo)
-            n = (int)(hi - lo + 1);
-    }
-    return (n > 0) ? n : 1;
+    return n > 0 ? n : 1;
 }
 
 static void read_temp_critical(http_ctx_t *ctx)
@@ -378,7 +399,7 @@ int http_start(http_ctx_t *ctx, const config_t *cfg, db_t *db)
     atomic_init(&ctx->sse_active, 0);
     ctx->cfg = cfg;
     ctx->db = db;
-    ctx->num_cores = read_num_cores();
+    ctx->num_cores = read_num_cores("/sys/devices/system/cpu/online");
     read_temp_critical(ctx);
     /* Host properties, read once at startup like the trip point above: a link
      * renegotiation (or a new cable) needs a restart to be picked up. */
