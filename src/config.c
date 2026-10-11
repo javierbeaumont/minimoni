@@ -562,8 +562,15 @@ int config_load(config_t *cfg, const char *path)
                 if (d > 0)
                     a->cooldown_seconds = d;
                 else
-                    fprintf(stderr, "config: alert '%s': invalid cooldown '%s'\n", a->name,
-                            dcool.u.s);
+                    fprintf(stderr,
+                            "config: alert '%s': invalid cooldown '%s'; no cooldown, it fires "
+                            "every cycle\n",
+                            a->name, dcool.u.s);
+            } else if (dcool.type != TOML_UNKNOWN) {
+                fprintf(stderr,
+                        "config: alert '%s': cooldown is not a duration string such as \"5m\"; no "
+                        "cooldown, it fires every cycle\n",
+                        a->name);
             }
 
             if (!a->webhook[0] && !a->command[0]) {

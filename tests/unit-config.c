@@ -1007,6 +1007,29 @@ static int test_every_overlong_value_is_reported(void)
                : 1;
 }
 
+/* --- Cooldown: anything but a duration warns and leaves none --- */
+
+static int test_cooldown_integer_warns(void)
+{
+    config_t cfg;
+    char     err[512];
+    int rc = load_cfg_err(&cfg, ALERT_HEAD "webhook = \"w\"\ncooldown = 300\n", err, sizeof(err));
+
+    return rc == 0 && cfg.alert_count == 1 && cfg.alerts[0].cooldown_seconds == 0 &&
+                   strstr(err, "config: alert 'a': cooldown is not a duration string")
+               ? 0
+               : 1;
+}
+
+static int test_cooldown_absent_is_silent(void)
+{
+    config_t cfg;
+    char     err[512];
+    int      rc = load_cfg_err(&cfg, ALERT_HEAD "webhook = \"w\"\n", err, sizeof(err));
+
+    return rc == 0 && cfg.alert_count == 1 && !strstr(err, "cooldown") ? 0 : 1;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
@@ -1133,6 +1156,9 @@ static const test_t ALL_TESTS[] = {
     T(db_over_max_fails),
     T(range_over_max_fails),
     T(every_overlong_value_is_reported),
+    /* cooldown: anything but a duration */
+    T(cooldown_integer_warns),
+    T(cooldown_absent_is_silent),
 };
 
 int main(void)

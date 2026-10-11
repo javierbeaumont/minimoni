@@ -536,9 +536,10 @@ When `command` is set, it is executed via `system()` with the same user and priv
 as the minimoni process. Keep commands short and non-blocking; long-running commands
 delay the next collect cycle.
 
-`cooldown` prevents repeated firings: the alert will not fire again until the cooldown
-period has elapsed. Accepts `30s`, `1m`, `1h`, `1d`. Cooldown state is stored in the database
-(`alert_log` table) and survives restarts.
+`cooldown` prevents repeated firings: the alert will not fire again until the cooldown period has
+elapsed. Accepts `30s`, `1m`, `1h`, `1d`. Any other value is reported at startup and leaves the
+alert without a cooldown, so it fires every cycle while its condition holds. Cooldown state is
+stored in the database (`alert_log` table) and survives restarts.
 
 ### Webhook TLS
 
