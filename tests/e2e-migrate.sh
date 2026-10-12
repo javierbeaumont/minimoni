@@ -571,6 +571,30 @@ t_auto_resolve_minimoni() {
     fi
 }
 
+# Installed on $PATH and run from another directory, argv[0] carries no directory: minimoni can only
+# be found through $PATH, which execv, used before, never searched.
+t_finds_minimoni_on_path() {
+    bin=$TMP/bin
+    mkdir -p "$bin"
+    cp "$MIN" "$MIG" "$bin/"
+    db=$TMP/on-path.db
+    make_v01_db "$db"
+
+    (cd "$TMP" && PATH="$bin:$PATH" minimoni-migrate --no-backup "$db") >/dev/null 2>&1 && rc=0 ||
+        rc=$?
+
+    if [ "$rc" != 0 ]; then
+        report "found on \$PATH, run from elsewhere" "exit=$rc (want 0)"
+        return
+    fi
+    uv=$(sqlite3 "$db" 'PRAGMA user_version')
+    if [ "$uv" = 1 ]; then
+        report "found on \$PATH, run from elsewhere" ok
+    else
+        report "found on \$PATH, run from elsewhere" "user_version=$uv"
+    fi
+}
+
 # --- migration compaction (v0.1 -> v0.2 folds the raw backlog and VACUUMs) ---
 
 t_migration_consolidates_and_compacts() {
@@ -643,6 +667,7 @@ t_long_path_dry_run_keeps_db
 t_long_path_migration_keeps_db
 t_help_and_version
 t_auto_resolve_minimoni
+t_finds_minimoni_on_path
 t_migration_consolidates_and_compacts
 t_remigrate_is_noop
 

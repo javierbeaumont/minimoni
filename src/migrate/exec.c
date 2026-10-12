@@ -58,6 +58,7 @@ int migrate_exec(const char *minimoni_exec, const char *db_path, const char *sql
     int out_pipe[2], err_pipe[2];
     if (pipe(out_pipe) != 0)
         return -1;
+
     if (pipe(err_pipe) != 0) {
         close(out_pipe[0]);
         close(out_pipe[1]);
@@ -65,6 +66,7 @@ int migrate_exec(const char *minimoni_exec, const char *db_path, const char *sql
     }
 
     pid_t pid = fork();
+
     if (pid < 0) {
         close(out_pipe[0]);
         close(out_pipe[1]);
@@ -74,7 +76,6 @@ int migrate_exec(const char *minimoni_exec, const char *db_path, const char *sql
     }
 
     if (pid == 0) {
-        /* Child: rewire stdout/stderr to pipe write ends, then exec. */
         dup2(out_pipe[1], STDOUT_FILENO);
         dup2(err_pipe[1], STDERR_FILENO);
         close(out_pipe[0]);
@@ -90,14 +91,14 @@ int migrate_exec(const char *minimoni_exec, const char *db_path, const char *sql
         argv[i++] = (char *)db_path;
         argv[i++] = (char *)sql;
         argv[i] = NULL;
-        execv(minimoni_exec, argv);
-        /* execv only returns on failure */
+
+        execvp(minimoni_exec, argv);
         _exit(127);
     }
 
-    /* Parent: close write ends, drain both pipes, wait for child. */
     close(out_pipe[1]);
     close(err_pipe[1]);
+
     drain_fd(out_pipe[0], out_buf, out_size);
     drain_fd(err_pipe[0], err_buf, err_size);
     close(out_pipe[0]);
@@ -107,12 +108,13 @@ int migrate_exec(const char *minimoni_exec, const char *db_path, const char *sql
     if (waitpid(pid, &status, 0) < 0)
         return -1;
 
-    if (WIFSIGNALED(status))
-        return -3;
     if (!WIFEXITED(status))
         return -3;
+
     int rc = WEXITSTATUS(status);
+
     if (rc == 127)
         return -2;
+
     return rc;
 }
