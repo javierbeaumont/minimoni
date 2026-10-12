@@ -814,6 +814,92 @@ static int test_point_mem_chart_abs_emits(void)
     return has(b, "\"mu\":") ? 0 : 1;
 }
 
+/* --- The largest /api/current a config can produce --- */
+
+/* `n` control characters as TOML escapes, each six bytes once escaped in JSON. */
+static char *ctl(char *out, int n)
+{
+    out[0] = '\0';
+    for (int i = 0; i < n; i++)
+        strcat(out, "\\u0001");
+
+    return out;
+}
+
+/* Every list full; cards start with the known names. */
+static void largest_toml(char *out, size_t cap, const char *title, const char *chart,
+                         const char *card)
+{
+    int known = 0;
+    while (CARD_NAMES[known])
+        known++;
+
+    snprintf(out, cap,
+             "[dashboard]\ntitle = \"%s\"\nmemory_card_unit = \"auto\"\ndisk_card_unit = \"auto\"\n"
+             "ranges = [\"000120m\", \"000120m\", \"000120m\", \"000120m\", \"000120m\", "
+             "\"000120m\", \"000120m\", \"000120m\"]\ncharts = [",
+             title);
+    for (int i = 0; i < MAX_CHARTS; i++)
+        snprintf(out + strlen(out), cap - strlen(out), "%s\"%s\"", i ? ", " : "", chart);
+
+    snprintf(out + strlen(out), cap - strlen(out), "]\ncards = [");
+    for (int i = 0; i < MAX_CARDS; i++)
+        snprintf(out + strlen(out), cap - strlen(out), "%s\"%s\"", i ? ", " : "",
+                 i < known ? CARD_NAMES[i] : card);
+    snprintf(out + strlen(out), cap - strlen(out), "]\n");
+}
+
+/* 1 if /api/current for `toml` overflows, every metric at its widest; -1 if it fails to load. */
+static int current_overflows(const char *toml)
+{
+    char path[64];
+    snprintf(path, sizeof(path), "/tmp/minimoni-json-%d.toml", (int)getpid());
+
+    FILE *f = fopen(path, "w");
+    if (!f)
+        return -1;
+    fputs(toml, f);
+    fclose(f);
+
+    config_t cfg;
+    config_defaults(&cfg);
+    int rc = config_load(&cfg, path);
+    unlink(path);
+
+    if (rc != 0)
+        return -1;
+
+    db_row_t r = sample_row();
+    double   w = -1.797e308;
+    r.load_1m = r.load_5m = r.load_15m = w;
+    r.cpu_user_percent = r.cpu_system_percent = r.cpu_idle_percent = w;
+    r.mem_total_mb = r.mem_used_mb = r.mem_available_mb = r.mem_percent = w;
+    r.disk_total_gb = r.disk_used_gb = r.disk_free_gb = r.disk_percent = w;
+    r.temp_celsius = r.net_rx_bps = r.net_tx_bps = r.uptime_seconds = w;
+
+    char   buf[JSON_CURRENT_CAP];
+    jbuf_t j;
+    jbuf_init(&j, buf, sizeof(buf));
+    jbuf_begin(&j);
+    json_serialize_current(&j, &r, &cfg, 1 << 20, 1, w, 1000000);
+    jbuf_end(&j);
+
+    return j.overflow;
+}
+
+/* Unknown chart and card names were once kept: the largest config came to 4233 bytes of 4096. */
+static int test_largest_current_fits_its_buffer(void)
+{
+    char title[1024], junk[128], written[16384], kept[16384];
+    ctl(title, 127);
+    ctl(junk, 15);
+
+    largest_toml(written, sizeof(written), title, junk, junk);
+    largest_toml(kept, sizeof(kept), title, "cpu_usage", "cpu_usage");
+
+    return current_overflows(written) == 0 && current_overflows(kept) == 0 ? 0 : 1;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
@@ -824,6 +910,7 @@ static const test_t ALL_TESTS[] = {
     T(jbuf_truncates_without_overflow),
     T(dropped_field_leaves_no_comma),
     T(overflow_marks_the_buffer),
+    T(largest_current_fits_its_buffer),
     T(show_all_emits_every_group),
     T(gating_single_card),
     T(hide_all_emits_no_metrics),

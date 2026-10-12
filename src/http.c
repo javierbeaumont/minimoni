@@ -214,7 +214,7 @@ static int handler_current(struct mg_connection *conn, void *cbdata)
         return 500;
     }
 
-    char   buf[4096];
+    char   buf[JSON_CURRENT_CAP];
     jbuf_t j;
     jbuf_init(&j, buf, sizeof(buf));
     jbuf_begin(&j);
@@ -383,7 +383,7 @@ static void stream_loop(struct mg_connection *conn, const http_ctx_t *ctx)
     for (;;) {
         db_row_t row;
         if (db_current(ctx->db, &row) == 0) {
-            char   buf[4096];
+            char   buf[JSON_CURRENT_CAP];
             jbuf_t j;
             jbuf_init(&j, buf, sizeof(buf));
             jbuf_begin(&j);

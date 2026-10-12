@@ -34,6 +34,9 @@ typedef struct {
     int    overflow;
 } jbuf_t;
 
+/* /api/current and each /stream frame; the largest valid config must fit. */
+#define JSON_CURRENT_CAP 4096
+
 void jbuf_init(jbuf_t *j, char *buf, size_t cap);
 void jbuf_raw(jbuf_t *j, const char *s);
 void jbuf_sep(jbuf_t *j);
