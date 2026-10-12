@@ -735,6 +735,45 @@ static int test_charts_cards_empty_hides_all(void)
                : 1;
 }
 
+/* Unknown names were once kept, adding up to 2 KB to every /api/current. */
+static int test_unknown_chart_name_warns_and_is_skipped(void)
+{
+    config_t cfg;
+    char     err[512];
+    int rc = load_cfg_err(&cfg, "[dashboard]\ncharts = [\"ram\", \"disk\"]\n", err, sizeof(err));
+
+    return rc == 0 && cfg.chart_count == 1 && strcmp(cfg.charts[0], "disk") == 0 &&
+                   strstr(err, "config: dashboard.charts[0]: unknown name 'ram'")
+               ? 0
+               : 1;
+}
+
+static int test_unknown_card_name_warns_and_is_skipped(void)
+{
+    config_t cfg;
+    char     err[512];
+    int      rc =
+        load_cfg_err(&cfg, "[dashboard]\ncards = [\"uptime\", \"uptiem\"]\n", err, sizeof(err));
+
+    return rc == 0 && cfg.card_count == 1 && strcmp(cfg.cards[0], "uptime") == 0 &&
+                   strstr(err, "config: dashboard.cards[1]: unknown name 'uptiem'")
+               ? 0
+               : 1;
+}
+
+/* With every name skipped, the list counts as unset. */
+static int test_uptime_is_not_a_chart(void)
+{
+    config_t cfg;
+    char     err[512];
+    int      rc = load_cfg_err(&cfg, "[dashboard]\ncharts = [\"uptime\"]\n", err, sizeof(err));
+
+    return rc == 0 && cfg.chart_count == 0 &&
+                   strstr(err, "config: dashboard.charts[0]: unknown name 'uptime'")
+               ? 0
+               : 1;
+}
+
 static int test_config_has_states(void)
 {
     config_t cfg;
@@ -1140,6 +1179,9 @@ static const test_t ALL_TESTS[] = {
     /* charts / cards */
     T(charts_cards_lists),
     T(charts_cards_empty_hides_all),
+    T(unknown_chart_name_warns_and_is_skipped),
+    T(unknown_card_name_warns_and_is_skipped),
+    T(uptime_is_not_a_chart),
     T(config_has_states),
     /* alerts */
     T(alert_full_entry),

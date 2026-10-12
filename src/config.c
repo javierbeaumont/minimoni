@@ -139,6 +139,29 @@ static void unit_copy(char *dst, size_t dsize, toml_datum_t v, const char *key,
     fprintf(stderr, "); using default\n");
 }
 
+/* --- Chart and card names --- */
+
+/* The names the dashboard draws. */
+#define CHARTS "cpu_load", "cpu_usage", "memory", "disk", "temp", "net"
+static const char *const CHART_NAMES[] = {CHARTS, NULL};
+static const char *const CARD_NAMES[] = {CHARTS, "uptime", NULL};
+#undef CHARTS
+
+/* 1 if `name` is known; else warn and 0. */
+static int known_name(const char *name, const char *const *known, const char *key, int i)
+{
+    for (int k = 0; known[k]; k++)
+        if (strcmp(name, known[k]) == 0)
+            return 1;
+
+    fprintf(stderr, "config: dashboard.%s[%d]: unknown name '%s', skipping (use", key, i, name);
+    for (int k = 0; known[k]; k++)
+        fprintf(stderr, "%s %s", k ? "," : "", known[k]);
+    fprintf(stderr, ")\n");
+
+    return 0;
+}
+
 /* --- Unknown-key detection --- */
 
 /* Canonical keys per table; a key outside these is a typo the TOML reader would
@@ -315,6 +338,7 @@ void config_defaults(config_t *cfg)
 int config_load(config_t *cfg, const char *path)
 {
     toml_result_t res = toml_parse_file_ex(path);
+
     if (!res.ok) {
         fprintf(stderr, "config: %s: %s\n", path, res.errmsg);
         return -1;
@@ -329,6 +353,7 @@ int config_load(config_t *cfg, const char *path)
     /* [server] */
     v = toml_seek(root, "server.listen");
     too_long |= str_copy(cfg->listen, sizeof(cfg->listen), v, "server.listen") != 0;
+
     v = toml_seek(root, "server.max_dashboards");
     if (v.type == TOML_INT64 && v.u.int64 >= 1 && v.u.int64 <= 256)
         cfg->max_dashboards = (int)v.u.int64;
@@ -336,10 +361,12 @@ int config_load(config_t *cfg, const char *path)
         fprintf(stderr, "config: max_dashboards must be >= 1 (got %ld); aborting\n",
                 (long)v.u.int64);
         toml_free(res);
+
         return -1;
     } else if (v.type == TOML_INT64)
         fprintf(stderr, "config: max_dashboards must be <= 256 (got %ld); using default\n",
                 (long)v.u.int64);
+
     v = toml_seek(root, "server.sse_keepalive");
     if (v.type == TOML_INT64 && v.u.int64 > 0)
         cfg->sse_keepalive_seconds = (int)v.u.int64;
@@ -355,15 +382,19 @@ int config_load(config_t *cfg, const char *path)
                 "Replace with e.g. `interval = 60` for 1 minute.\n",
                 v.u.s);
         toml_free(res);
+
         return -1;
     }
+
     if (v.type == TOML_INT64) {
         if (v.u.int64 < 1) {
             fprintf(stderr, "config: interval must be >= 1 second (got %ld); aborting\n",
                     (long)v.u.int64);
             toml_free(res);
+
             return -1;
         }
+
         if (v.u.int64 > 3600) {
             fprintf(stderr,
                     "config: interval must be <= 3600 seconds / 1 hour (got %ld); "
@@ -374,8 +405,10 @@ int config_load(config_t *cfg, const char *path)
             cfg->interval_seconds = (long)v.u.int64;
         }
     }
+
     v = toml_seek(root, "collect.db");
     too_long |= str_copy(cfg->db_path, sizeof(cfg->db_path), v, "collect.db") != 0;
+
     v = toml_seek(root, "collect.disk_path");
     too_long |= str_copy(cfg->disk_path, sizeof(cfg->disk_path), v, "collect.disk_path") != 0;
 
@@ -387,9 +420,11 @@ int config_load(config_t *cfg, const char *path)
     /* [dashboard] */
     v = toml_seek(root, "dashboard.title");
     too_long |= str_copy(cfg->title, sizeof(cfg->title), v, "dashboard.title") != 0;
+
     v = toml_seek(root, "dashboard.show_footer");
     if (v.type == TOML_BOOLEAN)
         cfg->show_footer = v.u.boolean ? 1 : 0;
+
     v = toml_seek(root, "dashboard.theme");
     if (v.type == TOML_STRING) {
         if (strcmp(v.u.s, "light") == 0 || strcmp(v.u.s, "dark") == 0 || strcmp(v.u.s, "auto") == 0)
@@ -397,11 +432,13 @@ int config_load(config_t *cfg, const char *path)
         else
             fprintf(stderr, "config: invalid theme '%s', using default\n", v.u.s);
     }
+
     v = toml_seek(root, "dashboard.refresh");
     if (v.type == TOML_INT64 && v.u.int64 > 0)
         cfg->refresh_seconds = (int)v.u.int64;
     else if (v.type == TOML_INT64)
         fprintf(stderr, "config: refresh must be > 0 (got %ld); using default\n", (long)v.u.int64);
+
     v = toml_seek(root, "dashboard.memory_card_unit");
     unit_copy(cfg->memory_card_unit, sizeof(cfg->memory_card_unit), v, "memory_card_unit",
               SIZE_UNITS);
@@ -424,6 +461,7 @@ int config_load(config_t *cfg, const char *path)
     unit_copy(cfg->net_chart_unit, sizeof(cfg->net_chart_unit), v, "net_chart_unit", NET_UNITS);
     v = toml_seek(root, "dashboard.uptime_unit");
     unit_copy(cfg->uptime_unit, sizeof(cfg->uptime_unit), v, "uptime_unit", UPTIME_UNITS);
+
     v = toml_seek(root, "dashboard.net_max_speed");
     if (v.type == TOML_INT64 && v.u.int64 > 0 && v.u.int64 <= 1000000)
         cfg->net_max_speed = (int)v.u.int64;
@@ -432,6 +470,7 @@ int config_load(config_t *cfg, const char *path)
                 "config: net_max_speed must be 1..1000000 Mbit/s (got %ld); "
                 "using default\n",
                 (long)v.u.int64);
+
     v = toml_seek(root, "dashboard.charts");
     if (v.type == TOML_ARRAY) {
         if (v.u.arr.size == 0) {
@@ -439,12 +478,18 @@ int config_load(config_t *cfg, const char *path)
         } else {
             for (int i = 0; i < v.u.arr.size && cfg->chart_count < MAX_CHARTS; i++) {
                 toml_datum_t e = v.u.arr.elem[i];
-                if (e.type == TOML_STRING)
-                    too_long |= str_copy(cfg->charts[cfg->chart_count++], sizeof(cfg->charts[0]), e,
-                                         "dashboard.charts[%d]", i) != 0;
+                if (e.type != TOML_STRING)
+                    continue;
+
+                char *dst = cfg->charts[cfg->chart_count];
+                if (str_copy(dst, sizeof(cfg->charts[0]), e, "dashboard.charts[%d]", i) != 0)
+                    too_long = 1;
+                else if (known_name(dst, CHART_NAMES, "charts", i))
+                    cfg->chart_count++;
             }
         }
     }
+
     v = toml_seek(root, "dashboard.cards");
     if (v.type == TOML_ARRAY) {
         if (v.u.arr.size == 0) {
@@ -452,16 +497,23 @@ int config_load(config_t *cfg, const char *path)
         } else {
             for (int i = 0; i < v.u.arr.size && cfg->card_count < MAX_CARDS; i++) {
                 toml_datum_t e = v.u.arr.elem[i];
-                if (e.type == TOML_STRING)
-                    too_long |= str_copy(cfg->cards[cfg->card_count++], sizeof(cfg->cards[0]), e,
-                                         "dashboard.cards[%d]", i) != 0;
+                if (e.type != TOML_STRING)
+                    continue;
+
+                char *dst = cfg->cards[cfg->card_count];
+                if (str_copy(dst, sizeof(cfg->cards[0]), e, "dashboard.cards[%d]", i) != 0)
+                    too_long = 1;
+                else if (known_name(dst, CARD_NAMES, "cards", i))
+                    cfg->card_count++;
             }
         }
     }
+
     v = toml_seek(root, "dashboard.temp_card_unit");
     unit_copy(cfg->temp_card_unit, sizeof(cfg->temp_card_unit), v, "temp_card_unit", TEMP_UNITS);
     v = toml_seek(root, "dashboard.temp_chart_unit");
     unit_copy(cfg->temp_chart_unit, sizeof(cfg->temp_chart_unit), v, "temp_chart_unit", TEMP_UNITS);
+
     v = toml_seek(root, "dashboard.temp_critical_fallback");
     if (v.type == TOML_FP64 && v.u.fp64 > 0)
         cfg->temp_critical_fallback = (float)v.u.fp64;
@@ -469,6 +521,7 @@ int config_load(config_t *cfg, const char *path)
         cfg->temp_critical_fallback = (float)v.u.int64;
     else if (v.type == TOML_FP64 || v.type == TOML_INT64)
         fprintf(stderr, "config: temp_critical_fallback must be > 0; using default\n");
+
     v = toml_seek(root, "dashboard.ranges");
     if (v.type == TOML_ARRAY && v.u.arr.size > 0) {
         int count = 0;
@@ -478,11 +531,13 @@ int config_load(config_t *cfg, const char *path)
                 fprintf(stderr, "config: ranges[%d]: not a string, skipping\n", i);
                 continue;
             }
+
             if (!valid_range(e.u.s)) {
                 fprintf(stderr, "config: ranges[%d]: invalid '%s' (use <n>m, <n>h or <n>d)\n", i,
                         e.u.s);
                 continue;
             }
+
             if (!range_in_bounds(e.u.s)) {
                 fprintf(stderr,
                         "config: ranges[%d]: '%s' exceeds limit "
@@ -490,7 +545,9 @@ int config_load(config_t *cfg, const char *path)
                         i, e.u.s);
                 continue;
             }
+
             long d = parse_duration(e.u.s);
+
             if (d < cfg->interval_seconds) {
                 fprintf(stderr,
                         "config: ranges[%d]: '%s' is shorter than collect interval, "
@@ -498,19 +555,19 @@ int config_load(config_t *cfg, const char *path)
                         i, e.u.s);
                 continue;
             }
+
             too_long |= str_copy(cfg->ranges[count++], sizeof(cfg->ranges[0]), e,
                                  "dashboard.ranges[%d]", i) != 0;
         }
+
         if (count > 0) {
             cfg->range_count = count;
         } else {
-            /* User explicitly defined `ranges` but every entry was invalid or
-             * shorter than `interval`. Refusing instead of silently falling
-             * back to defaults is the honest behaviour: a config that ships
-             * to production with bogus ranges should fail loud. */
+            /* Every entry was rejected: fail loud rather than fall back to the defaults. */
             fprintf(stderr, "config: dashboard.ranges has no valid entries (all rejected or "
                             "< interval); aborting\n");
             toml_free(res);
+
             return -1;
         }
     }
@@ -532,6 +589,7 @@ int config_load(config_t *cfg, const char *path)
                 fprintf(stderr, "config: alert[%d]: missing name/metric/operator, skipping\n", i);
                 continue;
             }
+
             if (!valid_op(dop.u.s)) {
                 fprintf(stderr, "config: alert[%d]: unknown operator '%s', skipping\n", i, dop.u.s);
                 continue;
@@ -580,11 +638,13 @@ int config_load(config_t *cfg, const char *path)
                         a->name);
                 continue;
             }
+
             cfg->alert_count++;
         }
     }
 
     toml_free(res);
+
     if (too_long)
         return -1;
 

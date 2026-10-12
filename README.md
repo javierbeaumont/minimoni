@@ -410,11 +410,13 @@ identify the source host.
 **`theme`**: when set to `"light"` or `"dark"`, the theme is fixed and the toggle button is
 hidden. `"auto"` (default) follows the OS preference and shows the toggle.
 
-**`charts`** and **`cards`** control visibility and order **in the dashboard UI**. When not set,
-all metrics are shown in the default order. Set to `[]` to hide everything. Set to a list to
-show only those metrics in the listed order, e.g. `charts = ["memory", "disk"]` shows only
-those two charts, with Memory first. API endpoints always return all collected metrics; these
-lists only control what the dashboard renders. Temperature is the exception (see below).
+**`charts`** and **`cards`** control visibility and order **in the dashboard UI**. When not set, all
+metrics are shown in the default order. Set to `[]` to hide everything. Set to a list to show only
+those metrics in the listed order, e.g. `charts = ["memory", "disk"]` shows only those two charts,
+with Memory first. A name not in the example above (`uptime` is a card only) is reported at startup
+and skipped; if none is left, the list counts as not set. API endpoints always return all collected
+metrics; these lists only control what the dashboard renders. Temperature is the exception (see
+below).
 
 **Temperature visibility**: `temp` is special: it depends on hardware. Two rules apply:
 
