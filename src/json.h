@@ -24,14 +24,14 @@
 
 /* --- JSON output writer --- */
 
-/* A bounded JSON-object string builder: fields are appended into a fixed,
- * caller-provided buffer and silently truncated if it fills. Output only;
- * there is no parser here. */
+/* A bounded JSON-object builder over a caller-provided buffer. What does not fit is dropped, a
+ * field whole with its comma, and sets `overflow`: such a buffer must not be sent. Output only. */
 typedef struct {
     char  *buf;
     size_t pos;
     size_t cap;
     int    comma; /* 1 after the first field; prepend ',' to next */
+    int    overflow;
 } jbuf_t;
 
 void jbuf_init(jbuf_t *j, char *buf, size_t cap);

@@ -176,6 +176,59 @@ static int test_jbuf_truncates_without_overflow(void)
     return (j.pos < sizeof(b) && b[j.pos] == '\0') ? 0 : 1;
 }
 
+static void put_real(jbuf_t *j, const char *k) { jbuf_real(j, k, 2.5); }
+static void put_long(jbuf_t *j, const char *k) { jbuf_long(j, k, 25); }
+static void put_null(jbuf_t *j, const char *k) { jbuf_null(j, k); }
+static void put_pair(jbuf_t *j, const char *k) { jbuf_pair(j, k, 70.0, 90.0); }
+static void put_str(jbuf_t *j, const char *k) { jbuf_str(j, k, "v"); }
+
+/* The writers but jbuf_str once wrote the comma first: {"a":1,}. */
+static int test_dropped_field_leaves_no_comma(void)
+{
+    void (*const put[])(jbuf_t *, const char *) = {put_real, put_long, put_null, put_pair, put_str};
+
+    for (size_t i = 0; i < sizeof(put) / sizeof(put[0]); i++) {
+        char   b[12];
+        jbuf_t j;
+        jbuf_init(&j, b, sizeof(b));
+        jbuf_begin(&j);
+        jbuf_long(&j, "a", 1);
+        put[i](&j, "bbbbbbbbbbbb");
+        jbuf_end(&j);
+
+        if (strcmp(b, "{\"a\":1}") != 0 || !j.overflow)
+            return 1;
+    }
+
+    return 0;
+}
+
+static int test_overflow_marks_the_buffer(void)
+{
+    char   fits[64], unclosed[7], escaped[1024], quotes[600];
+    jbuf_t j;
+    memset(quotes, '"', sizeof(quotes) - 1);
+    quotes[sizeof(quotes) - 1] = '\0';
+
+    jbuf_init(&j, fits, sizeof(fits));
+    jbuf_begin(&j);
+    jbuf_long(&j, "a", 1);
+    jbuf_end(&j);
+    int ok = !j.overflow;
+
+    jbuf_init(&j, unclosed, sizeof(unclosed));
+    jbuf_begin(&j);
+    jbuf_long(&j, "a", 1);
+    jbuf_end(&j);
+    ok = ok && j.overflow;
+
+    jbuf_init(&j, escaped, sizeof(escaped));
+    jbuf_str(&j, "t", quotes);
+    ok = ok && j.overflow;
+
+    return ok ? 0 : 1;
+}
+
 /* --- Serializer: card gating --- */
 
 static int test_show_all_emits_every_group(void)
@@ -769,6 +822,8 @@ static const test_t ALL_TESTS[] = {
     T(jbuf_str_format),
     T(jbuf_sep_inserts_comma),
     T(jbuf_truncates_without_overflow),
+    T(dropped_field_leaves_no_comma),
+    T(overflow_marks_the_buffer),
     T(show_all_emits_every_group),
     T(gating_single_card),
     T(hide_all_emits_no_metrics),

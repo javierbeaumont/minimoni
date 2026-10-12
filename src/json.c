@@ -32,6 +32,8 @@ void jbuf_init(jbuf_t *j, char *buf, size_t cap)
     j->pos = 0;
     j->cap = cap;
     j->comma = 0;
+    j->overflow = 0;
+
     if (cap > 0)
         buf[0] = '\0';
 }
@@ -39,11 +41,15 @@ void jbuf_init(jbuf_t *j, char *buf, size_t cap)
 void jbuf_raw(jbuf_t *j, const char *s)
 {
     size_t n = strlen(s);
-    if (j->pos + n < j->cap) {
-        memcpy(j->buf + j->pos, s, n);
-        j->pos += n;
-        j->buf[j->pos] = '\0';
+
+    if (j->pos + n >= j->cap) {
+        j->overflow = 1;
+        return;
     }
+
+    memcpy(j->buf + j->pos, s, n);
+    j->pos += n;
+    j->buf[j->pos] = '\0';
 }
 
 void jbuf_sep(jbuf_t *j)
@@ -117,58 +123,68 @@ int json_escape(char *dst, size_t cap, const char *src)
     return (int)o;
 }
 
+/* The whole field with its comma, or nothing. */
+static int jbuf_field(jbuf_t *j, const char *field)
+{
+    if (j->pos + (j->comma ? 1u : 0u) + strlen(field) >= j->cap) {
+        j->overflow = 1;
+        return -1;
+    }
+
+    jbuf_sep(j);
+    jbuf_raw(j, field);
+
+    return 0;
+}
+
 void jbuf_str(jbuf_t *j, const char *key, const char *val)
 {
-    /* Decided before jbuf_sep writes its comma: a comma with no field after it
-     * is as invalid as the unescaped quote. A 127-char title is 6 bytes per
-     * character at worst, hence the value buffer. */
+    /* A 127-char title is 6 bytes per character at worst, hence the value buffer. */
     char ekey[64], eval[1024], tmp[1152];
 
     if (json_escape(ekey, sizeof(ekey), key) < 0 || json_escape(eval, sizeof(eval), val) < 0) {
         fprintf(stderr, "json: field '%.32s' does not fit escaped; omitted\n", key);
+        j->overflow = 1;
         return;
     }
 
     int n = snprintf(tmp, sizeof(tmp), "\"%s\":\"%s\"", ekey, eval);
-    if (n < 0 || (size_t)n >= sizeof(tmp) || j->pos + (j->comma ? 1u : 0u) + (size_t)n >= j->cap) {
+    if (n < 0 || (size_t)n >= sizeof(tmp) || jbuf_field(j, tmp) != 0) {
         fprintf(stderr, "json: field '%.32s' does not fit the buffer; omitted\n", key);
-        return;
+        j->overflow = 1;
     }
-
-    jbuf_sep(j);
-    jbuf_raw(j, tmp);
 }
 
 void jbuf_real(jbuf_t *j, const char *key, double val)
 {
-    jbuf_sep(j);
     char tmp[128];
     snprintf(tmp, sizeof(tmp), "\"%s\":%.4g", key, val);
-    jbuf_raw(j, tmp);
+
+    jbuf_field(j, tmp);
 }
 
 void jbuf_long(jbuf_t *j, const char *key, long val)
 {
-    jbuf_sep(j);
     char tmp[64];
     snprintf(tmp, sizeof(tmp), "\"%s\":%ld", key, val);
-    jbuf_raw(j, tmp);
+
+    jbuf_field(j, tmp);
 }
 
 void jbuf_null(jbuf_t *j, const char *key)
 {
-    jbuf_sep(j);
     char tmp[64];
     snprintf(tmp, sizeof(tmp), "\"%s\":null", key);
-    jbuf_raw(j, tmp);
+
+    jbuf_field(j, tmp);
 }
 
 void jbuf_pair(jbuf_t *j, const char *key, double warn, double crit)
 {
-    jbuf_sep(j);
     char tmp[128];
     snprintf(tmp, sizeof(tmp), "\"%s\":[%.6g,%.6g]", key, warn, crit);
-    jbuf_raw(j, tmp);
+
+    jbuf_field(j, tmp);
 }
 
 /* --- Serializers --- */

@@ -140,12 +140,58 @@ static int handler_health(struct mg_connection *conn, void *cbdata)
     return 200;
 }
 
+/* 200 with the body, or 500 if it overflowed. */
+static int send_json(struct mg_connection *conn, const jbuf_t *j, const char *what)
+{
+    if (j->overflow) {
+        static const char e[] = "{\"error\":\"response too large\"}";
+        fprintf(stderr, "http: %s does not fit %zu bytes; answered 500\n", what, j->cap);
+        mg_printf(conn,
+                  "HTTP/1.1 500 Internal Server Error\r\n"
+                  "Content-Type: application/json\r\n"
+                  "Content-Length: %zu\r\n\r\n%s",
+                  sizeof(e) - 1, e);
+
+        return 500;
+    }
+
+    mg_send_http_ok(conn, "application/json", (long long)j->pos);
+    mg_write(conn, j->buf, j->pos);
+
+    return 200;
+}
+
+/* One element, after a comma once one has gone out; an overflowed one is left out. */
+static void emit_part(struct mg_connection *conn, const jbuf_t *j, int *emitted, const char *what)
+{
+    if (j->overflow) {
+        fprintf(stderr, "http: %s does not fit %zu bytes; omitted\n", what, j->cap);
+        return;
+    }
+
+    if ((*emitted)++)
+        mg_write(conn, ",", 1);
+    mg_write(conn, j->buf, j->pos);
+}
+
+/* -1 once the client has gone; an overflowed frame is skipped. */
+static int stream_frame(struct mg_connection *conn, const jbuf_t *j)
+{
+    if (j->overflow) {
+        fprintf(stderr, "http: /stream frame does not fit %zu bytes; skipped\n", j->cap);
+        return 0;
+    }
+
+    return mg_printf(conn, "data: %.*s\n\n", (int)j->pos, j->buf) > 0 ? 0 : -1;
+}
+
 /* /api/current: latest snapshot with unit conversions applied */
 static int handler_current(struct mg_connection *conn, void *cbdata)
 {
     const http_ctx_t *ctx = (const http_ctx_t *)cbdata;
     db_row_t          row;
     int               ret = db_current(ctx->db, &row);
+
     if (ret == 1) {
         static const char e[] = "{\"error\":\"no data collected yet\"}";
         mg_printf(conn,
@@ -153,8 +199,10 @@ static int handler_current(struct mg_connection *conn, void *cbdata)
                   "Content-Type: application/json\r\n"
                   "Content-Length: %zu\r\n\r\n%s",
                   sizeof(e) - 1, e);
+
         return 503;
     }
+
     if (ret < 0) {
         static const char e[] = "{\"error\":\"database error\"}";
         mg_printf(conn,
@@ -162,6 +210,7 @@ static int handler_current(struct mg_connection *conn, void *cbdata)
                   "Content-Type: application/json\r\n"
                   "Content-Length: %zu\r\n\r\n%s",
                   sizeof(e) - 1, e);
+
         return 500;
     }
 
@@ -173,9 +222,7 @@ static int handler_current(struct mg_connection *conn, void *cbdata)
                            ctx->temp_critical, ctx->net_speed_mbit);
     jbuf_end(&j);
 
-    mg_send_http_ok(conn, "application/json", (long long)j.pos);
-    mg_write(conn, buf, j.pos);
-    return 200;
+    return send_json(conn, &j, "/api/current");
 }
 
 /* /api/metrics?range=<range>: time-series with short keys */
@@ -196,6 +243,7 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
             break;
         }
     }
+
     if (!range_ok) {
         /* default to first configured range */
         if (ctx->cfg->range_count > 0)
@@ -208,6 +256,7 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
     char *end;
     long  n = strtol(range_str, &end, 10);
     long  rsec = 0;
+
     if (end && n > 0) {
         if (*end == 'h')
             rsec = n * 3600L;
@@ -216,6 +265,7 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
         else if (*end == 'm')
             rsec = n * 60L;
     }
+
     if (rsec <= 0)
         rsec = 86400L;
 
@@ -228,6 +278,7 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
     if (ri->query_string)
         mg_get_var(ri->query_string, strlen(ri->query_string), "points", points_str,
                    sizeof(points_str));
+
     if (points_str[0]) {
         long p = strtol(points_str, NULL, 10);
         if (p > 1440)
@@ -241,6 +292,7 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
 
     db_row_t *rows = NULL;
     int       cnt = db_query_range(ctx->db, rsec, bucket, &rows);
+
     if (cnt < 0) {
         static const char e[] = "{\"error\":\"database error\"}";
         mg_printf(conn,
@@ -248,6 +300,7 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
                   "Content-Type: application/json\r\n"
                   "Content-Length: %zu\r\n\r\n%s",
                   sizeof(e) - 1, e);
+
         return 500;
     }
 
@@ -260,6 +313,7 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
               range_str);
 
     char pt[512];
+    int  emitted = 0;
     for (int i = 0; i < cnt; i++) {
         jbuf_t j;
         jbuf_init(&j, pt, sizeof(pt));
@@ -268,9 +322,7 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
                              ctx->temp_critical, ctx->net_speed_mbit);
         jbuf_end(&j);
 
-        if (i > 0)
-            mg_write(conn, ",", 1);
-        mg_write(conn, pt, j.pos);
+        emit_part(conn, &j, &emitted, "/api/metrics point");
     }
 
     char   tail[256];
@@ -281,9 +333,12 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
 
     free(rows);
     db_release_memory(ctx->db);
-    mg_write(conn, "],", 2);
-    mg_write(conn, tail, u.pos);
+
+    int after_points = 1;
+    mg_write(conn, "]", 1);
+    emit_part(conn, &u, &after_points, "/api/metrics units");
     mg_write(conn, "}", 1);
+
     return 200;
 }
 
@@ -336,8 +391,7 @@ static void stream_loop(struct mg_connection *conn, const http_ctx_t *ctx)
                                    ctx->temp_critical, ctx->net_speed_mbit);
             jbuf_end(&j);
 
-            int w = mg_printf(conn, "data: %.*s\n\n", (int)j.pos, buf);
-            if (w <= 0)
+            if (stream_frame(conn, &j) < 0)
                 break; /* client disconnected */
         }
 

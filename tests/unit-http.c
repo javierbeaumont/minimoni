@@ -446,6 +446,60 @@ static int test_http_start_registers_every_route(void)
     return fixture_done(ok);
 }
 
+/* --- Bodies that overflowed their buffer --- */
+
+static jbuf_t overflowed(char *b, size_t cap)
+{
+    jbuf_t j;
+    jbuf_init(&j, b, cap);
+    jbuf_begin(&j);
+    jbuf_str(&j, "key", "a value far larger than the buffer");
+    jbuf_end(&j);
+
+    return j;
+}
+
+/* A body cut at its buffer was once answered 200. */
+static int test_overflowed_body_answers_500(void)
+{
+    char   b[8];
+    jbuf_t j = overflowed(b, sizeof(b));
+    resp_reset();
+
+    int rc = send_json(NULL, &j, "/api/current");
+
+    return rc == 500 && strstr(g_resp, "HTTP/1.1 500") && g_declared_len == -1 ? 0 : 1;
+}
+
+static int test_overflowed_part_is_left_out(void)
+{
+    char   one[16], two[8], three[16];
+    jbuf_t j1, j3, j2 = overflowed(two, sizeof(two));
+    jbuf_init(&j1, one, sizeof(one));
+    jbuf_raw(&j1, "{\"p\":1}");
+    jbuf_init(&j3, three, sizeof(three));
+    jbuf_raw(&j3, "{\"p\":3}");
+    int emitted = 0;
+    resp_reset();
+
+    emit_part(NULL, &j1, &emitted, "point");
+    emit_part(NULL, &j2, &emitted, "point");
+    emit_part(NULL, &j3, &emitted, "point");
+
+    return strcmp(g_resp, "{\"p\":1},{\"p\":3}") == 0 ? 0 : 1;
+}
+
+static int test_overflowed_frame_is_skipped(void)
+{
+    char   b[8];
+    jbuf_t j = overflowed(b, sizeof(b));
+    resp_reset();
+
+    int rc = stream_frame(NULL, &j);
+
+    return rc == 0 && g_resp_len == 0 ? 0 : 1;
+}
+
 /* --- CPU count --- */
 
 /* read_num_cores once counted only the first span: "0-3,8-11" gave 4 and "0,2" gave 1. */
@@ -522,6 +576,9 @@ static const test_t ALL_TESTS[] = {
     T(stream_cap_at_the_minimum),
     T(pool_adds_the_reserve),
     T(http_start_registers_every_route),
+    T(overflowed_body_answers_500),
+    T(overflowed_part_is_left_out),
+    T(overflowed_frame_is_skipped),
     T(cpulist_counts_every_span),
     T(cpulist_malformed_refused),
     T(cores_read_from_the_file),
