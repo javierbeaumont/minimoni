@@ -495,7 +495,7 @@ command   = "/usr/local/bin/notify.sh"  # execute this command on fire
 cooldown  = "1h"           # minimum time between repeated firings
 ```
 
-**Available metrics:**
+**Available metrics** (any other name fails the load):
 
 | Metric               | Unit     | Description                                       |
 |----------------------|----------|---------------------------------------------------|

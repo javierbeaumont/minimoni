@@ -147,12 +147,22 @@ static const char *const CHART_NAMES[] = {CHARTS, NULL};
 static const char *const CARD_NAMES[] = {CHARTS, "uptime", NULL};
 #undef CHARTS
 
+static const char *const METRIC_NAMES[] = {ALERT_METRICS, NULL};
+
+static int in_list(const char *name, const char *const *list)
+{
+    for (int k = 0; list[k]; k++)
+        if (strcmp(name, list[k]) == 0)
+            return 1;
+
+    return 0;
+}
+
 /* 1 if `name` is known; else warn and 0. */
 static int known_name(const char *name, const char *const *known, const char *key, int i)
 {
-    for (int k = 0; known[k]; k++)
-        if (strcmp(name, known[k]) == 0)
-            return 1;
+    if (in_list(name, known))
+        return 1;
 
     fprintf(stderr, "config: dashboard.%s[%d]: unknown name '%s', skipping (use", key, i, name);
     for (int k = 0; known[k]; k++)
@@ -617,6 +627,14 @@ int config_load(config_t *cfg, const char *path)
             if (!valid_op(dop.u.s)) {
                 fprintf(stderr, "config: alert[%d]: unknown operator '%s', skipping\n", i, dop.u.s);
                 continue;
+            }
+
+            if (!in_list(dmet.u.s, METRIC_NAMES)) {
+                fprintf(stderr, "config: alert '%s': unknown metric '%s'; aborting\n", dname.u.s,
+                        dmet.u.s);
+                toml_free(res);
+
+                return -1;
             }
 
             double thr_val;

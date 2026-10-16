@@ -24,6 +24,13 @@
 #define MAX_CARDS 16
 #define MAX_RANGES 8
 
+/* What an alert may watch; alerts.c reads each one from the row. */
+#define ALERT_METRICS                                                                              \
+    "load_1m", "load_5m", "load_15m", "cpu_user_percent", "cpu_system_percent",                    \
+        "cpu_idle_percent", "mem_total_mb", "mem_used_mb", "mem_available_mb", "mem_percent",      \
+        "disk_total_gb", "disk_used_gb", "disk_free_gb", "disk_percent", "temp_celsius",           \
+        "net_rx_bps", "net_tx_bps", "uptime_seconds"
+
 typedef struct {
     char   name[64];
     char   metric[32];

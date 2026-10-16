@@ -89,8 +89,9 @@ static double get_metric_value(const db_row_t *row, const char *m, int *valid)
     }
     if (!strcmp(m, "uptime_seconds"))
         return row->uptime_seconds;
+
+    /* Unreachable from a loaded config: config_load refuses any other name. */
     *valid = 0;
-    fprintf(stderr, "alerts: unknown metric '%s'\n", m);
     return 0.0;
 }
 

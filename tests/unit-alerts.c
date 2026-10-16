@@ -210,6 +210,26 @@ static int test_drops_the_server_name(void)
     return g_seen_name == NULL ? 0 : 1;
 }
 
+/* --- The metrics config accepts --- */
+
+/* config_load refuses any other metric name, so each one it accepts must have a value here. */
+static int test_every_config_metric_has_a_value(void)
+{
+    static const char *const names[] = {ALERT_METRICS, NULL};
+    db_row_t                 row;
+    memset(&row, 0, sizeof(row));
+    row.cpu_valid = row.temp_valid = row.net_valid = 1;
+
+    for (int i = 0; names[i]; i++) {
+        int valid = 0;
+        get_metric_value(&row, names[i], &valid);
+        if (!valid)
+            return 1;
+    }
+
+    return 0;
+}
+
 /* --- The request: what does not fit is not sent --- */
 
 static int test_fit_printf_exact_fit(void)
@@ -272,6 +292,7 @@ static const test_t ALL_TESTS[] = {
     T(propagates_bad_server_name),
     T(propagates_empty_chain),
     T(drops_the_server_name),
+    T(every_config_metric_has_a_value),
     T(fit_printf_exact_fit),
     T(fit_printf_one_byte_short),
     T(parse_url_host_at_max),

@@ -556,7 +556,7 @@ static int test_duration_overflow_typo(void)
 static int test_alert_cooldown_capped(void)
 {
     config_t cfg;
-    if (load_cfg(&cfg, "[[alert]]\nname = \"a\"\nmetric = \"m\"\noperator = \">\"\n"
+    if (load_cfg(&cfg, "[[alert]]\nname = \"a\"\nmetric = \"load_1m\"\noperator = \">\"\n"
                        "threshold = 1\nwebhook = \"http://x\"\ncooldown = \"999999999d\"\n") != 0)
         return 1;
     /* Invalid cooldown warns and stays 0 (alert itself is kept). */
@@ -789,7 +789,7 @@ static int test_config_has_states(void)
 static int test_alert_full_entry(void)
 {
     config_t cfg;
-    if (load_cfg(&cfg, "[[alert]]\nname = \"hot\"\nmetric = \"temp\"\noperator = \">=\"\n"
+    if (load_cfg(&cfg, "[[alert]]\nname = \"hot\"\nmetric = \"temp_celsius\"\noperator = \">=\"\n"
                        "threshold = 80.5\nwebhook = \"http://h\"\ncommand = \"echo hi\"\n"
                        "cooldown = \"5m\"\n") != 0)
         return 1;
@@ -804,7 +804,7 @@ static int test_alert_full_entry(void)
 static int test_alert_int_threshold(void)
 {
     config_t cfg;
-    if (load_cfg(&cfg, "[[alert]]\nname = \"a\"\nmetric = \"m\"\noperator = \"<\"\n"
+    if (load_cfg(&cfg, "[[alert]]\nname = \"a\"\nmetric = \"load_1m\"\noperator = \"<\"\n"
                        "threshold = 5\nwebhook = \"w\"\n") != 0)
         return 1;
     return cfg.alert_count == 1 && cfg.alerts[0].threshold > 4.9 ? 0 : 1;
@@ -815,13 +815,14 @@ static int test_alert_skips_incomplete(void)
     config_t cfg;
     /* missing operator, unknown operator, missing threshold, and no action:
      * each entry is skipped with a warning, none abort the load. */
-    if (load_cfg(&cfg,
-                 "[[alert]]\nname = \"a\"\nmetric = \"m\"\n"
-                 "[[alert]]\nname = \"b\"\nmetric = \"m\"\noperator = \"~\"\n"
-                 "threshold = 1\nwebhook = \"w\"\n"
-                 "[[alert]]\nname = \"c\"\nmetric = \"m\"\noperator = \">\"\nwebhook = \"w\"\n"
-                 "[[alert]]\nname = \"d\"\nmetric = \"m\"\noperator = \">\"\n"
-                 "threshold = 1\n") != 0)
+    if (load_cfg(
+            &cfg,
+            "[[alert]]\nname = \"a\"\nmetric = \"load_1m\"\n"
+            "[[alert]]\nname = \"b\"\nmetric = \"load_1m\"\noperator = \"~\"\n"
+            "threshold = 1\nwebhook = \"w\"\n"
+            "[[alert]]\nname = \"c\"\nmetric = \"load_1m\"\noperator = \">\"\nwebhook = \"w\"\n"
+            "[[alert]]\nname = \"d\"\nmetric = \"load_1m\"\noperator = \">\"\n"
+            "threshold = 1\n") != 0)
         return 1;
     return cfg.alert_count == 0 ? 0 : 1;
 }
@@ -971,7 +972,7 @@ static const char *xs(char *buf, size_t n)
 }
 
 #define ALERT_HEAD                                                                                 \
-    "[[alert]]\nname = \"a\"\nmetric = \"cpu_load\"\noperator = \">\"\nthreshold = 1\n"
+    "[[alert]]\nname = \"a\"\nmetric = \"load_1m\"\noperator = \">\"\nthreshold = 1\n"
 
 static int test_command_over_max_fails(void)
 {
@@ -1138,6 +1139,19 @@ static int test_ranges_over_max_fail(void)
                                                                                                : 1;
 }
 
+/* An unknown metric was once loaded: the alert never fired, and every cycle logged it. */
+static int test_unknown_alert_metric_fails(void)
+{
+    config_t cfg;
+    char     err[512];
+    int rc = load_cfg_err(&cfg,
+                          "[[alert]]\nname = \"cpu-high\"\nmetric = \"cpu_pct\"\noperator = \">\"\n"
+                          "threshold = 90\nwebhook = \"w\"\n",
+                          err, sizeof(err));
+
+    return rc == -1 && strstr(err, "config: alert 'cpu-high': unknown metric 'cpu_pct'") ? 0 : 1;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
@@ -1275,6 +1289,7 @@ static const test_t ALL_TESTS[] = {
     T(alert_as_a_single_table_fails),
     T(alerts_over_max_fail),
     T(ranges_over_max_fail),
+    T(unknown_alert_metric_fails),
 };
 
 int main(void)
