@@ -523,6 +523,14 @@ int config_load(config_t *cfg, const char *path)
         fprintf(stderr, "config: temp_critical_fallback must be > 0; using default\n");
 
     v = toml_seek(root, "dashboard.ranges");
+    if (v.type == TOML_ARRAY && v.u.arr.size > MAX_RANGES) {
+        fprintf(stderr, "config: dashboard.ranges has %d entries; the maximum is %d; aborting\n",
+                v.u.arr.size, MAX_RANGES);
+        toml_free(res);
+
+        return -1;
+    }
+
     if (v.type == TOML_ARRAY && v.u.arr.size > 0) {
         int count = 0;
         for (int i = 0; i < v.u.arr.size && count < MAX_RANGES; i++) {
@@ -574,6 +582,22 @@ int config_load(config_t *cfg, const char *path)
 
     /* [[alert]] */
     v = toml_seek(root, "alert");
+    if (v.type != TOML_ARRAY && v.type != TOML_UNKNOWN) {
+        fprintf(stderr,
+                "config: [alert] must be an array of tables, written [[alert]]; aborting\n");
+        toml_free(res);
+
+        return -1;
+    }
+
+    if (v.type == TOML_ARRAY && v.u.arr.size > MAX_ALERTS) {
+        fprintf(stderr, "config: %d [[alert]] tables; the maximum is %d; aborting\n", v.u.arr.size,
+                MAX_ALERTS);
+        toml_free(res);
+
+        return -1;
+    }
+
     if (v.type == TOML_ARRAY) {
         for (int i = 0; i < v.u.arr.size && cfg->alert_count < MAX_ALERTS; i++) {
             toml_datum_t e = v.u.arr.elem[i];

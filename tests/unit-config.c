@@ -1089,6 +1089,55 @@ static int test_cooldown_trailing_text_warns(void)
     return 0;
 }
 
+/* --- Lists past their limit --- */
+
+/* A single [alert] table was once skipped silently, and every alert with it. */
+static int test_alert_as_a_single_table_fails(void)
+{
+    config_t cfg;
+    char     err[512];
+    int      rc = load_cfg_err(&cfg,
+                               "[alert]\nname = \"a\"\nmetric = \"cpu_load\"\noperator = \">\"\n"
+                               "threshold = 1\nwebhook = \"w\"\n",
+                               err, sizeof(err));
+
+    return rc == -1 && strstr(err, "config: [alert] must be an array of tables, written [[alert]]")
+               ? 0
+               : 1;
+}
+
+/* A 17th alert was once dropped silently. */
+static int test_alerts_over_max_fail(void)
+{
+    config_t cfg;
+    char     toml[4096] = "", err[512];
+    for (int i = 0; i <= MAX_ALERTS; i++)
+        snprintf(toml + strlen(toml), sizeof(toml) - strlen(toml),
+                 "[[alert]]\nname = \"a%d\"\nmetric = \"cpu_load\"\noperator = \">\"\n"
+                 "threshold = 1\nwebhook = \"w\"\n",
+                 i);
+
+    return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 &&
+                   strstr(err, "config: 17 [[alert]] tables; the maximum is 16")
+               ? 0
+               : 1;
+}
+
+/* A 9th range was once dropped silently: when it was the longest, retention shrank and older data
+ * was pruned. */
+static int test_ranges_over_max_fail(void)
+{
+    config_t cfg;
+    char     err[512];
+    int rc = load_cfg_err(&cfg,
+                          "[dashboard]\nranges = [\"1d\", \"2d\", \"3d\", \"4d\", \"5d\", \"6d\", "
+                          "\"7d\", \"8d\", \"90d\"]\n",
+                          err, sizeof(err));
+
+    return rc == -1 && strstr(err, "config: dashboard.ranges has 9 entries; the maximum is 8") ? 0
+                                                                                               : 1;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
@@ -1222,6 +1271,10 @@ static const test_t ALL_TESTS[] = {
     T(cooldown_integer_warns),
     T(cooldown_absent_is_silent),
     T(cooldown_trailing_text_warns),
+    /* lists past their limit */
+    T(alert_as_a_single_table_fails),
+    T(alerts_over_max_fail),
+    T(ranges_over_max_fail),
 };
 
 int main(void)
