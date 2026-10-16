@@ -61,6 +61,14 @@ typedef struct {
  * continues. Returns -1 only if a required metric source is unavailable. */
 int metrics_collect(metrics_t *m, const char *disk_path);
 
+/* A run of failed collections, reported once rather than every cycle. Zero-initialise it. */
+typedef struct {
+    int failed; /* cycles in the current run */
+} metrics_run_t;
+
+/* Note a metrics_collect result: logs a run's first failure and the recovery that ends it. */
+void metrics_run_note(metrics_run_t *run, int rc);
+
 /* Sum of sysfs `speed` (Mbit/s) over the non-loopback interfaces, i.e. the same
  * set collect_net sums traffic over; the 100% reference for net percent mode.
  * Returns 0 when no interface reports a usable speed (virtual devices, wifi),

@@ -18,10 +18,12 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/statvfs.h>
 #include <unistd.h>
 
 #include "config.h"
@@ -421,6 +423,15 @@ int config_load(config_t *cfg, const char *path)
 
     v = toml_seek(root, "collect.disk_path");
     too_long |= str_copy(cfg->disk_path, sizeof(cfg->disk_path), v, "collect.disk_path") != 0;
+
+    struct statvfs sv;
+    if (v.type == TOML_STRING && statvfs(cfg->disk_path, &sv) != 0) {
+        fprintf(stderr, "config: collect.disk_path '%s': %s; aborting\n", cfg->disk_path,
+                strerror(errno));
+        toml_free(res);
+
+        return -1;
+    }
 
     /* [webhook] */
     v = toml_seek(root, "webhook.insecure_skip_verify");

@@ -342,8 +342,10 @@ Lower intervals give finer granularity; higher intervals reduce database growth:
 | `60`         | ~25 MB          |
 | `300`        | ~5 MB           |
 
-**`disk_path`**: filesystem path passed to `statvfs()`. Default: `/`. To monitor a volume
-mounted at `/data`, set `disk_path = "/data"`.
+**`disk_path`**: filesystem path passed to `statvfs()`. Default: `/`. To monitor a volume mounted at
+`/data`, set `disk_path = "/data"`. It must exist when minimoni starts, or the config fails to load.
+If it or `/proc` stops being readable later, `serve` logs it once and keeps running, storing no
+sample until it recovers, and logs the recovery.
 
 ### Server
 

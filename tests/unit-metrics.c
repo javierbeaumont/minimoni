@@ -25,6 +25,7 @@
 
 #include <stdint.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "runner.h"
 
@@ -186,6 +187,79 @@ static int test_collect_bad_disk_path_fails(void)
     return metrics_collect(&m, "/no/such/mount/point") == -1 ? 0 : 1;
 }
 
+/* --- A run of failed collections --- */
+
+/* Feed `n` results of metrics_collect to one run; what it logged lands in `err`. */
+static void note_results(const int *rcs, int n, char *err, size_t cap)
+{
+    char path[64];
+    snprintf(path, sizeof(path), "/tmp/minimoni-metrics-err-%d.txt", (int)getpid());
+
+    fflush(stderr);
+    if (!freopen(path, "w", stderr))
+        return;
+
+    metrics_run_t run = {0};
+    for (int i = 0; i < n; i++)
+        metrics_run_note(&run, rcs[i]);
+
+    fflush(stderr);
+    if (!freopen("/dev/null", "w", stderr))
+        return;
+
+    FILE  *f = fopen(path, "r");
+    size_t len = f ? fread(err, 1, cap - 1, f) : 0;
+    err[len] = '\0';
+
+    if (f)
+        fclose(f);
+    unlink(path);
+}
+
+static int count(const char *hay, const char *needle)
+{
+    int n = 0;
+    for (const char *p = hay; (p = strstr(p, needle)); p++)
+        n++;
+
+    return n;
+}
+
+/* A failing collection was once skipped in silence, every cycle: serve ran and stored nothing. */
+static int test_failure_run_reported_once(void)
+{
+    static const int rcs[] = {-1, -1, -1, 0};
+    char             err[1024];
+    note_results(rcs, 4, err, sizeof(err));
+
+    return count(err, "metrics: collection failed") == 1 &&
+                   count(err, "metrics: collection recovered after 3 failed cycles") == 1
+               ? 0
+               : 1;
+}
+
+static int test_each_failure_run_reported(void)
+{
+    static const int rcs[] = {-1, 0, -1, -1, 0};
+    char             err[1024];
+    note_results(rcs, 5, err, sizeof(err));
+
+    return count(err, "metrics: collection failed") == 2 &&
+                   count(err, "recovered after 1 failed cycles") == 1 &&
+                   count(err, "recovered after 2 failed cycles") == 1
+               ? 0
+               : 1;
+}
+
+static int test_success_is_silent(void)
+{
+    static const int rcs[] = {0, 0, 0};
+    char             err[1024];
+    note_results(rcs, 3, err, sizeof(err));
+
+    return err[0] == '\0' ? 0 : 1;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
@@ -201,6 +275,15 @@ static const test_t ALL_TESTS[] = {
     T(collect_fills_plausible_values),
     T(collect_second_pass_yields_rates),
     T(collect_bad_disk_path_fails),
+    T(failure_run_reported_once),
+    T(each_failure_run_reported),
+    T(success_is_silent),
 };
 
-int main(void) { return run_tests(ALL_TESTS, sizeof(ALL_TESTS) / sizeof(ALL_TESTS[0])); }
+int main(void)
+{
+    if (!freopen("/dev/null", "w", stderr))
+        return 2;
+
+    return run_tests(ALL_TESTS, sizeof(ALL_TESTS) / sizeof(ALL_TESTS[0]));
+}

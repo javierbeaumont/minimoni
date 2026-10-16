@@ -442,3 +442,17 @@ int metrics_collect(metrics_t *m, const char *disk_path)
 
     return 0;
 }
+
+void metrics_run_note(metrics_run_t *run, int rc)
+{
+    if (rc != 0) {
+        if (run->failed++ == 0)
+            fprintf(stderr, "metrics: collection failed, so no sample is stored until it recovers; "
+                            "check collect.disk_path and /proc\n");
+        return;
+    }
+
+    if (run->failed > 0)
+        fprintf(stderr, "metrics: collection recovered after %d failed cycles\n", run->failed);
+    run->failed = 0;
+}

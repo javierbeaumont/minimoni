@@ -163,10 +163,9 @@ static int run_serve(const char *config_path)
     if (config_open(&cfg, config_path) != 0)
         return 1;
 
-    /* Two connections on purpose. Sharing one put the collector behind the
-     * HTTP workers, because SQLite serialises a connection on a single mutex,
-     * and a burst of range queries left samples unstored. In WAL a writer and
-     * readers run concurrently only across separate connections. */
+    /* Two connections on purpose: SQLite serialises a connection on one mutex, so sharing one lets
+     * a burst of range queries leave samples unstored. In WAL a writer and readers run concurrently
+     * only across separate connections. */
     db_t db;
     if (db_open(&db, cfg.db_path, cfg.interval_seconds) != 0)
         return 1;
@@ -192,18 +191,24 @@ static int run_serve(const char *config_path)
     clock_gettime(CLOCK_MONOTONIC, &next);
     next.tv_sec += cfg.interval_seconds;
 
-    int days = retention_days(&cfg);
+    int           days = retention_days(&cfg);
+    metrics_run_t run = {0};
 
     while (!shutdown_flag) {
         int r = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, NULL);
+
         if (shutdown_flag)
             break;
+
         if (r != 0) /* EINTR: signal arrived; recheck flag */
             continue;
 
         next.tv_sec += cfg.interval_seconds;
 
-        if (metrics_collect(&m, cfg.disk_path) != 0)
+        int rc = metrics_collect(&m, cfg.disk_path);
+        metrics_run_note(&run, rc);
+
+        if (rc != 0)
             continue;
 
         if (db_insert(&db, &m) != 0)
@@ -220,6 +225,7 @@ static int run_serve(const char *config_path)
     http_stop(&http);
     db_close(&db_ro);
     db_close(&db);
+
     return 0;
 }
 

@@ -1152,6 +1152,20 @@ static int test_unknown_alert_metric_fails(void)
     return rc == -1 && strstr(err, "config: alert 'cpu-high': unknown metric 'cpu_pct'") ? 0 : 1;
 }
 
+/* A missing disk_path was once loaded: serve then failed every collection and stored nothing. */
+static int test_missing_disk_path_fails(void)
+{
+    config_t cfg;
+    char     err[512];
+    int      rc =
+        load_cfg_err(&cfg, "[collect]\ndisk_path = \"/nonexistent/minimoni\"\n", err, sizeof(err));
+
+    return rc == -1 &&
+                   strstr(err, "config: collect.disk_path '/nonexistent/minimoni': No such file")
+               ? 0
+               : 1;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
@@ -1290,6 +1304,7 @@ static const test_t ALL_TESTS[] = {
     T(alerts_over_max_fail),
     T(ranges_over_max_fail),
     T(unknown_alert_metric_fails),
+    T(missing_disk_path_fails),
 };
 
 int main(void)
