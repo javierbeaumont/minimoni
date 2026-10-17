@@ -212,11 +212,17 @@ static void collect_temp(metrics_t *m)
         char path[128];
         snprintf(path, sizeof(path), "/sys/class/thermal/thermal_zone%d/type", z);
         FILE *f = fopen(path, "r");
+
         if (!f)
             break;
-        char type[32] = {0};
-        fgets(type, sizeof(type), f);
+
+        char  type[32];
+        char *got = fgets(type, sizeof(type), f);
         fclose(f);
+
+        if (!got)
+            continue;
+
         /* NOLINTNEXTLINE(clang-analyzer-security.ArrayBound) strcspn stays within type[32] */
         type[strcspn(type, "\n")] = '\0';
 
@@ -231,6 +237,7 @@ static void collect_temp(metrics_t *m)
     char path[128];
     snprintf(path, sizeof(path), "/sys/class/thermal/thermal_zone%d/temp", best_zone);
     FILE *f = fopen(path, "r");
+
     if (!f) {
         m->temp_valid = 0;
         return;
@@ -242,6 +249,7 @@ static void collect_temp(metrics_t *m)
 
     char *end = buf;
     long  millidegrees = got ? strtol(buf, &end, 10) : 0;
+
     if (!got || end == buf) {
         m->temp_valid = 0;
         return;

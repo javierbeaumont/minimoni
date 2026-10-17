@@ -135,7 +135,8 @@ EOF
 
     out=$(timeout 30 "$BIN" collect --config "$work/config.toml" 2>&1 | grep -v 'firing')
     sleep 3 # the handler holds the connection for up to 2s before replying
-    got=$(cat "$received" 2>/dev/null)
+    # A refused handshake leaves raw TLS bytes, and bash warns on their NULs inside $( ).
+    got=$(tr -d '\000' <"$received" 2>/dev/null)
 }
 
 echo "Webhook delivery tests:"

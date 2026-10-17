@@ -187,7 +187,8 @@ bad=$(wget -qO- "http://127.0.0.1:$PORT/api/metrics?range=bogus" 2>/dev/null)
 check_has "serve /api/metrics falls back on a bad range" "$bad" '"range":"1d"'
 big=$(wget -qO- "http://127.0.0.1:$PORT/api/metrics?range=1d&points=99999" 2>/dev/null)
 check_has "serve /api/metrics survives an oversized points" "$big" '"points":'
-code=$(wget -qO- -S "http://127.0.0.1:$PORT/nope" 2>&1 | grep -m1 HTTP)
+# Not wget: wget2 (used in Fedora) prints no headers under -q.
+code=$(printf 'GET /nope HTTP/1.0\r\n\r\n' | socat - "TCP:127.0.0.1:$PORT" 2>/dev/null | head -n 1)
 check_has "serve 404s an unknown path" "$code" '404'
 kill -TERM "$sv" 2>/dev/null
 wait "$sv"

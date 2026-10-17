@@ -89,8 +89,21 @@ jobs:
             minimoni-${{ matrix.arch }}
             minimoni-migrate-${{ matrix.arch }}
 
+  source-build:
+    name: Source build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [check-glibc, check-musl]
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: make ${{ matrix.target }}
+
   release:
-    needs: build
+    needs: [build, source-build]
     if: startsWith(github.ref, 'refs/tags/')
     name: Release
     runs-on: ubuntu-latest

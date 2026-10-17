@@ -50,6 +50,15 @@ Two files under `tests/` are deliberately unprefixed: `mirror-consolidate.sh` co
 of one function that are duplicated on purpose, and `runner.h` is the harness the C suites share.
 Neither is a test tier.
 
+Source builds on Debian 13, Fedora 44 and Ubuntu 26.04 are checked before each release, which a
+failure blocks; run them by hand after changing the build. Each runs `make release`, checks the
+binaries are PIE (static with musl, dynamic with glibc), then runs the `e2e-*` suites, in Docker:
+
+```sh
+make check-glibc # with the system gcc and glibc
+make check-musl  # with musl (CC=musl-gcc)
+```
+
 For release-equivalent binaries identical to the published ones, use the
 Alpine Docker target:
 

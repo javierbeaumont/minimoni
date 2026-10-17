@@ -16,9 +16,14 @@
 
 CC = gcc
 VERSION := $(shell git describe --tags --always 2>/dev/null || echo unknown)
-CFLAGS = -Wall -Wextra -std=c23 -DMINIMONI_VERSION=\"$(VERSION)\"
-LDFLAGS = -static -lpthread
-LDFLAGS_DEBUG = -lpthread
+# PIE and SSP explicit: not every gcc defaults to them (Debian's adds no SSP).
+CFLAGS = -Wall -Wextra -std=c23 -fPIE -fstack-protector-strong -DMINIMONI_VERSION=\"$(VERSION)\"
+# musl links static-pie; glibc links its shared libraries, which its static NSS needs anyway.
+GLIBC := $(shell $(CC) -dM -E -include stdio.h - </dev/null 2>/dev/null | grep -c ' __GLIBC__ ')
+LINK = $(if $(filter 0,$(GLIBC)),-static-pie,-pie)
+INTERP = $(if $(filter 0,$(GLIBC)),no,yes)
+LDFLAGS = $(LINK) -lpthread -lm
+LDFLAGS_DEBUG = -lpthread -lm
 
 CLANG_FORMAT ?= clang-format
 
@@ -26,8 +31,7 @@ CLANG_FORMAT ?= clang-format
 CI_IMAGE = minimoni-toolchain
 
 # SQLite: minimal tuning (dead code removed by LTO, not OMIT flags)
-SQLITE_FLAGS = -DSQLITE_THREADSAFE=1 -DSQLITE_DEFAULT_MEMSTATUS=0 \
-  -DSQLITE_DEFAULT_WAL_SYNCHRONOUS=1 -DSQLITE_LIKE_DOESNT_MATCH_BLOBS
+SQLITE_FLAGS = -DSQLITE_THREADSAFE=1 -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_LIKE_DOESNT_MATCH_BLOBS
 
 # civetweb: HTTP-only.
 CIVETWEB_FLAGS = -DNO_SSL -DNO_CGI -DNO_CACHING \
@@ -59,7 +63,7 @@ VENDOR_CC = $(CC) $(CFLAGS) -Wno-unused-but-set-variable $(SQLITE_FLAGS) \
   $(CIVETWEB_FLAGS) $(BEARSSL_INC) -Ivendor -Isrc -Ibuild -c
 
 .PHONY: all embed release release-linux ci-image debug tidy test-unit test-integration test-e2e \
-        test fmt clean-build clean
+        check-glibc check-musl check-pie test fmt clean-build clean
 
 all: embed minimoni minimoni-migrate
 
@@ -83,15 +87,16 @@ build/release/%.o: vendor/%.c | build/release
 build/debug/%.o: vendor/%.c | build/debug
 	$(VENDOR_CC) $(OPT_DEBUG) $< -o $@
 
+# BearSSL keeps its own CFLAGS (its -fPIC suits a PIE), so SSP goes in through CC.
 $(BEARSSL_LIB):
-	$(MAKE) -C vendor/bearssl lib CC="$(CC)"
+	$(MAKE) -C vendor/bearssl lib CC="$(CC) -fstack-protector-strong"
 
 minimoni: $(SRC) $(VENDOR_OBJ_DEV) $(BEARSSL_LIB)
 	$(CC) $(CFLAGS) $(OPT_DEV) $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
 	  -Ivendor -Isrc -Ibuild -o $@ $(SRC) $(VENDOR_OBJ_DEV) $(BEARSSL_LIB) $(LDFLAGS)
 
 minimoni-migrate: $(MIGRATE_SRC)
-	$(CC) $(CFLAGS) $(OPT_DEV) -Isrc/migrate -o $@ $(MIGRATE_SRC) -static
+	$(CC) $(CFLAGS) $(OPT_DEV) -Isrc/migrate -o $@ $(MIGRATE_SRC) $(LINK)
 
 release: MINIFY = 1
 release: embed $(VENDOR_OBJ_RELEASE) $(BEARSSL_LIB)
@@ -100,7 +105,7 @@ release: embed $(VENDOR_OBJ_RELEASE) $(BEARSSL_LIB)
 	  $(BEARSSL_LIB) $(LDFLAGS) -Wl,--gc-sections
 	strip minimoni
 	$(CC) $(CFLAGS) $(OPT_RELEASE) -Isrc/migrate -o minimoni-migrate $(MIGRATE_SRC) \
-	  -static -Wl,--gc-sections
+	  $(LINK) -Wl,--gc-sections
 	strip minimoni-migrate
 
 ci-image:
@@ -188,8 +193,45 @@ test-integration: ci-image
 # End to end (Docker): build release once, then the black-box suites that drive it.
 test-e2e: ci-image
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
-	  sh -c "make release && \
+	  sh -c "make release && make check-pie && \
 	    sh tests/e2e-cli.sh && sh tests/e2e-webhook.sh && sh tests/e2e-migrate.sh"
+
+check-pie:
+	for b in minimoni minimoni-migrate; do \
+	  readelf -h $$b | grep -q 'Type: *DYN' || { echo "$$b: not PIE" >&2; exit 1; }; \
+	  if readelf -l $$b | grep -q INTERP; then i=yes; else i=no; fi; \
+	  [ $$i = $(INTERP) ] || { echo "$$b: interpreter $$i, want $(INTERP)" >&2; exit 1; }; \
+	done
+
+# Source-build checks (Docker). `make clean`, not clean-build: a host-built BearSSL would leak in.
+# Dependabot does not watch these digests: bump them by hand.
+DEBIAN_DIGEST = 913f6706df59a68922d1dd08f78c2476560a8d367897200a6005b00e5f67c2d5
+DEBIAN_IMAGE = public.ecr.aws/docker/library/debian:trixie@sha256:$(DEBIAN_DIGEST)
+FEDORA_DIGEST = 43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
+FEDORA_IMAGE = public.ecr.aws/docker/library/fedora:44@sha256:$(FEDORA_DIGEST)
+UBUNTU_DIGEST = f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7
+UBUNTU_IMAGE = public.ecr.aws/docker/library/ubuntu:26.04@sha256:$(UBUNTU_DIGEST)
+APT_INSTALL = apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends \
+  gcc make xxd git libc6-dev openssl socat sqlite3 wget
+DNF_INSTALL = dnf install -y -q gcc make git vim-common openssl socat sqlite wget
+# $(1) image, $(2) install command, $(3) extra make arguments.
+source-build = docker run --rm -e DEBIAN_FRONTEND=noninteractive -v "$(PWD)":/src:ro $(1) sh -c " \
+	  $(2) >/dev/null && \
+	  cp -r /src /w && cd /w && make clean >/dev/null && \
+	  { make release $(3) >build.log 2>&1 || { cat build.log; exit 1; }; } && \
+	  ! grep 'warning:' build.log && \
+	  make check-pie $(3) && \
+	  sh tests/e2e-cli.sh && sh tests/e2e-webhook.sh && sh tests/e2e-migrate.sh"
+
+check-glibc:
+	$(call source-build,$(DEBIAN_IMAGE),$(APT_INSTALL))
+	$(call source-build,$(FEDORA_IMAGE),$(DNF_INSTALL))
+	$(call source-build,$(UBUNTU_IMAGE),$(APT_INSTALL))
+
+check-musl:
+	$(call source-build,$(DEBIAN_IMAGE),$(APT_INSTALL) musl-tools,CC=musl-gcc)
+	$(call source-build,$(FEDORA_IMAGE),$(DNF_INSTALL) musl-gcc musl-libc-static,CC=musl-gcc)
+	$(call source-build,$(UBUNTU_IMAGE),$(APT_INSTALL) musl-tools,CC=musl-gcc)
 
 test: test-unit test-integration test-e2e
 

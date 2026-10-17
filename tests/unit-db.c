@@ -718,6 +718,21 @@ static int test_db_open_fresh_install(void)
     return ok ? 0 : 1;
 }
 
+/* NORMAL from db_open, not from the SQLite build: a system SQLite defaults to FULL. */
+static int test_db_open_sync_normal(void)
+{
+    db_t db;
+
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    long sync = -1;
+    int  rc = read_pragma_long(db.handle, "synchronous", &sync);
+    close_test_db(&db);
+
+    return rc == 0 && sync == 1 ? 0 : 1;
+}
+
 /* 2. Pre-existing v0.2 DB with correct pragmas: daemon proceeds silently. */
 static int test_db_open_existing_v02_ok(void)
 {
@@ -1063,6 +1078,7 @@ static int test_readonly_does_not_create(void)
 static const test_t ALL_TESTS[] = {
     /* db_open validate-on-open state machine */
     T(db_open_fresh_install),
+    T(db_open_sync_normal),
     T(db_open_existing_v02_ok),
     T(db_open_unmigrated_v01),
     T(db_open_foreign_app_id),

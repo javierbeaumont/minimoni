@@ -117,12 +117,8 @@ int db_open(db_t *db, const char *path, long interval_sec)
     memset(db, 0, sizeof(*db));
     db->interval_sec = interval_sec;
 
-    /* Detect whether the file existed BEFORE sqlite3_open touches it.
-     * sqlite3_open creates a fresh empty database if the path is missing,
-     * which is the only case where the daemon is allowed to author the
-     * schema and pragmas itself. Any pre-existing file must come from either
-     * an in-version daemon (proceed) or a prior schema the operator needs to
-     * migrate explicitly (refuse to start). */
+    /* sqlite3_open creates a missing file, and only a file it created gets the schema and version
+     * pragmas from the daemon: any other must already be this version, or be migrated first. */
     struct stat st;
     int         existed_before = (stat(path, &st) == 0);
 
@@ -130,36 +126,40 @@ int db_open(db_t *db, const char *path, long interval_sec)
         fprintf(stderr, "db: cannot open %s: %s\n", path, sqlite3_errmsg(db->handle));
         sqlite3_close(db->handle);
         db->handle = NULL;
+
         return -1;
     }
 
     char *errmsg = NULL;
+
     if (sqlite3_exec(db->handle, "PRAGMA journal_mode=WAL", NULL, NULL, &errmsg) != SQLITE_OK) {
         fprintf(stderr, "db: WAL pragma failed: %s\n", errmsg);
         sqlite3_free(errmsg);
         errmsg = NULL;
     }
-    /* 64 KB on both connections (below ~32 KB the read syscalls explode).
-     * A floor with margin, not a minimum. */
+
+    /* NORMAL whatever the SQLite build defaults to: a power cut may lose the last commits but
+     * cannot corrupt a WAL database, and the WAL syncs at checkpoints, not on every commit. */
+    sqlite3_exec(db->handle, "PRAGMA synchronous=NORMAL", NULL, NULL, NULL);
+
+    /* 64 KB on both connections (below ~32 KB the read syscalls explode): a floor with margin. */
     sqlite3_exec(db->handle, "PRAGMA cache_size=-64", NULL, NULL, NULL);
 
     if (existed_before) {
-        /* Pre-existing file. Validate that we know how to talk to it BEFORE
-         * preparing any statements against the (possibly outdated) schema.
-         * Mutating the file with SQL_CREATE or writing the version pragmas
-         * here would silently advance the recorded schema version past the
-         * schema actually present, leaving the DB claiming a version whose
-         * columns do not exist (every prepare would then fail). The version
-         * pragmas are owned by minimoni-migrate; the daemon only reads them. */
+        /* Validate before preparing or writing anything: version pragmas written here would claim
+         * columns an older schema lacks. They belong to minimoni-migrate; the daemon reads them. */
         long app_id = 0;
         long version = 0;
+
         if (read_pragma_long(db->handle, "application_id", &app_id) != 0 ||
             read_pragma_long(db->handle, "user_version", &version) != 0) {
             fprintf(stderr, "db: could not read schema metadata from %s\n", path);
             sqlite3_close(db->handle);
             db->handle = NULL;
+
             return -1;
         }
+
         if (app_id != MINIMONI_APPLICATION_ID) {
             fprintf(stderr,
                     "db: %s is not a minimoni database (application_id=%ld, "
@@ -167,8 +167,10 @@ int db_open(db_t *db, const char *path, long interval_sec)
                     path, app_id, MINIMONI_APPLICATION_ID);
             sqlite3_close(db->handle);
             db->handle = NULL;
+
             return -1;
         }
+
         if (version != MINIMONI_SCHEMA_VERSION) {
             fprintf(stderr,
                     "db: schema at user_version=%ld; this daemon needs "
@@ -177,20 +179,19 @@ int db_open(db_t *db, const char *path, long interval_sec)
                     version, MINIMONI_SCHEMA_VERSION);
             sqlite3_close(db->handle);
             db->handle = NULL;
+
             return -1;
         }
-        /* All checks passed; do not touch the schema or pragmas. */
     } else {
-        /* Fresh install: file did not exist before sqlite3_open created it.
-         * This is the only branch in which the daemon authors the schema and
-         * the version pragmas. */
         if (sqlite3_exec(db->handle, SQL_CREATE, NULL, NULL, &errmsg) != SQLITE_OK) {
             fprintf(stderr, "db: schema error: %s\n", errmsg);
             sqlite3_free(errmsg);
             sqlite3_close(db->handle);
             db->handle = NULL;
+
             return -1;
         }
+
         char pragma[48];
         snprintf(pragma, sizeof(pragma), "PRAGMA application_id = %d", MINIMONI_APPLICATION_ID);
         sqlite3_exec(db->handle, pragma, NULL, NULL, NULL);
@@ -209,13 +210,16 @@ int db_open(db_t *db, const char *path, long interval_sec)
             SQLITE_OK) {
         fprintf(stderr, "db: prepare error: %s\n", sqlite3_errmsg(db->handle));
         db_close(db);
+
         return -1;
     }
 
     db->sql_consolidate = malloc(CONSOLIDATE_SQL_SIZE);
+
     if (!db->sql_consolidate) {
         fprintf(stderr, "db: out of memory allocating the consolidate SQL buffer\n");
         db_close(db);
+
         return -1;
     }
 
