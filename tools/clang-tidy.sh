@@ -20,7 +20,7 @@
 # generated first because src/http.c includes it.
 set -eu
 
-docker build -q --target tidy -t minimoni-toolchain-tidy tools >/dev/null
+sh tools/toolchain-image.sh tidy minimoni-toolchain-tidy
 docker run --rm -v "$PWD":/work -w /work minimoni-toolchain-tidy sh -c '
   mkdir -p build
   sh tools/bundle.sh | xxd -i -n dashboard_index_html - > build/embed.h

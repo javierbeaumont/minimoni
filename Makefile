@@ -109,7 +109,7 @@ release: embed $(VENDOR_OBJ_RELEASE) $(BEARSSL_LIB)
 	strip minimoni-migrate
 
 ci-image:
-	docker build -q --target test -t $(CI_IMAGE) tools >/dev/null
+	sh tools/toolchain-image.sh test $(CI_IMAGE)
 
 release-linux: ci-image
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
