@@ -19,6 +19,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <errno.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -159,6 +160,9 @@ static int in_list(const char *name, const char *const *list)
 
     return 0;
 }
+
+/* Not a plain cast: past INT_MAX that wraps negative. */
+static int to_int(int64_t v) { return v > INT_MAX ? INT_MAX : (int)v; }
 
 /* 1 if `name` is known; else warn and 0. */
 static int known_name(const char *name, const char *const *known, const char *key, int i)
@@ -381,7 +385,7 @@ int config_load(config_t *cfg, const char *path)
 
     v = toml_seek(root, "server.sse_keepalive");
     if (v.type == TOML_INT64 && v.u.int64 > 0)
-        cfg->sse_keepalive_seconds = (int)v.u.int64;
+        cfg->sse_keepalive_seconds = to_int(v.u.int64);
     else if (v.type == TOML_INT64)
         fprintf(stderr, "config: sse_keepalive must be > 0 (got %ld); using default\n",
                 (long)v.u.int64);
@@ -456,7 +460,7 @@ int config_load(config_t *cfg, const char *path)
 
     v = toml_seek(root, "dashboard.refresh");
     if (v.type == TOML_INT64 && v.u.int64 > 0)
-        cfg->refresh_seconds = (int)v.u.int64;
+        cfg->refresh_seconds = to_int(v.u.int64);
     else if (v.type == TOML_INT64)
         fprintf(stderr, "config: refresh must be > 0 (got %ld); using default\n", (long)v.u.int64);
 

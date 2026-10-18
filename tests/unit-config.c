@@ -653,6 +653,19 @@ static int test_server_sse_keepalive_invalid_defaults(void)
     return cfg.sse_keepalive_seconds == 1 ? 0 : 1;
 }
 
+/* Past INT_MAX the cast went negative, keeping the keepalive off with no warning. */
+static int test_server_sse_keepalive_past_int_max_is_inactive(void)
+{
+    config_t cfg;
+    char     err[512];
+    int      rc = load_cfg_err(&cfg, "[server]\nsse_keepalive = 2147483648\n", err, sizeof(err));
+
+    return rc == 0 && cfg.sse_keepalive_seconds >= cfg.refresh_seconds &&
+                   strstr(err, "keepalive inactive")
+               ? 0
+               : 1;
+}
+
 /* --- [collect] paths --- */
 
 static int test_collect_paths(void)
@@ -691,6 +704,19 @@ static int test_dashboard_refresh_invalid_defaults(void)
     if (load_cfg(&cfg, "[dashboard]\nrefresh = 0\n") != 0)
         return 1;
     return cfg.refresh_seconds == 30 ? 0 : 1;
+}
+
+/* Past INT_MAX the cast went negative, under the clamp to interval: SSE never slept. */
+static int test_dashboard_refresh_past_int_max_clamps(void)
+{
+    config_t cfg;
+    char     err[512];
+    int      rc = load_cfg_err(&cfg, "[dashboard]\nrefresh = 2147483648\n", err, sizeof(err));
+
+    return rc == 0 && cfg.refresh_seconds == cfg.interval_seconds &&
+                   strstr(err, "clamping refresh to interval")
+               ? 0
+               : 1;
 }
 
 static int test_temp_critical_fallback_variants(void)
@@ -1246,12 +1272,14 @@ static const test_t ALL_TESTS[] = {
     T(server_max_dashboards_of_one_is_valid),
     T(server_max_dashboards_above_max_defaults),
     T(server_sse_keepalive_invalid_defaults),
+    T(server_sse_keepalive_past_int_max_is_inactive),
     /* [collect] paths */
     T(collect_paths),
     /* [dashboard] scalars */
     T(dashboard_title_footer_theme),
     T(dashboard_theme_invalid_defaults),
     T(dashboard_refresh_invalid_defaults),
+    T(dashboard_refresh_past_int_max_clamps),
     T(temp_critical_fallback_variants),
     /* charts / cards */
     T(charts_cards_lists),
