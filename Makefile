@@ -63,7 +63,7 @@ VENDOR_CC = $(CC) $(CFLAGS) -Wno-unused-but-set-variable $(SQLITE_FLAGS) \
   $(CIVETWEB_FLAGS) $(BEARSSL_INC) -Ivendor -Isrc -Ibuild -c
 
 .PHONY: all embed release release-linux ci-image debug tidy test-unit test-integration test-e2e \
-        check-glibc check-musl check-pie test fmt clean-build clean
+        check-glibc check-musl check-pie check-systemd test fmt clean-build clean
 
 all: embed minimoni minimoni-migrate
 
@@ -232,6 +232,9 @@ check-musl:
 	$(call source-build,$(DEBIAN_IMAGE),$(APT_INSTALL) musl-tools,CC=musl-gcc)
 	$(call source-build,$(FEDORA_IMAGE),$(DNF_INSTALL) musl-gcc musl-libc-static,CC=musl-gcc)
 	$(call source-build,$(UBUNTU_IMAGE),$(APT_INSTALL) musl-tools,CC=musl-gcc)
+
+check-systemd:
+	sh tools/check-systemd.sh $(DEBIAN_IMAGE)
 
 test: test-unit test-integration test-e2e
 

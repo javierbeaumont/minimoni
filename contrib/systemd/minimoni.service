@@ -1,14 +1,17 @@
 [Unit]
 Description=minimoni system monitor
 After=network.target
+ConditionPathExists=/etc/minimoni/config.toml
 
 [Service]
 Type=exec
-ExecStart=/usr/local/bin/minimoni serve
+# --config: the search would read ./config.toml first, from a directory the service can write.
+ExecStart=/usr/local/bin/minimoni serve --config /etc/minimoni/config.toml
 DynamicUser=yes
 Restart=on-failure
 RestartSec=5
 StateDirectory=minimoni
+WorkingDirectory=/var/lib/minimoni
 
 # Hardening: defence in depth on top of DynamicUser.
 LockPersonality=true

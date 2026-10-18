@@ -1,11 +1,14 @@
 [Unit]
 Description=minimoni metric collection
+ConditionPathExists=/etc/minimoni/config.toml
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/minimoni collect
+# --config: the search would read ./config.toml first, from a directory the service can write.
+ExecStart=/usr/local/bin/minimoni collect --config /etc/minimoni/config.toml
 DynamicUser=yes
 StateDirectory=minimoni
+WorkingDirectory=/var/lib/minimoni
 
 # Hardening: defence in depth on top of DynamicUser.
 LockPersonality=true

@@ -284,6 +284,17 @@ under `DynamicUser=yes` with a strict sandbox (LockPersonality, MemoryDenyWriteE
 NoNewPrivileges, ProtectSystem strict, restricted syscall filter, etc.); see the files for
 the full list.
 
+Both read only `/etc/minimoni/config.toml`, and neither starts without it (`systemctl status`
+reports the unmet condition), so create it first; each release ships `config.example.toml`:
+
+```sh
+sudo mkdir -p /etc/minimoni
+sudo cp config.example.toml /etc/minimoni/config.toml
+```
+
+`StateDirectory=minimoni` creates `/var/lib/minimoni/`, which is also their working directory, so
+a relative `db`, such as the default `./metrics.db`, lands there.
+
 ### Daemon mode
 
 ```sh
@@ -291,9 +302,6 @@ sudo cp contrib/systemd/minimoni.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now minimoni
 ```
-
-`StateDirectory=minimoni` creates `/var/lib/minimoni/` automatically; set
-`collect.db = "/var/lib/minimoni/metrics.db"` in your config.
 
 ### Oneshot mode (timer)
 
