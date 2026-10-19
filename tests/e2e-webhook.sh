@@ -28,6 +28,8 @@ CLOSE_PORT=18104
 RESET_PORT=18105
 TLS_RESET_PORT=18106
 DEFAULT_PORT=80
+SLOW_PORT=18107
+TLS_SLOW_PORT=18108
 pass=0
 fail=0
 
@@ -96,6 +98,15 @@ socat "TCP-LISTEN:$TCP_PORT,reuseaddr,fork" "SYSTEM:$work/reply.sh" >/dev/null 2
 listeners="$listeners $!"
 
 socat "TCP-LISTEN:$DEFAULT_PORT,reuseaddr,fork" "SYSTEM:$work/reply.sh" >/dev/null 2>&1 &
+listeners="$listeners $!"
+
+printf '#!/bin/sh\nwhile true; do printf x; sleep 2; done\n' >"$work/slow.sh"
+chmod +x "$work/slow.sh"
+socat "TCP-LISTEN:$SLOW_PORT,reuseaddr,fork" "EXEC:$work/slow.sh" >/dev/null 2>&1 &
+listeners="$listeners $!"
+
+socat "OPENSSL-LISTEN:$TLS_SLOW_PORT,reuseaddr,fork,cert=$work/both.pem,verify=0" \
+    "EXEC:$work/slow.sh" >/dev/null 2>&1 &
 listeners="$listeners $!"
 
 socat "OPENSSL-LISTEN:$EXPIRED_PORT,reuseaddr,fork,cert=$work/expired.pem,verify=0" \
@@ -197,6 +208,32 @@ reset_after_handshake() { # -> sets $rc (collect's exit status) and $ran (yes if
     rc=$?
     ran=$([ -e "$work/ran" ] && echo yes)
 }
+
+# The delivery deadline: collect gives up on a slow peer and still runs the alerts after it.
+slow_peer() { # URL -> sets $rc, $ran, $took (seconds) and $out (stderr)
+    rm -f "$work/metrics.db" "$work/ran"
+    {
+        printf '[collect]\ndb = "%s"\n[webhook]\ninsecure_skip_verify = true\n' "$work/metrics.db"
+        alert_firing slow
+        printf 'webhook = "%s"\n' "$1"
+        alert_firing after
+        printf 'command = "/bin/touch %s/ran"\n' "$work"
+    } >"$work/config.toml"
+
+    start=$(date +%s)
+    out=$(timeout 60 "$BIN" collect --config "$work/config.toml" 2>&1 >/dev/null)
+    rc=$?
+    took=$(($(date +%s) - start))
+    ran=$([ -e "$work/ran" ] && echo yes)
+}
+
+for url in "http://127.0.0.1:$SLOW_PORT/hook" "https://127.0.0.1:$TLS_SLOW_PORT/hook"; do
+    slow_peer "$url"
+    check_has "a slow peer is given up within 20 s (${url%%:*})" \
+        "exit $rc, $([ "$took" -lt 20 ] && echo within)" "exit 0, within"
+    check_has "and says so (${url%%:*})" "$out" "timed out after 10 s"
+    check_has "the alert after it still runs (${url%%:*})" "$ran" yes
+done
 
 for run in 1 2; do
     reset_after_handshake

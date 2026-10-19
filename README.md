@@ -544,7 +544,8 @@ in seconds. Dashboard unit settings do not affect alert thresholds; alerts read 
 stored database values directly.
 
 When `webhook` is set, minimoni sends a POST request (`Content-Type: application/json`).
-**Requires outbound HTTP connectivity from the server.**
+**Requires outbound HTTP connectivity from the server.** A delivery that takes over 10 s, DNS and
+connect included, is given up and reported.
 
 ```json
 {

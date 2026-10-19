@@ -164,12 +164,32 @@ static int parse_url(const char *url, char *host, size_t hsz, char *port_str, si
     return https;
 }
 
+/* Seconds a whole delivery may take, DNS and connect included; the 5 s socket timeouts bound each
+ * call, not the total. A call under way may still run its 5 s past it. */
+#define DELIVERY_SECONDS 10
+
+/* One context for the BearSSL callbacks: the socket and its deadline. */
+typedef struct {
+    int    fd;
+    time_t deadline;
+} conn_t;
+
+static time_t mono_seconds(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+
+    return ts.tv_sec;
+}
+
+static int in_time(const conn_t *c) { return mono_seconds() < c->deadline; }
+
 /* send with MSG_NOSIGNAL, not write: a write after the peer's reset raises SIGPIPE, which kills
  * collect. Not SIG_IGN: exec passes it on to alert commands. */
-static void write_all(int fd, const char *buf, size_t len)
+static void write_all(const conn_t *c, const char *buf, size_t len)
 {
-    while (len > 0) {
-        ssize_t n = send(fd, buf, len, MSG_NOSIGNAL);
+    while (len > 0 && in_time(c)) {
+        ssize_t n = send(c->fd, buf, len, MSG_NOSIGNAL);
         if (n <= 0)
             break;
 
@@ -196,14 +216,22 @@ static unsigned xi_end_chain(const br_x509_class **ctx)
 /* BearSSL wants -1 at end of stream: a 0 makes it call again, forever on a closed peer. */
 static int tls_sock_read(void *ctx, unsigned char *buf, size_t len)
 {
-    ssize_t n = read(*(int *)ctx, buf, len);
+    const conn_t *c = ctx;
+    if (!in_time(c))
+        return -1;
+
+    ssize_t n = read(c->fd, buf, len);
 
     return n > 0 ? (int)n : -1;
 }
 
 static int tls_sock_write(void *ctx, const unsigned char *buf, size_t len)
 {
-    return (int)send(*(int *)ctx, buf, len, MSG_NOSIGNAL);
+    const conn_t *c = ctx;
+    if (!in_time(c))
+        return -1;
+
+    return (int)send(c->fd, buf, len, MSG_NOSIGNAL);
 }
 
 static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
@@ -261,6 +289,8 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
                 sizeof(req));
         return;
     }
+
+    time_t deadline = mono_seconds() + DELIVERY_SECONDS;
 
     struct addrinfo hints, *res;
     memset(&hints, 0, sizeof(hints));
@@ -323,11 +353,13 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
+    conn_t c = {fd, deadline};
+
     if (scheme == 0) {
-        write_all(fd, req, (size_t)rlen);
+        write_all(&c, req, (size_t)rlen);
 
         char buf[256];
-        while (read(fd, buf, sizeof(buf)) > 0)
+        while (in_time(&c) && read(fd, buf, sizeof(buf)) > 0)
             ;
     } else {
         br_ssl_client_context   sc;
@@ -344,13 +376,14 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
         xc.vtable = &insecure_vt;
         br_ssl_engine_set_buffer(&sc.eng, iobuf, sizeof(iobuf), 1);
         br_ssl_client_reset(&sc, host, 0);
-        br_sslio_init(&ioc, &sc.eng, tls_sock_read, &fd, tls_sock_write, &fd);
+        br_sslio_init(&ioc, &sc.eng, tls_sock_read, &c, tls_sock_write, &c);
 
         /* Only delivery is checked: plenty of endpoints close without close_notify, which BearSSL
          * reports as an error even though the POST did arrive. */
         if (br_sslio_write_all(&ioc, req, (size_t)rlen) != 0 || br_sslio_flush(&ioc) != 0) {
-            fprintf(stderr, "alerts: webhook to %s not delivered, TLS error %d\n", host,
-                    br_ssl_engine_last_error(&sc.eng));
+            if (in_time(&c))
+                fprintf(stderr, "alerts: webhook to %s not delivered, TLS error %d\n", host,
+                        br_ssl_engine_last_error(&sc.eng));
         } else {
             char buf[256];
             while (br_sslio_read(&ioc, buf, sizeof(buf)) > 0)
@@ -361,6 +394,9 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
             br_sslio_flush(&ioc);
         }
     }
+
+    if (!in_time(&c))
+        fprintf(stderr, "alerts: webhook to %s timed out after %d s\n", host, DELIVERY_SECONDS);
 
     close(fd);
 }
