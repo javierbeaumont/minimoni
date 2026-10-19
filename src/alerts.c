@@ -240,17 +240,21 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
                            "\"timestamp\":\"%s\",\"hostname\":\"%s\"}",
                            ename, emetric, value, a->threshold, a->op, timestamp, ehost);
 
+    /* RFC 9110: the port goes in Host unless it is the scheme's default. */
+    int port_shown = strcmp(port_str, scheme == 1 ? "443" : "80") != 0;
+
     char req[1024];
     int  rlen = blen < 0 ? -1
                          : fit_printf(req, sizeof(req),
                                       "POST %s HTTP/1.0\r\n"
-                                      "Host: %s\r\n"
+                                      "Host: %s%s%s\r\n"
                                       "Content-Type: application/json\r\n"
                                       "Content-Length: %d\r\n"
                                       "Connection: close\r\n"
                                       "\r\n"
                                       "%s",
-                                      path, host, blen, body);
+                                      path, host, port_shown ? ":" : "", port_shown ? port_str : "",
+                                      blen, body);
 
     if (rlen < 0) {
         fprintf(stderr, "alerts: '%.32s' webhook does not fit in %zu bytes; skipped\n", a->name,

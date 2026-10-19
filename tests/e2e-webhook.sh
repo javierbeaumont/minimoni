@@ -27,6 +27,7 @@ EXPIRED_PORT=18103
 CLOSE_PORT=18104
 RESET_PORT=18105
 TLS_RESET_PORT=18106
+DEFAULT_PORT=80
 pass=0
 fail=0
 
@@ -92,6 +93,9 @@ socat "OPENSSL-LISTEN:$TLS_PORT,reuseaddr,fork,cert=$work/both.pem,verify=0" \
 listeners="$listeners $!"
 
 socat "TCP-LISTEN:$TCP_PORT,reuseaddr,fork" "SYSTEM:$work/reply.sh" >/dev/null 2>&1 &
+listeners="$listeners $!"
+
+socat "TCP-LISTEN:$DEFAULT_PORT,reuseaddr,fork" "SYSTEM:$work/reply.sh" >/dev/null 2>&1 &
 listeners="$listeners $!"
 
 socat "OPENSSL-LISTEN:$EXPIRED_PORT,reuseaddr,fork,cert=$work/expired.pem,verify=0" \
@@ -210,6 +214,11 @@ check_has "an expired certificate fails on its dates" "$out" "not delivered, TLS
 
 fire "http://127.0.0.1:$TCP_PORT/hook" 0
 check_has "a plain http webhook still arrives" "$got" "POST /hook"
+check_has "Host carries a port that is not the default" "$got" "Host: 127.0.0.1:$TCP_PORT"
+
+fire "http://127.0.0.1:$DEFAULT_PORT/hook" 0
+check_has "a webhook on the default port arrives" "$got" "Host: 127.0.0.1"
+check_lacks "Host leaves the default port out" "$got" "Host: 127.0.0.1:"
 
 # Regression: a request longer than its 1024-byte buffer was sent at its full length, reading past
 # the end of the buffer. A long path plus a name and title of quotes, which escape to twice their
