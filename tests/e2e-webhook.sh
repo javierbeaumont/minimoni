@@ -30,6 +30,8 @@ TLS_RESET_PORT=18106
 DEFAULT_PORT=80
 SLOW_PORT=18107
 TLS_SLOW_PORT=18108
+V4_PORT=18109
+NOBODY_PORT=18110
 pass=0
 fail=0
 
@@ -98,6 +100,9 @@ socat "TCP-LISTEN:$TCP_PORT,reuseaddr,fork" "SYSTEM:$work/reply.sh" >/dev/null 2
 listeners="$listeners $!"
 
 socat "TCP-LISTEN:$DEFAULT_PORT,reuseaddr,fork" "SYSTEM:$work/reply.sh" >/dev/null 2>&1 &
+listeners="$listeners $!"
+
+socat "TCP4-LISTEN:$V4_PORT,reuseaddr,fork" "SYSTEM:$work/reply.sh" >/dev/null 2>&1 &
 listeners="$listeners $!"
 
 printf '#!/bin/sh\nwhile true; do printf x; sleep 2; done\n' >"$work/slow.sh"
@@ -256,6 +261,14 @@ check_has "Host carries a port that is not the default" "$got" "Host: 127.0.0.1:
 fire "http://127.0.0.1:$DEFAULT_PORT/hook" 0
 check_has "a webhook on the default port arrives" "$got" "Host: 127.0.0.1"
 check_lacks "Host leaves the default port out" "$got" "Host: 127.0.0.1:"
+
+# Every address a name resolves to is tried: here localhost gives ::1 first, and only IPv4 listens.
+fire "http://localhost:$V4_PORT/hook" 0
+check_has "a webhook by name reaches a listener on its second address" "$got" "POST /hook"
+check_lacks "and reports no failure" "$out" "connect to"
+fire "http://localhost:$NOBODY_PORT/hook" 0
+check_has "with no address listening, the failure is reported" "$out" \
+    "webhook connect to localhost failed"
 
 # Regression: a request longer than its 1024-byte buffer was sent at its full length, reading past
 # the end of the buffer. A long path plus a name and title of quotes, which escape to twice their

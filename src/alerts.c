@@ -234,6 +234,63 @@ static int tls_sock_write(void *ctx, const unsigned char *buf, size_t len)
     return (int)send(c->fd, buf, len, MSG_NOSIGNAL);
 }
 
+/* Each address in turn until one connects: the first may be of a family this host cannot reach.
+ * Only the last failure is reported. Returns a blocking socket with 5 s send and receive timeouts,
+ * or -1. */
+static int connect_any(const struct addrinfo *res, const char *host, time_t deadline)
+{
+    const char *why = "failed";
+
+    for (const struct addrinfo *ai = res; ai && mono_seconds() < deadline; ai = ai->ai_next) {
+        int fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (fd < 0)
+            continue;
+
+        int flags = fcntl(fd, F_GETFL, 0);
+        fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
+        int rc = connect(fd, ai->ai_addr, ai->ai_addrlen);
+
+        if (rc < 0 && errno == EINPROGRESS) {
+            fd_set         wfds;
+            struct timeval ctv = {5, 0};
+            FD_ZERO(&wfds);
+            FD_SET(fd, &wfds);
+
+            int       err = 0;
+            socklen_t errlen = sizeof(err);
+            if (select(fd + 1, NULL, &wfds, NULL, &ctv) <= 0) {
+                why = "timed out";
+            } else {
+                getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &errlen);
+                why = "failed";
+                rc = err == 0 ? 0 : -1;
+            }
+        } else if (rc < 0) {
+            why = "failed";
+        }
+
+        if (rc == 0) {
+            fcntl(fd, F_SETFL, flags);
+
+            struct timeval tv = {5, 0};
+            setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+            return fd;
+        }
+
+        close(fd);
+    }
+
+    if (mono_seconds() >= deadline)
+        why = "timed out";
+
+    fprintf(stderr, "alerts: webhook connect to %s %s\n", host, why);
+
+    return -1;
+}
+
 static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
                          const char *timestamp, const char *hostname)
 {
@@ -302,56 +359,11 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
         return;
     }
 
-    int fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-
-    if (fd < 0) {
-        freeaddrinfo(res);
-        return;
-    }
-
-    int flags = fcntl(fd, F_GETFL, 0);
-    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-
-    int rc = connect(fd, res->ai_addr, res->ai_addrlen);
+    int fd = connect_any(res, host, deadline);
     freeaddrinfo(res);
 
-    if (rc < 0 && errno != EINPROGRESS) {
-        fprintf(stderr, "alerts: webhook connect to %s failed\n", host);
-        close(fd);
-
+    if (fd < 0)
         return;
-    }
-
-    if (rc != 0) {
-        fd_set         wfds;
-        struct timeval ctv = {5, 0};
-        FD_ZERO(&wfds);
-        FD_SET(fd, &wfds);
-
-        if (select(fd + 1, NULL, &wfds, NULL, &ctv) <= 0) {
-            fprintf(stderr, "alerts: webhook connect to %s timed out\n", host);
-            close(fd);
-
-            return;
-        }
-
-        int       err = 0;
-        socklen_t errlen = sizeof(err);
-        getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &errlen);
-
-        if (err != 0) {
-            fprintf(stderr, "alerts: webhook connect to %s failed\n", host);
-            close(fd);
-
-            return;
-        }
-    }
-
-    fcntl(fd, F_SETFL, flags);
-
-    struct timeval tv = {5, 0};
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     conn_t c = {fd, deadline};
 
