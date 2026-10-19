@@ -24,6 +24,8 @@ BIN=./minimoni
 TLS_PORT=18101
 TCP_PORT=18102
 EXPIRED_PORT=18103
+CLOSE_PORT=18104
+RESET_PORT=18105
 pass=0
 fail=0
 
@@ -95,6 +97,12 @@ socat "OPENSSL-LISTEN:$EXPIRED_PORT,reuseaddr,fork,cert=$work/expired.pem,verify
     "SYSTEM:$work/reply.sh" >/dev/null 2>&1 &
 listeners="$listeners $!"
 
+socat "TCP-LISTEN:$CLOSE_PORT,reuseaddr,fork" EXEC:true >/dev/null 2>&1 &
+listeners="$listeners $!"
+
+socat "TCP-LISTEN:$RESET_PORT,reuseaddr,fork,linger=0" EXEC:true >/dev/null 2>&1 &
+listeners="$listeners $!"
+
 # Poll instead of sleeping blind: socat needs a moment to bind.
 ready=0
 attempt=0
@@ -150,6 +158,12 @@ check_lacks "a delivered webhook reports no failure" "$out" "not delivered"
 fire "https://127.0.0.1:$TCP_PORT/hook" 1
 check_lacks "a failed handshake delivers nothing" "$got" "POST"
 check_has "a failed handshake is reported, not silent" "$out" "not delivered"
+
+# Regression: a peer gone in the handshake read as 0 bytes; BearSSL called again, collect hung.
+fire "https://127.0.0.1:$CLOSE_PORT/hook" 1
+check_has "a peer that closes in the handshake is reported, not polled" "$out" "not delivered"
+fire "https://127.0.0.1:$RESET_PORT/hook" 1
+check_has "a peer that resets in the handshake is reported, not polled" "$out" "not delivered"
 
 # Deliberate: the opt-out drops the trust verdict, not the validity dates. br_x509_minimal withholds
 # the key on an expired chain, so the handshake cannot complete.

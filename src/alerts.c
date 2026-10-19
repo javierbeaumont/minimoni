@@ -190,10 +190,14 @@ static unsigned xi_end_chain(const br_x509_class **ctx)
     return err == BR_ERR_X509_NOT_TRUSTED ? 0 : err;
 }
 
+/* BearSSL wants -1 at end of stream: a 0 makes it call again, forever on a closed peer. */
 static int tls_sock_read(void *ctx, unsigned char *buf, size_t len)
 {
-    return (int)read(*(int *)ctx, buf, len);
+    ssize_t n = read(*(int *)ctx, buf, len);
+
+    return n > 0 ? (int)n : -1;
 }
+
 static int tls_sock_write(void *ctx, const unsigned char *buf, size_t len)
 {
     return (int)write(*(int *)ctx, buf, len);
