@@ -164,12 +164,15 @@ static int parse_url(const char *url, char *host, size_t hsz, char *port_str, si
     return https;
 }
 
+/* send with MSG_NOSIGNAL, not write: a write after the peer's reset raises SIGPIPE, which kills
+ * collect. Not SIG_IGN: exec passes it on to alert commands. */
 static void write_all(int fd, const char *buf, size_t len)
 {
     while (len > 0) {
-        ssize_t n = write(fd, buf, len);
+        ssize_t n = send(fd, buf, len, MSG_NOSIGNAL);
         if (n <= 0)
             break;
+
         buf += (size_t)n;
         len -= (size_t)n;
     }
@@ -200,7 +203,7 @@ static int tls_sock_read(void *ctx, unsigned char *buf, size_t len)
 
 static int tls_sock_write(void *ctx, const unsigned char *buf, size_t len)
 {
-    return (int)write(*(int *)ctx, buf, len);
+    return (int)send(*(int *)ctx, buf, len, MSG_NOSIGNAL);
 }
 
 static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
@@ -209,6 +212,7 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
     char host[256], port_str[8], path[512];
     int  scheme =
         parse_url(a->webhook, host, sizeof(host), port_str, sizeof(port_str), path, sizeof(path));
+
     if (scheme < 0)
         return;
 
@@ -235,6 +239,7 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
                            "\"threshold\":%.6g,\"operator\":\"%s\","
                            "\"timestamp\":\"%s\",\"hostname\":\"%s\"}",
                            ename, emetric, value, a->threshold, a->op, timestamp, ehost);
+
     char req[1024];
     int  rlen = blen < 0 ? -1
                          : fit_printf(req, sizeof(req),
@@ -246,6 +251,7 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
                                       "\r\n"
                                       "%s",
                                       path, host, blen, body);
+
     if (rlen < 0) {
         fprintf(stderr, "alerts: '%.32s' webhook does not fit in %zu bytes; skipped\n", a->name,
                 sizeof(req));
@@ -256,12 +262,14 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
+
     if (getaddrinfo(host, port_str, &hints, &res) != 0) {
         fprintf(stderr, "alerts: webhook dns failed for %s\n", host);
         return;
     }
 
     int fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+
     if (fd < 0) {
         freeaddrinfo(res);
         return;
@@ -276,27 +284,35 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
     if (rc < 0 && errno != EINPROGRESS) {
         fprintf(stderr, "alerts: webhook connect to %s failed\n", host);
         close(fd);
+
         return;
     }
+
     if (rc != 0) {
         fd_set         wfds;
         struct timeval ctv = {5, 0};
         FD_ZERO(&wfds);
         FD_SET(fd, &wfds);
+
         if (select(fd + 1, NULL, &wfds, NULL, &ctv) <= 0) {
             fprintf(stderr, "alerts: webhook connect to %s timed out\n", host);
             close(fd);
+
             return;
         }
+
         int       err = 0;
         socklen_t errlen = sizeof(err);
         getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &errlen);
+
         if (err != 0) {
             fprintf(stderr, "alerts: webhook connect to %s failed\n", host);
             close(fd);
+
             return;
         }
     }
+
     fcntl(fd, F_SETFL, flags);
 
     struct timeval tv = {5, 0};
@@ -305,6 +321,7 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
 
     if (scheme == 0) {
         write_all(fd, req, (size_t)rlen);
+
         char buf[256];
         while (read(fd, buf, sizeof(buf)) > 0)
             ;
@@ -334,7 +351,10 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
             char buf[256];
             while (br_sslio_read(&ioc, buf, sizeof(buf)) > 0)
                 ;
-            br_sslio_close(&ioc);
+
+            /* Not br_sslio_close: it loops forever when our close_notify fails after the peer's. */
+            br_ssl_engine_close(&sc.eng);
+            br_sslio_flush(&ioc);
         }
     }
 

@@ -136,11 +136,7 @@ int br_sslio_read(br_sslio_context *ctx, void *dst, size_t len)
     return -1;
 }
 
-int br_sslio_close(br_sslio_context *ctx)
-{
-    (void)ctx;
-    return -1;
-}
+void br_ssl_engine_close(br_ssl_engine_context *cc) { (void)cc; }
 
 /* json and db seams: src/json.c pulls units.c and config.c, and config.c pulls vendor/tomlc17.c, so
  * the real ones would drag vendored code into a unit build. */

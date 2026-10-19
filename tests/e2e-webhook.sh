@@ -26,6 +26,7 @@ TCP_PORT=18102
 EXPIRED_PORT=18103
 CLOSE_PORT=18104
 RESET_PORT=18105
+TLS_RESET_PORT=18106
 pass=0
 fail=0
 
@@ -103,6 +104,10 @@ listeners="$listeners $!"
 socat "TCP-LISTEN:$RESET_PORT,reuseaddr,fork,linger=0" EXEC:true >/dev/null 2>&1 &
 listeners="$listeners $!"
 
+socat "OPENSSL-LISTEN:$TLS_RESET_PORT,reuseaddr,fork,cert=$work/both.pem,verify=0,linger=0" \
+    EXEC:true >/dev/null 2>&1 &
+listeners="$listeners $!"
+
 # Poll instead of sleeping blind: socat needs a moment to bind.
 ready=0
 attempt=0
@@ -164,6 +169,37 @@ fire "https://127.0.0.1:$CLOSE_PORT/hook" 1
 check_has "a peer that closes in the handshake is reported, not polled" "$out" "not delivered"
 fire "https://127.0.0.1:$RESET_PORT/hook" 1
 check_has "a peer that resets in the handshake is reported, not polled" "$out" "not delivered"
+
+# Regression: a write after the peer's reset raised SIGPIPE and killed collect; without the signal,
+# the TLS close looped forever. A race, so 15 deliveries to a peer that resets after the handshake,
+# then an alert that must still run.
+alert_firing() { # NAME: an alert table that always fires, missing its action
+    printf '[[alert]]\nname = "%s"\nmetric = "uptime_seconds"\noperator = ">"\nthreshold = 0\n' "$1"
+}
+
+reset_after_handshake() { # -> sets $rc (collect's exit status) and $ran (yes if the last alert ran)
+    rm -f "$work/metrics.db" "$work/ran"
+    {
+        printf '[collect]\ndb = "%s"\n[webhook]\ninsecure_skip_verify = true\n' "$work/metrics.db"
+        for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+            alert_firing "reset$i"
+            printf 'webhook = "https://127.0.0.1:%s/hook"\n' "$TLS_RESET_PORT"
+        done
+        alert_firing after
+        printf 'command = "/bin/touch %s/ran"\n' "$work"
+    } >"$work/config.toml"
+
+    timeout 60 "$BIN" collect --config "$work/config.toml" >/dev/null 2>&1
+    rc=$?
+    ran=$([ -e "$work/ran" ] && echo yes)
+}
+
+for run in 1 2; do
+    reset_after_handshake
+    check_has "a peer that resets after the handshake neither kills nor hangs collect ($run)" \
+        "exit $rc" "exit 0"
+    check_has "the alert after it still runs ($run)" "$ran" yes
+done
 
 # Deliberate: the opt-out drops the trust verdict, not the validity dates. br_x509_minimal withholds
 # the key on an expired chain, so the handshake cannot complete.
