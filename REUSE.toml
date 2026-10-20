@@ -1,0 +1,56 @@
+version = 1
+
+# minimoni's own files. The code also carries the GNU notice from tools/license-header.txt.
+[[annotations]]
+path = "**"
+SPDX-FileCopyrightText = "2026 Javier Beaumont <javierbeaumont@users.noreply.github.com>"
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
+# Adapted from the Contributor Covenant 3.0.
+[[annotations]]
+path = "CODE_OF_CONDUCT.md"
+precedence = "override"
+SPDX-FileCopyrightText = "Organization for Ethical Source"
+SPDX-License-Identifier = "CC-BY-SA-4.0"
+
+[[annotations]]
+path = "vendor/bearssl/**"
+precedence = "override"
+SPDX-FileCopyrightText = "2016 Thomas Pornin <pornin@bolet.org>"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = ["vendor/civetweb.c", "vendor/civetweb.h", "vendor/*.inl"]
+precedence = "override"
+SPDX-FileCopyrightText = ["2013-2021 the Civetweb developers", "2004-2013 Sergey Lyubka"]
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = "vendor/md5.inl"
+precedence = "override"
+SPDX-FileCopyrightText = "1999, 2000, 2002 Aladdin Enterprises"
+SPDX-License-Identifier = "Zlib"
+
+[[annotations]]
+path = "vendor/sha1.inl"
+precedence = "override"
+SPDX-FileCopyrightText = "NONE"
+SPDX-License-Identifier = "LicenseRef-Public-Domain"
+
+[[annotations]]
+path = ["vendor/sqlite3.c", "vendor/sqlite3.h"]
+precedence = "override"
+SPDX-FileCopyrightText = "NONE"
+SPDX-License-Identifier = "blessing"
+
+[[annotations]]
+path = ["vendor/tomlc17.c", "vendor/tomlc17.h"]
+precedence = "override"
+SPDX-FileCopyrightText = "2024-2026 CK Tan"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = "docs/*.webp"
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Javier Beaumont <javierbeaumont@users.noreply.github.com>"
+SPDX-License-Identifier = "CC-BY-SA-4.0"
