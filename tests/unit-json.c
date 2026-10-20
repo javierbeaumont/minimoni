@@ -27,6 +27,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <math.h>
 #include <string.h>
 
 #include "runner.h"
@@ -127,6 +128,27 @@ static int test_jbuf_real_format(void)
     jbuf_real(&j, "x", 1.5);
     jbuf_end(&j);
     return strcmp(b, "{\"x\":1.5}") == 0 ? 0 : 1;
+}
+
+/* JSON has no NaN or Infinity: a value that is not finite goes out as null, which the dashboard
+ * already handles, as a dash on a card and a gap in a chart. */
+static int real_is_null(double val)
+{
+    char   b[64];
+    jbuf_t j;
+    jbuf_init(&j, b, sizeof(b));
+    jbuf_begin(&j);
+    jbuf_real(&j, "x", val);
+    jbuf_end(&j);
+
+    return strcmp(b, "{\"x\":null}") == 0;
+}
+
+static int test_jbuf_real_nan_is_null(void) { return real_is_null(NAN) ? 0 : 1; }
+
+static int test_jbuf_real_infinity_is_null(void)
+{
+    return real_is_null(INFINITY) && real_is_null(-INFINITY) ? 0 : 1;
 }
 
 static int test_jbuf_pair_format(void)
@@ -904,6 +926,8 @@ static int test_largest_current_fits_its_buffer(void)
 
 static const test_t ALL_TESTS[] = {
     T(jbuf_real_format),
+    T(jbuf_real_nan_is_null),
+    T(jbuf_real_infinity_is_null),
     T(jbuf_pair_format),
     T(jbuf_str_format),
     T(jbuf_sep_inserts_comma),

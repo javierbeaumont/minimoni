@@ -157,6 +157,11 @@ void jbuf_str(jbuf_t *j, const char *key, const char *val)
 
 void jbuf_real(jbuf_t *j, const char *key, double val)
 {
+    if (!isfinite(val)) {
+        jbuf_null(j, key);
+        return;
+    }
+
     char tmp[128];
     snprintf(tmp, sizeof(tmp), "\"%s\":%.4g", key, val);
 
