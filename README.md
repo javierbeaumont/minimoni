@@ -509,7 +509,7 @@ fails the load, and the error says which alert.
 [[alert]]
 name      = "disk-full"    # identifier shown in logs
 metric    = "disk_percent" # see metric table below
-operator  = ">"            # supported: > < >= <= ==
+operator  = ">"            # supported: > < >= <=
 threshold = 90             # in the metric's own unit (see below)
 webhook   = "https://ntfy.sh/my-server" # POST JSON to this URL on fire
 command   = "/usr/local/bin/notify.sh"  # execute this command on fire

@@ -885,6 +885,14 @@ static int test_alert_without_threshold_fails(void)
                : 1;
 }
 
+static int test_alert_with_equals_operator_fails(void)
+{
+    return fails_to_load("[[alert]]\nname = \"a\"\nmetric = \"load_1m\"\noperator = \"==\"\n"
+                         "threshold = 0\nwebhook = \"w\"\n")
+               ? 0
+               : 1;
+}
+
 static int test_alert_that_is_not_a_table_fails(void)
 {
     return fails_to_load("alert = [{ name = \"a\", metric = \"load_1m\", operator = \">\", "
@@ -1345,6 +1353,7 @@ static const test_t ALL_TESTS[] = {
     T(alert_with_unknown_operator_fails),
     T(alert_without_threshold_fails),
     T(alert_without_action_fails),
+    T(alert_with_equals_operator_fails),
     T(alert_that_is_not_a_table_fails),
     /* file-level errors */
     T(missing_file_fails),

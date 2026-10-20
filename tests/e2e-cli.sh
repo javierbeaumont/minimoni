@@ -150,6 +150,22 @@ mk_webhook_cfg "$work/wh-open.toml" 1
 out=$("$BIN" collect --config "$work/wh-open.toml" 2>&1)
 check_lacks "insecure_skip_verify opens the gate" "$out" "cannot verify certificates"
 
+# There is no == operator: the load fails and says what to use instead.
+cat >"$work/equals.toml" <<EOF
+[collect]
+db = "$work/equals.db"
+[[alert]]
+name = "zero"
+metric = "load_1m"
+operator = "=="
+threshold = 0
+command = "true"
+EOF
+out=$("$BIN" collect --config "$work/equals.toml" 2>&1)
+rc=$?
+check_rc "an alert with == fails the load" 1 "$rc"
+check_has "and says what to use instead" "$out" "use '<= 0' to check for zero"
+
 # --- db info ---
 info=$("$BIN" db info "$work/metrics.db" 2>/dev/null)
 rc=$?

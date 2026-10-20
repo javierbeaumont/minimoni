@@ -108,8 +108,6 @@ static int eval_op(double value, const char *op, double threshold)
         return value >= threshold;
     if (!strcmp(op, "<="))
         return value <= threshold;
-    if (!strcmp(op, "=="))
-        return value == threshold;
     return 0;
 }
 

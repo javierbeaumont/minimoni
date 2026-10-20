@@ -109,7 +109,7 @@ static int range_in_bounds(const char *s)
 static int valid_op(const char *s)
 {
     return strcmp(s, ">") == 0 || strcmp(s, "<") == 0 || strcmp(s, ">=") == 0 ||
-           strcmp(s, "<=") == 0 || strcmp(s, "==") == 0;
+           strcmp(s, "<=") == 0;
 }
 
 /* --- Unit validation --- */
@@ -641,6 +641,18 @@ int config_load(config_t *cfg, const char *path)
             if (dname.type != TOML_STRING || dmet.type != TOML_STRING || dop.type != TOML_STRING) {
                 fprintf(stderr, "config: alert[%d]: missing name, metric or operator; aborting\n",
                         i);
+                toml_free(res);
+
+                return -1;
+            }
+
+            /* A measured value almost never equals a threshold exactly, and no metric is below 0,
+             * so "is zero" is <= 0. */
+            if (strcmp(dop.u.s, "==") == 0) {
+                fprintf(stderr,
+                        "config: alert '%s': '==' is not supported; use '<= 0' to check for zero, "
+                        "or '>=' or '<='; aborting\n",
+                        dname.u.s);
                 toml_free(res);
 
                 return -1;
