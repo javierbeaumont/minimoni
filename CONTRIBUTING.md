@@ -108,6 +108,12 @@ SQLite and civetweb versions are read from their headers automatically; update
 the pinned `tomlc17` / `bearssl` versions in `tools/gen-sbom.js` when those
 change. A `sbom-sync` pre-commit hook (and CI) fails if `sbom.cdx.json` drifts.
 
+The license of every file is declared in `REUSE.toml` ([REUSE](https://reuse.software)), and a
+`reuse` pre-commit hook (and CI) checks it. A new vendored file needs its own entry there, with its
+license and copyright, and its license text in `LICENSES/`. A new file of our own needs nothing
+there, since the default entry covers it; the `insert-license` hook adds the notice from
+`tools/license-header.txt` to it.
+
 ## Dashboard development
 
 To iterate on `dashboard/` without recompiling, run the mock dev server. It
