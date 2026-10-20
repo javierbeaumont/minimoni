@@ -501,7 +501,9 @@ if the parameter is missing.
 ### Alerts
 
 Alerts are evaluated after every collect cycle. Each `[[alert]]` block is independent.
-An alert requires `webhook`, `command`, or both.
+Every alert needs `name`, `metric`, `operator` and `threshold`, plus a `webhook`, a `command`, or
+both; `cooldown` is optional. A missing field, an unknown operator or an entry that is not a table
+fails the load, and the error says which alert.
 
 ```toml
 [[alert]]

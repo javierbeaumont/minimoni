@@ -626,8 +626,12 @@ int config_load(config_t *cfg, const char *path)
     if (v.type == TOML_ARRAY) {
         for (int i = 0; i < v.u.arr.size && cfg->alert_count < MAX_ALERTS; i++) {
             toml_datum_t e = v.u.arr.elem[i];
-            if (e.type != TOML_TABLE)
-                continue;
+            if (e.type != TOML_TABLE) {
+                fprintf(stderr, "config: alert[%d]: not a table; aborting\n", i);
+                toml_free(res);
+
+                return -1;
+            }
 
             toml_datum_t dname = toml_get(e, "name");
             toml_datum_t dmet = toml_get(e, "metric");
@@ -635,13 +639,19 @@ int config_load(config_t *cfg, const char *path)
             toml_datum_t dthr = toml_get(e, "threshold");
 
             if (dname.type != TOML_STRING || dmet.type != TOML_STRING || dop.type != TOML_STRING) {
-                fprintf(stderr, "config: alert[%d]: missing name/metric/operator, skipping\n", i);
-                continue;
+                fprintf(stderr, "config: alert[%d]: missing name, metric or operator; aborting\n",
+                        i);
+                toml_free(res);
+
+                return -1;
             }
 
             if (!valid_op(dop.u.s)) {
-                fprintf(stderr, "config: alert[%d]: unknown operator '%s', skipping\n", i, dop.u.s);
-                continue;
+                fprintf(stderr, "config: alert '%s': unknown operator '%s'; aborting\n", dname.u.s,
+                        dop.u.s);
+                toml_free(res);
+
+                return -1;
             }
 
             if (!in_list(dmet.u.s, METRIC_NAMES)) {
@@ -658,8 +668,10 @@ int config_load(config_t *cfg, const char *path)
             else if (dthr.type == TOML_INT64)
                 thr_val = (double)dthr.u.int64;
             else {
-                fprintf(stderr, "config: alert '%s': missing threshold, skipping\n", dname.u.s);
-                continue;
+                fprintf(stderr, "config: alert '%s': missing threshold; aborting\n", dname.u.s);
+                toml_free(res);
+
+                return -1;
             }
 
             alert_cfg_t *a = &cfg->alerts[cfg->alert_count];
@@ -691,9 +703,11 @@ int config_load(config_t *cfg, const char *path)
             }
 
             if (!a->webhook[0] && !a->command[0]) {
-                fprintf(stderr, "config: alert '%s': needs webhook or command, skipping\n",
+                fprintf(stderr, "config: alert '%s': needs a webhook or a command; aborting\n",
                         a->name);
-                continue;
+                toml_free(res);
+
+                return -1;
             }
 
             cfg->alert_count++;

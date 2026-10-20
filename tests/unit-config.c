@@ -836,21 +836,69 @@ static int test_alert_int_threshold(void)
     return cfg.alert_count == 1 && cfg.alerts[0].threshold > 4.9 ? 0 : 1;
 }
 
-static int test_alert_skips_incomplete(void)
+/* An alert that cannot work fails the load: skipping it would lose it in silence. Each case is a
+ * complete alert with one thing missing or wrong. */
+static int fails_to_load(const char *toml)
 {
     config_t cfg;
-    /* missing operator, unknown operator, missing threshold, and no action:
-     * each entry is skipped with a warning, none abort the load. */
-    if (load_cfg(
-            &cfg,
-            "[[alert]]\nname = \"a\"\nmetric = \"load_1m\"\n"
-            "[[alert]]\nname = \"b\"\nmetric = \"load_1m\"\noperator = \"~\"\n"
-            "threshold = 1\nwebhook = \"w\"\n"
-            "[[alert]]\nname = \"c\"\nmetric = \"load_1m\"\noperator = \">\"\nwebhook = \"w\"\n"
-            "[[alert]]\nname = \"d\"\nmetric = \"load_1m\"\noperator = \">\"\n"
-            "threshold = 1\n") != 0)
-        return 1;
-    return cfg.alert_count == 0 ? 0 : 1;
+
+    return load_cfg(&cfg, toml) != 0;
+}
+
+static int test_alert_without_name_fails(void)
+{
+    return fails_to_load("[[alert]]\nmetric = \"load_1m\"\noperator = \">\"\nthreshold = 1\n"
+                         "webhook = \"w\"\n")
+               ? 0
+               : 1;
+}
+
+static int test_alert_without_metric_fails(void)
+{
+    return fails_to_load("[[alert]]\nname = \"a\"\noperator = \">\"\nthreshold = 1\n"
+                         "webhook = \"w\"\n")
+               ? 0
+               : 1;
+}
+
+static int test_alert_without_operator_fails(void)
+{
+    return fails_to_load("[[alert]]\nname = \"a\"\nmetric = \"load_1m\"\nthreshold = 1\n"
+                         "webhook = \"w\"\n")
+               ? 0
+               : 1;
+}
+
+static int test_alert_with_unknown_operator_fails(void)
+{
+    return fails_to_load("[[alert]]\nname = \"a\"\nmetric = \"load_1m\"\noperator = \"~\"\n"
+                         "threshold = 1\nwebhook = \"w\"\n")
+               ? 0
+               : 1;
+}
+
+static int test_alert_without_threshold_fails(void)
+{
+    return fails_to_load("[[alert]]\nname = \"a\"\nmetric = \"load_1m\"\noperator = \">\"\n"
+                         "webhook = \"w\"\n")
+               ? 0
+               : 1;
+}
+
+static int test_alert_that_is_not_a_table_fails(void)
+{
+    return fails_to_load("alert = [{ name = \"a\", metric = \"load_1m\", operator = \">\", "
+                         "threshold = 1, webhook = \"w\" }, \"cpu-hot\"]\n")
+               ? 0
+               : 1;
+}
+
+static int test_alert_without_action_fails(void)
+{
+    return fails_to_load("[[alert]]\nname = \"a\"\nmetric = \"load_1m\"\noperator = \">\"\n"
+                         "threshold = 1\n")
+               ? 0
+               : 1;
 }
 
 /* --- File-level errors --- */
@@ -1291,7 +1339,13 @@ static const test_t ALL_TESTS[] = {
     /* alerts */
     T(alert_full_entry),
     T(alert_int_threshold),
-    T(alert_skips_incomplete),
+    T(alert_without_name_fails),
+    T(alert_without_metric_fails),
+    T(alert_without_operator_fails),
+    T(alert_with_unknown_operator_fails),
+    T(alert_without_threshold_fails),
+    T(alert_without_action_fails),
+    T(alert_that_is_not_a_table_fails),
     /* file-level errors */
     T(missing_file_fails),
     T(malformed_toml_fails),
