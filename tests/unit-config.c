@@ -173,13 +173,93 @@ static int test_insecure_skip_verify_explicit_false(void)
     return cfg.insecure_skip_verify == 0 ? 0 : 1;
 }
 
-/* A quoted "true" is not a boolean: it is dropped and https stays refused. */
+/* A quoted "true" is not a boolean: it is dropped and https stays verified. */
 static int test_insecure_skip_verify_wrong_type_ignored(void)
 {
     config_t cfg;
     if (load_cfg(&cfg, "[webhook]\ninsecure_skip_verify = \"true\"\n") != 0)
         return 1;
     return cfg.insecure_skip_verify == 0 ? 0 : 1;
+}
+
+/* --- [webhook] ca_file --- */
+
+#define CA_FILE "/tmp/minimoni-test-ca.pem"
+#define CA_TOML "[webhook]\nca_file = \"" CA_FILE "\"\n"
+
+/* load_cfg_err with CA_FILE holding `pem` (NULL: no such file). */
+static int load_ca(config_t *cfg, const char *pem, const char *toml, char *err, size_t cap)
+{
+    unlink(CA_FILE);
+
+    if (pem) {
+        FILE *f = fopen(CA_FILE, "w");
+        if (!f)
+            return -2;
+        fputs(pem, f);
+        fclose(f);
+    }
+
+    int rc = load_cfg_err(cfg, toml, err, cap);
+    unlink(CA_FILE);
+
+    return rc;
+}
+
+static int test_ca_file_default_empty(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[collect]\ndb = \"/tmp/x.db\"\n") != 0)
+        return 1;
+
+    return cfg.ca_file[0] == '\0' ? 0 : 1;
+}
+
+static int test_ca_file_with_a_certificate_loads(void)
+{
+    config_t cfg;
+    char     err[512];
+    int rc = load_ca(&cfg, "# CA\n-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n",
+                     CA_TOML, err, sizeof(err));
+
+    return rc == 0 && strcmp(cfg.ca_file, CA_FILE) == 0 && err[0] == '\0' ? 0 : 1;
+}
+
+static int test_ca_file_missing_fails(void)
+{
+    config_t cfg;
+    char     err[512];
+
+    return load_ca(&cfg, NULL, CA_TOML, err, sizeof(err)) == -1 &&
+                   strstr(err, "config: webhook.ca_file '" CA_FILE
+                               "': No such file or directory; aborting")
+               ? 0
+               : 1;
+}
+
+static int test_ca_file_without_a_certificate_fails(void)
+{
+    config_t cfg;
+    char     err[512];
+
+    return load_ca(&cfg, "-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----\n", CA_TOML,
+                   err, sizeof(err)) == -1 &&
+                   strstr(err, "config: webhook.ca_file '" CA_FILE "' has no certificate; aborting")
+               ? 0
+               : 1;
+}
+
+/* insecure_skip_verify wins, so the file is not even read. */
+static int test_ca_file_ignored_while_insecure(void)
+{
+    config_t cfg;
+    char     err[512];
+
+    return load_ca(&cfg, NULL, CA_TOML "insecure_skip_verify = true\n", err, sizeof(err)) == 0 &&
+                   strstr(err,
+                          "config: webhook.ca_file is ignored while insecure_skip_verify is true")
+               ? 0
+               : 1;
 }
 
 /* --- Interval: wrong types --- */
@@ -1106,6 +1186,18 @@ static int test_db_over_max_fails(void)
                : 1;
 }
 
+static int test_ca_file_over_max_fails(void)
+{
+    config_t cfg;
+    char     path[300], toml[512], err[512];
+    snprintf(toml, sizeof(toml), "[webhook]\nca_file = \"%s\"\n", xs(path, 256));
+
+    return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 &&
+                   strstr(err, "config: webhook.ca_file is 256 bytes; the maximum is 255")
+               ? 0
+               : 1;
+}
+
 /* Valid and in bounds, so only its length can refuse it; cut to 7 it would read "0000000". */
 static int test_range_over_max_fails(void)
 {
@@ -1372,6 +1464,11 @@ static const test_t ALL_TESTS[] = {
     T(insecure_skip_verify_true),
     T(insecure_skip_verify_explicit_false),
     T(insecure_skip_verify_wrong_type_ignored),
+    T(ca_file_default_empty),
+    T(ca_file_with_a_certificate_loads),
+    T(ca_file_missing_fails),
+    T(ca_file_without_a_certificate_fails),
+    T(ca_file_ignored_while_insecure),
     /* unknown keys */
     T(keys_all_known),
     T(keys_typo_in_dashboard),
@@ -1387,6 +1484,7 @@ static const test_t ALL_TESTS[] = {
     T(command_at_max_loads),
     T(webhook_over_max_fails),
     T(db_over_max_fails),
+    T(ca_file_over_max_fails),
     T(range_over_max_fails),
     T(every_overlong_value_is_reported),
     /* cooldown: anything but a duration */

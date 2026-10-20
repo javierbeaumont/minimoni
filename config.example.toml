@@ -9,7 +9,8 @@ interval  = 60                              # seconds between samples (range: 1-
 disk_path = "/"
 
 [webhook]
-# insecure_skip_verify = true # required to POST to an https:// webhook
+# ca_file              = "/etc/minimoni/ca.pem" # CAs to trust (default: the host's CA store)
+# insecure_skip_verify = true # POST to https:// webhooks without checking their certificate
 
 [dashboard]
 # title       = "My Server"

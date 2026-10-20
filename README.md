@@ -576,13 +576,27 @@ stored in the database (`alert_log` table) and survives restarts.
 
 ```toml
 [webhook]
+ca_file              = "/etc/minimoni/ca.pem"
 insecure_skip_verify = false
 ```
 
+minimoni verifies the certificate of every `https://` webhook: it must chain to a trusted CA, be
+within its validity dates and name the URL's host. A webhook that fails any of these is not sent,
+and the reason is logged.
+
+**`ca_file`**: a PEM file with the CA certificates to trust (string). Default: unset, which uses the
+host's CA store, looked up at the usual Linux paths. Set it when the endpoint's certificate comes
+from a private CA, or on a system with no CA store, such as a minimal container image. For a
+self-signed endpoint, it can be the endpoint's own certificate. A file that cannot be read, or that
+holds no certificate, fails the load.
+
+The certificate is matched against the host's DNS name, never against an IP address, so the URL
+must name the host: `https://hooks.example.com/...`, not `https://192.0.2.10/...`.
+
 **`insecure_skip_verify`**: deliver `https://` webhooks without checking the server's certificate
-(boolean). Default: `false`. minimoni does not verify webhook certificates, so an `https://` webhook
-is refused, and logged, unless this is set. The payload is still encrypted in transit; what is
-missing is proof that the endpoint is who it claims to be.
+(boolean). Default: `false`. The payload is still encrypted in transit; what is missing is proof
+that the endpoint is who it claims to be. It overrides `ca_file`, which is then ignored with a
+warning.
 
 An expired certificate is refused even with this set: the option drops the trust check, not the
 validity dates.

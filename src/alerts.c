@@ -39,6 +39,7 @@
 
 #include "alerts.h"
 #include "json.h"
+#include "trust.h"
 
 /* --- Metric lookup --- */
 
@@ -215,6 +216,46 @@ static unsigned xi_end_chain(const br_x509_class **ctx)
     return err == BR_ERR_X509_NOT_TRUSTED ? 0 : err;
 }
 
+/* The certificate failures an operator can act on; any other TLS error keeps only its number. */
+static const char *tls_error_name(int err)
+{
+    switch (err) {
+    case BR_ERR_X509_EXPIRED:
+        return " (certificate expired or not yet valid)";
+    case BR_ERR_X509_BAD_SERVER_NAME:
+        return " (certificate does not match the host name)";
+    case BR_ERR_X509_NOT_TRUSTED:
+        return " (certificate not trusted)";
+    default:
+        return "";
+    }
+}
+
+/* The anchors for a verified https webhook: ca_file when set, else the system store. Loaded for
+ * each delivery and freed after, so they cost no memory between alerts. Returns 0, or -1 with the
+ * reason reported. */
+static int load_anchors(const char *ca_file, const char *host, trust_t *t)
+{
+    const char *path = ca_file[0] ? ca_file : trust_system_file();
+
+    if (!path) {
+        fprintf(stderr,
+                "alerts: webhook to %s not delivered, no system CA store; set ca_file under "
+                "[webhook]\n",
+                host);
+        return -1;
+    }
+
+    if (trust_load(t, path) > 0)
+        return 0;
+
+    fprintf(stderr, "alerts: webhook to %s not delivered, no usable certificate in %s\n", host,
+            path);
+    trust_free(t);
+
+    return -1;
+}
+
 /* BearSSL wants -1 at end of stream: a 0 makes it call again, forever on a closed peer. */
 static int tls_sock_read(void *ctx, unsigned char *buf, size_t len)
 {
@@ -334,14 +375,6 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
     if (scheme < 0)
         return 0;
 
-    if (scheme == 1 && !cfg->insecure_skip_verify) {
-        fprintf(stderr,
-                "alerts: '%s' uses https but minimoni cannot verify certificates; set "
-                "insecure_skip_verify = true under [webhook] to send it unverified\n",
-                a->name);
-        return 0;
-    }
-
     /* Not op: valid_op() checks it at load. The other three are free-form. */
     char ename[256], emetric[256], ehost[512];
     if (json_escape(ename, sizeof(ename), a->name) < 0 ||
@@ -380,6 +413,10 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
         return 0;
     }
 
+    trust_t trust = {NULL, 0};
+    if (scheme == 1 && !cfg->insecure_skip_verify && load_anchors(cfg->ca_file, host, &trust) != 0)
+        return 0;
+
     time_t deadline = mono_seconds() + DELIVERY_SECONDS;
 
     struct addrinfo hints, *res;
@@ -389,14 +426,17 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
 
     if (getaddrinfo(host, port_str, &hints, &res) != 0) {
         fprintf(stderr, "alerts: webhook dns failed for %s\n", host);
+        trust_free(&trust);
         return 0;
     }
 
     int fd = connect_any(res, host, deadline);
     freeaddrinfo(res);
 
-    if (fd < 0)
+    if (fd < 0) {
+        trust_free(&trust);
         return 0;
+    }
 
     conn_t  c = {fd, deadline};
     head_t  head = {"", 0};
@@ -420,8 +460,9 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
         insecure_vt.start_chain = xi_start_chain;
         insecure_vt.end_chain = xi_end_chain;
 
-        br_ssl_client_init_full(&sc, &xc, NULL, 0);
-        xc.vtable = &insecure_vt;
+        br_ssl_client_init_full(&sc, &xc, trust.anchors, trust.count);
+        if (cfg->insecure_skip_verify)
+            xc.vtable = &insecure_vt;
         br_ssl_engine_set_buffer(&sc.eng, iobuf, sizeof(iobuf), 1);
         br_ssl_client_reset(&sc, host, 0);
         br_sslio_init(&ioc, &sc.eng, tls_sock_read, &c, tls_sock_write, &c);
@@ -430,9 +471,10 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
          * reports as an error even though the POST did arrive. */
         if (br_sslio_write_all(&ioc, req, (size_t)rlen) != 0 || br_sslio_flush(&ioc) != 0) {
             tls_failed = 1;
+            int err = br_ssl_engine_last_error(&sc.eng);
             if (in_time(&c))
-                fprintf(stderr, "alerts: webhook to %s not delivered, TLS error %d\n", host,
-                        br_ssl_engine_last_error(&sc.eng));
+                fprintf(stderr, "alerts: webhook to %s not delivered, TLS error %d%s\n", host, err,
+                        tls_error_name(err));
         } else {
             int got;
             while ((got = br_sslio_read(&ioc, buf, sizeof(buf))) > 0)
@@ -445,6 +487,7 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
     }
 
     close(fd);
+    trust_free(&trust);
 
     int ok = reply_ok(&head);
     if (ok || tls_failed)

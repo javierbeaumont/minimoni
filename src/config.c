@@ -83,6 +83,30 @@ str_copy(char *dst, size_t dsize, toml_datum_t v, const char *key, ...)
     return 0;
 }
 
+/* 1 when a line opens a PEM certificate, 0 when none does, -1 with errno when the file cannot be
+ * read. Only a first check: the anchors are decoded at delivery. */
+static int has_certificate(const char *path)
+{
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return -1;
+
+    char line[64];
+    int  found = 0;
+    while (!found && fgets(line, sizeof(line), f))
+        found = strncmp(line, "-----BEGIN CERTIFICATE-----", 27) == 0;
+
+    int err = ferror(f) ? errno : 0;
+    fclose(f);
+
+    if (err) {
+        errno = err;
+        return -1;
+    }
+
+    return found;
+}
+
 static int valid_range(const char *s)
 {
     char *end;
@@ -188,7 +212,7 @@ static int known_name(const char *name, const char *const *known, const char *ke
  * not take effect. */
 static const char *const SERVER_KEYS[] = {"listen", "max_dashboards", "sse_keepalive"};
 static const char *const COLLECT_KEYS[] = {"db", "disk_path", "interval"};
-static const char *const WEBHOOK_KEYS[] = {"insecure_skip_verify"};
+static const char *const WEBHOOK_KEYS[] = {"ca_file", "insecure_skip_verify"};
 static const char *const DASHBOARD_KEYS[] = {"cards",
                                              "charts",
                                              "cpu_load_card_unit",
@@ -444,6 +468,27 @@ int config_load(config_t *cfg, const char *path)
     v = toml_seek(root, "webhook.insecure_skip_verify");
     if (v.type == TOML_BOOLEAN)
         cfg->insecure_skip_verify = v.u.boolean ? 1 : 0;
+
+    v = toml_seek(root, "webhook.ca_file");
+    int ca_ok = str_copy(cfg->ca_file, sizeof(cfg->ca_file), v, "webhook.ca_file") == 0;
+    too_long |= !ca_ok;
+
+    if (v.type == TOML_STRING && ca_ok && cfg->insecure_skip_verify) {
+        fprintf(stderr, "config: webhook.ca_file is ignored while insecure_skip_verify is true\n");
+    } else if (v.type == TOML_STRING && ca_ok) {
+        int has = has_certificate(cfg->ca_file);
+        if (has <= 0) {
+            if (has < 0)
+                fprintf(stderr, "config: webhook.ca_file '%s': %s; aborting\n", cfg->ca_file,
+                        strerror(errno));
+            else
+                fprintf(stderr, "config: webhook.ca_file '%s' has no certificate; aborting\n",
+                        cfg->ca_file);
+            toml_free(res);
+
+            return -1;
+        }
+    }
 
     /* [dashboard] */
     v = toml_seek(root, "dashboard.title");

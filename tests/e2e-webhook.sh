@@ -18,9 +18,9 @@
 # You should have received a copy of the GNU General Public License
 # along with minimoni. If not, see <https://www.gnu.org/licenses/>.
 
-# Webhook delivery over the wire: asserts that an `https://` webhook completes a real TLS handshake
-# and that the POST arrives. Needs socat to terminate TLS. The config gate is asserted in e2e-cli.sh
-# instead: it trips before any socket is opened, so it needs no server and always runs.
+# Webhook delivery over the wire: asserts that an `https://` webhook completes a real TLS handshake,
+# verified against a test CA or unverified under the opt-out, and that the POST arrives. Needs socat
+# to terminate TLS.
 set -u
 
 BIN=./minimoni
@@ -36,6 +36,10 @@ TLS_SLOW_PORT=18108
 V4_PORT=18109
 NOBODY_PORT=18110
 FAIL_PORT=18111
+CA_PORT=18112
+CA_EXPIRED_PORT=18113
+SELF_CA_PORT=18114
+SELF_LEAF_PORT=18115
 pass=0
 fail=0
 
@@ -88,6 +92,35 @@ openssl req -x509 -newkey rsa:2048 -nodes \
     -subj "/CN=localhost" -addext "subjectAltName=IP:127.0.0.1" >/dev/null 2>&1
 cat "$work/expired-cert.pem" "$work/expired-key.pem" >"$work/expired.pem"
 
+# A test CA and the leaves it signs for localhost, the name the verified URLs use: a certificate is
+# matched against the host's DNS name, never against an IP address.
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+    -keyout "$work/ca-key.pem" -out "$work/ca.pem" -subj "/CN=minimoni test CA" >/dev/null 2>&1
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -keyout /dev/null \
+    -out "$work/other-ca.pem" -subj "/CN=minimoni other CA" >/dev/null 2>&1
+leaf() { # NAME [OPENSSL ARGS...]: NAME.pem holds the certificate and its key
+    name=$1
+    shift
+    openssl req -x509 -newkey rsa:2048 -nodes "$@" -CA "$work/ca.pem" -CAkey "$work/ca-key.pem" \
+        -keyout "$work/$name-key.pem" -out "$work/$name-cert.pem" -subj "/CN=localhost" \
+        -addext basicConstraints=CA:FALSE -addext "subjectAltName=DNS:localhost" >/dev/null 2>&1
+    cat "$work/$name-cert.pem" "$work/$name-key.pem" >"$work/$name.pem"
+}
+leaf ca-leaf -days 1
+leaf ca-expired -not_before 20200101000000Z -not_after 20200201000000Z
+
+# Self-signed for localhost: one marked as a CA, openssl's default, and one not.
+selfsigned() { # NAME [OPENSSL ARGS...]: NAME.pem holds the certificate and its key
+    name=$1
+    shift
+    openssl req -x509 -newkey rsa:2048 -nodes -days 1 "$@" \
+        -keyout "$work/$name-key.pem" -out "$work/$name-cert.pem" -subj "/CN=localhost" \
+        -addext "subjectAltName=DNS:localhost" >/dev/null 2>&1
+    cat "$work/$name-cert.pem" "$work/$name-key.pem" >"$work/$name.pem"
+}
+selfsigned self-ca
+selfsigned self-leaf -addext basicConstraints=CA:FALSE
+
 received="$work/received.txt"
 cat >"$work/reply.sh" <<EOF
 #!/bin/sh
@@ -128,6 +161,22 @@ socat "OPENSSL-LISTEN:$EXPIRED_PORT,reuseaddr,fork,cert=$work/expired.pem,verify
     "SYSTEM:$work/reply.sh" >/dev/null 2>&1 &
 listeners="$listeners $!"
 
+socat "OPENSSL-LISTEN:$CA_PORT,reuseaddr,fork,cert=$work/ca-leaf.pem,verify=0" \
+    "SYSTEM:$work/reply.sh" >/dev/null 2>&1 &
+listeners="$listeners $!"
+
+socat "OPENSSL-LISTEN:$CA_EXPIRED_PORT,reuseaddr,fork,cert=$work/ca-expired.pem,verify=0" \
+    "SYSTEM:$work/reply.sh" >/dev/null 2>&1 &
+listeners="$listeners $!"
+
+socat "OPENSSL-LISTEN:$SELF_CA_PORT,reuseaddr,fork,cert=$work/self-ca.pem,verify=0" \
+    "SYSTEM:$work/reply.sh" >/dev/null 2>&1 &
+listeners="$listeners $!"
+
+socat "OPENSSL-LISTEN:$SELF_LEAF_PORT,reuseaddr,fork,cert=$work/self-leaf.pem,verify=0" \
+    "SYSTEM:$work/reply.sh" >/dev/null 2>&1 &
+listeners="$listeners $!"
+
 socat "TCP-LISTEN:$CLOSE_PORT,reuseaddr,fork" EXEC:true >/dev/null 2>&1 &
 listeners="$listeners $!"
 
@@ -155,7 +204,9 @@ if [ "$ready" -ne 1 ]; then
     exit 2
 fi
 
+ca_file=""
 fire() { # URL INSECURE(0|1) [NAME] [TITLE] -> sets $out (stderr) and $got (bytes the server read)
+    # $ca_file, when set, goes under [webhook] too.
     : >"$received"
     rm -f "$work/metrics.db"
     cat >"$work/config.toml" <<EOF
@@ -169,8 +220,12 @@ threshold = 0
 webhook = "$1"
 cooldown = "1h"
 EOF
+    printf '[webhook]\n' >>"$work/config.toml"
     if [ "$2" = 1 ]; then
-        printf '[webhook]\ninsecure_skip_verify = true\n' >>"$work/config.toml"
+        printf 'insecure_skip_verify = true\n' >>"$work/config.toml"
+    fi
+    if [ -n "$ca_file" ]; then
+        printf 'ca_file = "%s"\n' "$ca_file" >>"$work/config.toml"
     fi
     if [ -n "${4:-}" ]; then
         printf '[dashboard]\ntitle = "%s"\n' "$4" >>"$work/config.toml"
@@ -290,6 +345,53 @@ fire "https://127.0.0.1:$EXPIRED_PORT/hook" 1
 check_lacks "an expired certificate is refused even under the opt-out" "$got" "POST"
 # BR_ERR_X509_EXPIRED, pinned so this cannot pass on a dead listener or any other handshake failure.
 check_has "an expired certificate fails on its dates" "$out" "not delivered, TLS error 54"
+
+# Without the opt-out, the certificate must chain to ca_file, or to the system store when ca_file is
+# not set.
+ca_file="$work/ca.pem"
+fire "https://localhost:$CA_PORT/hook" 0
+check_has "a certificate signed by the ca_file CA is verified and the webhook arrives" "$got" \
+    "POST /hook"
+check_lacks "and reports no failure" "$out" "not delivered"
+
+fire "https://localhost:$CA_EXPIRED_PORT/hook" 0
+check_lacks "an expired certificate from the ca_file CA is refused" "$got" "POST"
+check_has "and the reason is named" "$out" "TLS error 54 (certificate expired or not yet valid)"
+
+fire "https://127.0.0.1:$CA_PORT/hook" 0
+check_lacks "a certificate for another name is refused" "$got" "POST"
+check_has "and the reason is named" "$out" "TLS error 56 (certificate does not match the host name)"
+
+ca_file="$work/other-ca.pem"
+fire "https://localhost:$CA_PORT/hook" 0
+check_lacks "a certificate from a CA outside ca_file is refused" "$got" "POST"
+check_has "and the reason is named" "$out" "TLS error 62 (certificate not trusted)"
+
+ca_file=""
+fire "https://localhost:$CA_PORT/hook" 0
+check_lacks "without ca_file, a certificate from a CA outside the system store is refused" \
+    "$got" "POST"
+check_has "and that is reported" "$out" "webhook to localhost not delivered"
+
+# A self-signed endpoint is trusted when ca_file is its own certificate, CA or not.
+ca_file="$work/self-ca-cert.pem"
+fire "https://localhost:$SELF_CA_PORT/hook" 0
+check_has "a self-signed certificate marked as a CA is trusted through ca_file" "$got" \
+    "POST /hook"
+ca_file="$work/self-leaf-cert.pem"
+fire "https://localhost:$SELF_LEAF_PORT/hook" 0
+check_has "a self-signed certificate not marked as a CA is trusted through ca_file" "$got" \
+    "POST /hook"
+fire "https://localhost:$SELF_CA_PORT/hook" 0
+check_lacks "and it trusts no other self-signed certificate" "$got" "POST"
+
+# The opt-out wins over ca_file, and the load says so.
+ca_file="$work/other-ca.pem"
+fire "https://localhost:$CA_PORT/hook" 1
+check_has "insecure_skip_verify delivers even when ca_file would refuse the certificate" "$got" \
+    "POST /hook"
+check_has "and the load warns that ca_file is ignored" "$out" "webhook.ca_file is ignored"
+ca_file=""
 
 fire "http://127.0.0.1:$TCP_PORT/hook" 0
 check_has "a plain http webhook still arrives" "$got" "POST /hook"

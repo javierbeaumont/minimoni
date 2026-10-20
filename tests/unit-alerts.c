@@ -30,6 +30,7 @@
 
 #include "alerts.h"
 #include "bearssl.h"
+#include "trust.h"
 
 /* --- BearSSL link seam --- */
 
@@ -140,6 +141,19 @@ int br_sslio_read(br_sslio_context *ctx, void *dst, size_t len)
 }
 
 void br_ssl_engine_close(br_ssl_engine_context *cc) { (void)cc; }
+
+/* The trust anchor loader, also reached only from post_webhook; tests/integration-trust.c runs the
+ * real one. */
+int trust_load(trust_t *t, const char *path)
+{
+    (void)t;
+    (void)path;
+    return -1;
+}
+
+const char *trust_system_file(void) { return NULL; }
+
+void trust_free(trust_t *t) { (void)t; }
 
 /* json and db seams: src/json.c pulls units.c and config.c, and config.c pulls vendor/tomlc17.c, so
  * the real ones would drag vendored code into a unit build. */

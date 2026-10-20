@@ -56,7 +56,8 @@ typedef struct {
     char disk_path[256];   /* default: "/" */
 
     /* [webhook] */
-    int insecure_skip_verify; /* 1 = POST https webhooks unverified, default: 0 */
+    int  insecure_skip_verify; /* 1 = POST https webhooks unverified, default: 0 */
+    char ca_file[256];         /* PEM CA certificates; default: "" (the system store) */
 
     /* [dashboard] */
     char  title[128];             /* default: "minimoni" */

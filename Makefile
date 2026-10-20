@@ -45,7 +45,7 @@ BEARSSL_LIB = vendor/bearssl/build/libbearssl.a
 BEARSSL_INC = -Ivendor/bearssl/inc
 
 SRC = src/main.c src/alerts.c src/config.c src/db.c src/db_cmd.c \
-      src/downsample.c src/http.c src/json.c src/metrics.c src/units.c
+      src/downsample.c src/http.c src/json.c src/metrics.c src/trust.c src/units.c
 VENDOR = vendor/civetweb.c vendor/sqlite3.c vendor/tomlc17.c
 
 # minimoni-migrate: standalone, links no vendored libs (calls `minimoni db exec`).
@@ -178,9 +178,10 @@ test-unit: ci-image \
       --test-coverage-exclude='tests/*' \
       tests/*.test.js"
 
-# Integration (Docker): our X.509 policy against the real br_x509_minimal engine, in process and
-# with no sockets. Needs only the BearSSL library, not a built binary. The certificates are
-# generated, never stored: a committed valid one would expire and flip the verdict it expects.
+# Integration (Docker): our X.509 policy and trust anchor loader against the real BearSSL engine,
+# in process and with no sockets. Needs only the BearSSL library, not a built binary. The
+# certificates are generated, never stored: a committed valid one would expire and flip the verdict
+# it expects.
 test-integration: ci-image
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
 	  sh -c "mkdir -p build && make $(BEARSSL_LIB) && \
@@ -189,9 +190,21 @@ test-integration: ci-image
 	    openssl req -quiet -x509 -newkey rsa:2048 -nodes -outform DER \
 	      -not_before 20200101000000Z -not_after 20200201000000Z \
 	      -keyout /dev/null -out build/x509-expired.der -subj '/CN=minimoni.test' && \
+	    openssl req -quiet -x509 -newkey rsa:2048 -nodes -days 1 \
+	      -keyout build/trust-ca.key -out build/trust-ca.pem -subj '/CN=minimoni test CA' && \
+	    openssl req -quiet -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 \
+	      -keyout /dev/null -out build/trust-ec.pem -subj '/CN=minimoni test EC CA' && \
+	    openssl req -quiet -x509 -newkey rsa:2048 -nodes -days 1 -outform DER \
+	      -CA build/trust-ca.pem -CAkey build/trust-ca.key \
+	      -keyout /dev/null -out build/trust-leaf.der -subj '/CN=minimoni.test' \
+	      -addext basicConstraints=CA:FALSE -addext subjectAltName=DNS:minimoni.test && \
 	    gcc -Wall -Wextra -std=c23 -Isrc -Ivendor -Itests $(BEARSSL_INC) \
-	      tests/integration-alerts.c $(BEARSSL_LIB) -o build/integration-alerts-test && \
-	    ./build/integration-alerts-test"
+	      tests/integration-alerts.c src/trust.c $(BEARSSL_LIB) \
+	      -o build/integration-alerts-test && \
+	    gcc -Wall -Wextra -std=c23 -Isrc -Itests $(BEARSSL_INC) \
+	      tests/integration-trust.c src/trust.c $(BEARSSL_LIB) \
+	      -o build/integration-trust-test && \
+	    ./build/integration-alerts-test && ./build/integration-trust-test"
 
 # End to end (Docker): build release once, then the black-box suites that drive it.
 test-e2e: ci-image
