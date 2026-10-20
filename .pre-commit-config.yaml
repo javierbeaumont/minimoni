@@ -1,5 +1,4 @@
-# Third-party code and the license texts copied verbatim are not ours to reformat.
-exclude: '^(vendor/|build/|\.dev/|LICENSES/|CODE_OF_CONDUCT\.md$)'
+exclude: '^(vendor/|build/|\.dev/)'
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
