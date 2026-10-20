@@ -279,6 +279,46 @@ static int test_parse_url_port_over_max_refused(void)
                : 1;
 }
 
+/* --- The reply: only a 2xx status line counts as delivered --- */
+
+static int ok_after(const char *reply)
+{
+    head_t h = {"", 0};
+    keep_head(&h, reply, strlen(reply));
+
+    return reply_ok(&h);
+}
+
+static int test_reply_2xx_counts(void)
+{
+    return ok_after("HTTP/1.1 200 OK\r\n") && ok_after("HTTP/1.0 204 No Content\r\n") ? 0 : 1;
+}
+
+static int test_reply_other_codes_do_not_count(void)
+{
+    return !ok_after("HTTP/1.1 404 Not Found\r\n") && !ok_after("HTTP/1.1 500 Oops\r\n") &&
+                   !ok_after("HTTP/1.1 301 Moved\r\n")
+               ? 0
+               : 1;
+}
+
+static int test_reply_that_is_not_http_does_not_count(void)
+{
+    return !ok_after("") && !ok_after("xxxxxxxx") && !ok_after("HTTP/1.1 2") &&
+                   !ok_after("200 OK HTTP/1.1")
+               ? 0
+               : 1;
+}
+
+static int test_keep_head_keeps_only_what_fits(void)
+{
+    head_t h = {"", 0};
+    keep_head(&h, "HTTP/1.1 200 OK, and a long tail", 32);
+    keep_head(&h, "more", 4);
+
+    return h.len == sizeof(h.text) - 1 && strncmp(h.text, "HTTP/1.1 200 OK", 15) == 0 ? 0 : 1;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
@@ -294,6 +334,10 @@ static const test_t ALL_TESTS[] = {
     T(parse_url_host_at_max),
     T(parse_url_host_over_max_refused),
     T(parse_url_port_over_max_refused),
+    T(reply_2xx_counts),
+    T(reply_other_codes_do_not_count),
+    T(reply_that_is_not_http_does_not_count),
+    T(keep_head_keeps_only_what_fits),
 };
 
 int main(void)

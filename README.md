@@ -564,7 +564,9 @@ as the minimoni process. Keep commands short and non-blocking; long-running comm
 delay the next collect cycle.
 
 `cooldown` prevents repeated firings: the alert will not fire again until the cooldown period has
-elapsed. Accepts `30s`, `1m`, `1h`, `1d`. Any other value is reported at startup and leaves the
+elapsed. The cooldown starts only when at least one of the alert's actions succeeds: a webhook that
+gets a 2xx reply, or a command that exits 0. If none succeeds, the alert fires again on the next
+cycle. Accepts `30s`, `1m`, `1h`, `1d`. Any other value is reported at startup and leaves the
 alert without a cooldown, so it fires every cycle while its condition holds. Cooldown state is
 stored in the database (`alert_log` table) and survives restarts.
 

@@ -19,6 +19,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <arpa/inet.h>
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -291,22 +292,53 @@ static int connect_any(const struct addrinfo *res, const char *host, time_t dead
     return -1;
 }
 
-static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
-                         const char *timestamp, const char *hostname)
+/* The first bytes of a reply: enough for the status line. Zeroed at the start, and the last byte
+ * is never written, so text always ends in '\0'. */
+typedef struct {
+    char   text[16];
+    size_t len;
+} head_t;
+
+static void keep_head(head_t *h, const char *buf, size_t n)
+{
+    if (h->len >= sizeof(h->text) - 1)
+        return;
+
+    size_t take = sizeof(h->text) - 1 - h->len;
+    if (n < take)
+        take = n;
+
+    memcpy(h->text + h->len, buf, take);
+    h->len += take;
+}
+
+/* 1 when the status line says 2xx, as in "HTTP/1.1 204 No Content"; 0 otherwise. */
+static int reply_ok(const head_t *h)
+{
+    const char *code = strchr(h->text, ' ');
+
+    return strncmp(h->text, "HTTP/", 5) == 0 && code && code[1] == '2' &&
+           isdigit((unsigned char)code[2]) && isdigit((unsigned char)code[3]);
+}
+
+/* Returns 1 when the endpoint answered 2xx. Any failure returns 0 and is reported in a single
+ * line. */
+static int post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
+                        const char *timestamp, const char *hostname)
 {
     char host[256], port_str[8], path[512];
     int  scheme =
         parse_url(a->webhook, host, sizeof(host), port_str, sizeof(port_str), path, sizeof(path));
 
     if (scheme < 0)
-        return;
+        return 0;
 
     if (scheme == 1 && !cfg->insecure_skip_verify) {
         fprintf(stderr,
                 "alerts: '%s' uses https but minimoni cannot verify certificates; set "
                 "insecure_skip_verify = true under [webhook] to send it unverified\n",
                 a->name);
-        return;
+        return 0;
     }
 
     /* Not op: valid_op() checks it at load. The other three are free-form. */
@@ -315,7 +347,7 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
         json_escape(emetric, sizeof(emetric), a->metric) < 0 ||
         json_escape(ehost, sizeof(ehost), hostname) < 0) {
         fprintf(stderr, "alerts: '%.32s' does not fit escaped; webhook skipped\n", a->name);
-        return;
+        return 0;
     }
 
     char body[1024];
@@ -344,7 +376,7 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
     if (rlen < 0) {
         fprintf(stderr, "alerts: '%.32s' webhook does not fit in %zu bytes; skipped\n", a->name,
                 sizeof(req));
-        return;
+        return 0;
     }
 
     time_t deadline = mono_seconds() + DELIVERY_SECONDS;
@@ -356,23 +388,26 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
 
     if (getaddrinfo(host, port_str, &hints, &res) != 0) {
         fprintf(stderr, "alerts: webhook dns failed for %s\n", host);
-        return;
+        return 0;
     }
 
     int fd = connect_any(res, host, deadline);
     freeaddrinfo(res);
 
     if (fd < 0)
-        return;
+        return 0;
 
-    conn_t c = {fd, deadline};
+    conn_t  c = {fd, deadline};
+    head_t  head = {"", 0};
+    int     tls_failed = 0;
+    char    buf[256];
+    ssize_t n;
 
     if (scheme == 0) {
         write_all(&c, req, (size_t)rlen);
 
-        char buf[256];
-        while (in_time(&c) && read(fd, buf, sizeof(buf)) > 0)
-            ;
+        while (in_time(&c) && (n = read(fd, buf, sizeof(buf))) > 0)
+            keep_head(&head, buf, (size_t)n);
     } else {
         br_ssl_client_context   sc;
         br_x509_minimal_context xc;
@@ -393,13 +428,14 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
         /* Only delivery is checked: plenty of endpoints close without close_notify, which BearSSL
          * reports as an error even though the POST did arrive. */
         if (br_sslio_write_all(&ioc, req, (size_t)rlen) != 0 || br_sslio_flush(&ioc) != 0) {
+            tls_failed = 1;
             if (in_time(&c))
                 fprintf(stderr, "alerts: webhook to %s not delivered, TLS error %d\n", host,
                         br_ssl_engine_last_error(&sc.eng));
         } else {
-            char buf[256];
-            while (br_sslio_read(&ioc, buf, sizeof(buf)) > 0)
-                ;
+            int got;
+            while ((got = br_sslio_read(&ioc, buf, sizeof(buf))) > 0)
+                keep_head(&head, buf, (size_t)got);
 
             /* Not br_sslio_close: it loops forever when our close_notify fails after the peer's. */
             br_ssl_engine_close(&sc.eng);
@@ -407,15 +443,26 @@ static void post_webhook(const config_t *cfg, const alert_cfg_t *a, double value
         }
     }
 
+    close(fd);
+
+    int ok = reply_ok(&head);
+    if (ok || tls_failed)
+        return ok;
+
     if (!in_time(&c))
         fprintf(stderr, "alerts: webhook to %s timed out after %d s\n", host, DELIVERY_SECONDS);
+    else if (strncmp(head.text, "HTTP/", 5) == 0 && strchr(head.text, ' '))
+        fprintf(stderr, "alerts: webhook to %s answered HTTP %.3s\n", host,
+                strchr(head.text, ' ') + 1);
+    else
+        fprintf(stderr, "alerts: webhook to %s sent no HTTP reply\n", host);
 
-    close(fd);
+    return 0;
 }
 
 /* --- Command execution --- */
 
-static void run_command(const alert_cfg_t *a, double value)
+static int run_command(const alert_cfg_t *a, double value)
 {
     char val_str[32], thr_str[32];
     snprintf(val_str, sizeof(val_str), "%.6g", value);
@@ -439,6 +486,8 @@ static void run_command(const alert_cfg_t *a, double value)
     unsetenv("MINIMONI_ALERT_VALUE");
     unsetenv("MINIMONI_ALERT_THRESHOLD");
     unsetenv("MINIMONI_ALERT_OPERATOR");
+
+    return ret == 0;
 }
 
 /* --- Public API --- */
@@ -471,10 +520,16 @@ int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row)
         fprintf(stderr, "alerts: firing '%s' (%.6g %s %.6g)\n", a->name, value, a->op,
                 a->threshold);
 
+        /* The cooldown starts only if an action succeeded; otherwise the alert fires again next
+         * cycle. */
+        int delivered = 0;
         if (a->webhook[0])
-            post_webhook(cfg, a, value, row->timestamp, hostname);
+            delivered |= post_webhook(cfg, a, value, row->timestamp, hostname);
         if (a->command[0])
-            run_command(a, value);
+            delivered |= run_command(a, value);
+
+        if (!delivered)
+            continue;
 
         if (db_alert_log_fire(db, a->name) != 0)
             fprintf(stderr,

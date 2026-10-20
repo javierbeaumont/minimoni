@@ -32,6 +32,7 @@ SLOW_PORT=18107
 TLS_SLOW_PORT=18108
 V4_PORT=18109
 NOBODY_PORT=18110
+FAIL_PORT=18111
 pass=0
 fail=0
 
@@ -103,6 +104,12 @@ socat "TCP-LISTEN:$DEFAULT_PORT,reuseaddr,fork" "SYSTEM:$work/reply.sh" >/dev/nu
 listeners="$listeners $!"
 
 socat "TCP4-LISTEN:$V4_PORT,reuseaddr,fork" "SYSTEM:$work/reply.sh" >/dev/null 2>&1 &
+listeners="$listeners $!"
+
+printf '#!/bin/sh\ntimeout 1 cat >/dev/null\nprintf "HTTP/1.0 500 Oops\\r\\n\\r\\n"\n' \
+    >"$work/reply500.sh"
+chmod +x "$work/reply500.sh"
+socat "TCP-LISTEN:$FAIL_PORT,reuseaddr,fork" "SYSTEM:$work/reply500.sh" >/dev/null 2>&1 &
 listeners="$listeners $!"
 
 printf '#!/bin/sh\nwhile true; do printf x; sleep 2; done\n' >"$work/slow.sh"
@@ -246,6 +253,33 @@ for run in 1 2; do
         "exit $rc" "exit 0"
     check_has "the alert after it still runs ($run)" "$ran" yes
 done
+
+# The cooldown starts only when an action succeeds: a webhook that gets a 2xx reply, or a command
+# that exits 0. Each case runs collect twice on the same database, with a one-hour cooldown.
+twice() { # WEBHOOK|- COMMAND|- -> sets $first and $second (stderr of each run)
+    rm -f "$work/metrics.db"
+    {
+        printf '[collect]\ndb = "%s"\n' "$work/metrics.db"
+        alert_firing cool
+        printf 'cooldown = "1h"\n'
+        [ "$1" = - ] || printf 'webhook = "%s"\n' "$1"
+        [ "$2" = - ] || printf 'command = "%s"\n' "$2"
+    } >"$work/config.toml"
+
+    first=$(timeout 30 "$BIN" collect --config "$work/config.toml" 2>&1 >/dev/null)
+    second=$(timeout 30 "$BIN" collect --config "$work/config.toml" 2>&1 >/dev/null)
+}
+
+twice "http://127.0.0.1:$TCP_PORT/hook" -
+check_has "a webhook that gets a 2xx reply fires" "$first" "firing 'cool'"
+check_lacks "and the next run is in cooldown" "$second" "firing 'cool'"
+twice "http://127.0.0.1:$FAIL_PORT/hook" -
+check_has "a webhook that gets a 500 reports it" "$first" "answered HTTP 500"
+check_has "and the next run fires again" "$second" "firing 'cool'"
+twice - /bin/false
+check_has "a failing command fires again on the next run" "$second" "firing 'cool'"
+twice "http://127.0.0.1:$FAIL_PORT/hook" /bin/true
+check_lacks "one successful action is enough to start the cooldown" "$second" "firing 'cool'"
 
 # Deliberate: the opt-out drops the trust verdict, not the validity dates. br_x509_minimal withholds
 # the key on an expired chain, so the handshake cannot complete.
