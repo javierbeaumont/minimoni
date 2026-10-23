@@ -195,7 +195,7 @@ static int do_migrate(const char *minimoni_exec, const char *db_path, int do_bac
         remove_db_with_sidecars(dry_path); /* clear any stale leftover */
         fprintf(stderr, "migrate: dry-run, rehearsing on copy %s\n", dry_path);
 
-        if (migrate_snapshot(db_path, dry_path) != 0) {
+        if (migrate_snapshot(minimoni_exec, db_path, dry_path) != 0) {
             fprintf(stderr, "migrate: dry-run copy failed\n");
             printf("status: blocked\n");
 
@@ -215,7 +215,7 @@ static int do_migrate(const char *minimoni_exec, const char *db_path, int do_bac
 
         fprintf(stderr, "migrate: snapshotting to %s\n", backup_path);
 
-        if (migrate_snapshot(db_path, backup_path) != 0)
+        if (migrate_snapshot(minimoni_exec, db_path, backup_path) != 0)
             return 3;
     } else {
         fprintf(stderr, "migrate: --no-backup specified, skipping snapshot\n");
@@ -238,7 +238,8 @@ static int do_migrate(const char *minimoni_exec, const char *db_path, int do_bac
                 m->from_version, m->to_version);
 
         char out[256], err[1024];
-        int rc = migrate_exec(minimoni_exec, target, m->script, out, sizeof(out), err, sizeof(err));
+        int  rc = migrate_exec(minimoni_exec, target, m->script, NULL, out, sizeof(out), err,
+                               sizeof(err));
         if (rc != 0) {
             fprintf(stderr, "migrate: v%d -> v%d failed (db exec rc=%d)\n", m->from_version,
                     m->to_version, rc);

@@ -356,7 +356,7 @@ static void print_value(sqlite3_stmt *stmt, int col)
         fputs((const char *)t, stdout);
 }
 
-int db_cmd_exec(const char *db_path, const char *sql)
+int db_cmd_exec(const char *db_path, const char *sql, const char *value)
 {
     if (!db_path || !sql) {
         fprintf(stderr, "db exec: missing db path or SQL\n");
@@ -396,6 +396,19 @@ int db_cmd_exec(const char *db_path, const char *sql)
             continue;
         }
         idx++;
+
+        int params = sqlite3_bind_parameter_count(stmt);
+        if (params > 1 || (params == 1 && !value)) {
+            fprintf(stderr, "db exec: error at statement %d: %s\n", idx,
+                    params > 1 ? "only ?1 can take a value" : "?1 has no value");
+            sqlite3_finalize(stmt);
+            sqlite3_close(db);
+
+            return 1;
+        }
+
+        if (params == 1)
+            sqlite3_bind_text(stmt, 1, value, -1, SQLITE_STATIC);
 
         int ncols = sqlite3_column_count(stmt);
         for (;;) {

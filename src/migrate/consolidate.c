@@ -140,7 +140,8 @@ int migrate_consolidate_and_vacuum(const char *minimoni_exec, const char *db_pat
             free(sql);
             return 2;
         }
-        int rc = migrate_exec(minimoni_exec, db_path, sql, out, sizeof(out), err, sizeof(err));
+        int rc =
+            migrate_exec(minimoni_exec, db_path, sql, NULL, out, sizeof(out), err, sizeof(err));
         if (rc != 0) {
             fprintf(stderr, "migrate: consolidate failed (db exec rc=%d)\n", rc);
             if (err[0])
@@ -154,7 +155,8 @@ int migrate_consolidate_and_vacuum(const char *minimoni_exec, const char *db_pat
     /* VACUUM returns the pages freed by consolidation to the filesystem. It runs
      * outside any transaction, so it is a separate db exec. */
     fprintf(stderr, "migrate: VACUUM\n");
-    int rc = migrate_exec(minimoni_exec, db_path, "VACUUM", out, sizeof(out), err, sizeof(err));
+    int rc =
+        migrate_exec(minimoni_exec, db_path, "VACUUM", NULL, out, sizeof(out), err, sizeof(err));
     if (rc != 0) {
         fprintf(stderr, "migrate: VACUUM failed (db exec rc=%d)\n", rc);
         if (err[0])

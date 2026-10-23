@@ -66,7 +66,7 @@ static int test_reads_both_pipes_at_once(void)
 
     char out[64], err[1024];
     alarm(20);
-    int rc = migrate_exec(g_child, "db", "SELECT 1", out, sizeof(out), err, sizeof(err));
+    int rc = migrate_exec(g_child, "db", "SELECT 1", NULL, out, sizeof(out), err, sizeof(err));
     alarm(0);
 
     return rc == 1 && strcmp(out, "row\n") == 0 && strlen(err) == sizeof(err) - 1 && err[0] == 'x'

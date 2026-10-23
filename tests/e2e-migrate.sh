@@ -24,14 +24,8 @@
 # Requirements: sqlite3 CLI in PATH, ./minimoni and ./minimoni-migrate built.
 # Run with: make test-e2e
 #
-# Scope: this is the END-TO-END suite for minimoni-migrate, not a smoke harness like e2e-cli.sh.
-# Migrate's logic (preflight, version routing, structural fingerprint, snapshot, dry-run, --force)
-# only runs through a live `minimoni db exec` fork+exec, so it cannot be unit-tested the way db_cmd
-# can: behavioural depth lives here by necessity, and e2e-cli.sh's ~30-check smoke ceiling does NOT
-# apply (this file's size tracks the number of real migrate behaviours, not scope creep). What is
-# unit-testable in pure C (the migration registry, the snapshot copy) lives in tests/unit-migrate.c.
-# Before adding a case, ask whether it can be a unit test there first; if it needs the live binary,
-# it belongs here.
+# Scope: only what needs both built binaries working together; a case a seam or an in-process engine
+# can show goes to a unit or integration suite.
 
 set -eu
 
@@ -252,6 +246,40 @@ t_backup_created_by_default() {
         report "backup created by default" ok
     else
         report "backup created by default" "missing"
+    fi
+}
+
+# Hold `db` open from another connection, with one more row committed but still in its WAL, until
+# stop_writer. Sets $writer.
+start_writer() {
+    ( printf "PRAGMA journal_mode=WAL;\nINSERT INTO metrics (timestamp) VALUES ('%s');\n" \
+        "2026-01-01T00:00:00Z"; sleep 30 ) | sqlite3 "$1" >/dev/null &
+    writer=$!
+    tries=0
+    while ! [ -s "$1-wal" ] && [ "$tries" -lt 50 ]; do
+        sleep 0.1
+        tries=$((tries + 1))
+    done
+}
+
+stop_writer() {
+    kill "$writer" 2>/dev/null || true
+    wait "$writer" 2>/dev/null || true
+}
+
+t_backup_holds_rows_still_in_the_wal() {
+    db=$TMP/live.db
+    make_v01_db "$db"
+    start_writer "$db"
+
+    "$MIG" --use "$MIN" "$db" >/dev/null 2>&1 || true
+    rows=$(sqlite3 "$db.backup-pre-migrate-v0" 'SELECT count(*) FROM metrics' 2>&1)
+    stop_writer
+
+    if [ "$rows" = 3 ]; then
+        report "the backup holds rows still in another connection's WAL" ok
+    else
+        report "the backup holds rows still in another connection's WAL" "rows=$rows (want 3)"
     fi
 }
 
@@ -650,6 +678,7 @@ t_schema_after_migration
 t_bps_computed_from_byte_deltas
 t_migrates_alter_derived
 t_backup_created_by_default
+t_backup_holds_rows_still_in_the_wal
 t_no_backup_flag
 t_already_at_latest
 t_nonexistent_db

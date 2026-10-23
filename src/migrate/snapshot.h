@@ -22,14 +22,12 @@
 #ifndef MINIMONI_MIGRATE_SNAPSHOT_H
 #define MINIMONI_MIGRATE_SNAPSHOT_H
 
-/* Copy src_path to dst_path, byte-for-byte. dst is created with 0600
- * (truncated if it exists). Returns 0 on success, non-zero on any I/O
- * error (error message written to stderr).
- *
- * Caveat: SQLite databases must NOT be written to during the copy or
- * the snapshot may capture an inconsistent page mix. The caller is
- * responsible for ensuring no writer is active; minimoni-migrate
- * assumes the daemon is stopped before the migration runs. */
-int migrate_snapshot(const char *src_path, const char *dst_path);
+/* Copy the database at src_path to dst_path through `minimoni db exec`'s VACUUM INTO: a consistent
+ * copy, rows still in a WAL included, even while another connection writes. It holds the same data
+ * in a compacted file. The copy replaces whatever was at dst, a symlink included (never what it
+ * points to), along with any journal an earlier dst left, and is readable by its owner only. When
+ * the copy fails, an earlier dst is left as it was. Returns 0 on success, non-zero on failure
+ * (reason written to stderr). */
+int migrate_snapshot(const char *minimoni_exec, const char *src_path, const char *dst_path);
 
 #endif /* MINIMONI_MIGRATE_SNAPSHOT_H */

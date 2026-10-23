@@ -75,8 +75,8 @@ static int verify_v0_schema(const char *minimoni_exec, const char *db_path)
 {
     char out[4096];
     char err[1024];
-    int  rc =
-        migrate_exec(minimoni_exec, db_path, V0_SCHEMA_QUERY, out, sizeof(out), err, sizeof(err));
+    int  rc = migrate_exec(minimoni_exec, db_path, V0_SCHEMA_QUERY, NULL, out, sizeof(out), err,
+                           sizeof(err));
     if (rc != 0) {
         fprintf(stderr, "migrate: failed to read schema for fingerprint check: %s",
                 err[0] ? err : "(no error message)\n");

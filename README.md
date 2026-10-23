@@ -247,7 +247,9 @@ sudo systemctl start minimoni
 
 `--dry-run` prints `status: up-to-date | migration-pending | blocked` and changes
 nothing, so a deploy can verify the upgrade will apply before swapping the binary.
-A real run snapshots to `<db>.backup-pre-migrate-vN` first (opt out: `--no-backup`).
+A real run first copies the database to `<db>.backup-pre-migrate-vN`, replacing an earlier copy
+(opt out: `--no-backup`). The copy holds the same data in a compacted file, so it can be smaller
+than the original.
 
 If migrate refuses with a schema-fingerprint mismatch, the database structure
 diverges from the canonical schema (e.g. a hand-added column or a different

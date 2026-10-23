@@ -46,7 +46,7 @@ static int read_scalar(const char *minimoni_exec, const char *db_path, const cha
                        size_t out_size)
 {
     char err[512];
-    int  rc = migrate_exec(minimoni_exec, db_path, sql, out, out_size, err, sizeof(err));
+    int  rc = migrate_exec(minimoni_exec, db_path, sql, NULL, out, out_size, err, sizeof(err));
     if (rc == 0) {
         chomp(out);
         return 0;

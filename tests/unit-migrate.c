@@ -19,68 +19,126 @@
  * along with minimoni. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Unit tests for the parts of minimoni-migrate that are testable without the fork+exec to
- * `minimoni db exec`:
- *   - migrations.c: the in-binary migration registry (pure data + tiny accessors).
- *   - snapshot.c:   the pre-migration backup file copy.
+/* Unit tests for the parts of minimoni-migrate that run without the real `minimoni db exec`, which
+ * the seam below replaces: migrations.c, the in-binary migration registry, and snapshot.c's file
+ * handling around the copy.
  *
  * Standalone (no framework). #includes the migrate .c modules directly so the static helpers are
  * reachable. */
 
-#define _POSIX_C_SOURCE 200809L
+#define _XOPEN_SOURCE 700
 
-#include <fcntl.h>
+#include <ftw.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
-/* Bring in the modules under test. exec.c is pulled in because migrations.c
- * references `migrate_exec` from its verify_v0_schema hook; the tests never
- * invoke that hook, so the fork+exec code path stays dormant. */
-#include "../src/migrate/exec.c"
 #include "../src/migrate/migrations.c"
 #include "../src/migrate/snapshot.c"
 
-/* --- Test infrastructure ------------------------------------------------ */
+/* --- The migrate_exec seam --- */
 
-static int g_counter = 0;
+/* The fake `minimoni db exec` records its last call and returns g_exec_rc; on success it writes
+ * COPY into the file its value names, as VACUUM INTO would. */
+#define COPY "a copy\n"
 
-static void temp_path(char *out, size_t out_size, const char *suffix)
+static int  g_exec_rc;
+static char g_exec_sql[64];
+static char g_exec_value[1200];
+static int  g_exec_saw_empty_private; /* that file existed, empty and 0600, when called */
+
+int migrate_exec(const char *minimoni_exec, const char *db_path, const char *sql, const char *value,
+                 char *out_buf, size_t out_size, char *err_buf, size_t err_size)
 {
-    snprintf(out, out_size, "/tmp/minimoni-test-migrate-%d-%d-%s", getpid(), g_counter++, suffix);
+    (void)minimoni_exec;
+    (void)db_path;
+    if (out_size > 0)
+        out_buf[0] = '\0';
+    if (err_size > 0)
+        err_buf[0] = '\0';
+    snprintf(g_exec_sql, sizeof(g_exec_sql), "%s", sql);
+    snprintf(g_exec_value, sizeof(g_exec_value), "%s", value ? value : "");
+
+    struct stat st;
+    g_exec_saw_empty_private =
+        value && stat(value, &st) == 0 && st.st_size == 0 && (st.st_mode & 0777) == 0600;
+
+    FILE *f = g_exec_rc == 0 && value ? fopen(value, "w") : NULL;
+    if (f) {
+        fputs(COPY, f);
+        fclose(f);
+    }
+
+    return g_exec_rc;
 }
 
-/* Write `n` bytes of `data` to `path`, creating or truncating. Returns 0. */
-static int write_file(const char *path, const void *data, size_t n)
+/* --- Test infrastructure --- */
+
+static char g_dir[64];
+
+/* A fresh directory and a reset seam for each test. */
+static void fresh(void)
 {
-    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (fd < 0)
-        return 1;
-    int rc = (write(fd, data, n) == (ssize_t)n) ? 0 : 1;
-    close(fd);
-    return rc;
+    snprintf(g_dir, sizeof(g_dir), "/tmp/minimoni-unit-migrate-XXXXXX");
+    if (!mkdtemp(g_dir))
+        g_dir[0] = '\0';
+
+    g_exec_rc = 0;
+    g_exec_sql[0] = '\0';
+    g_exec_value[0] = '\0';
+    g_exec_saw_empty_private = 0;
 }
 
-/* Read up to `cap` bytes from `path` into `out`. Returns bytes read, -1 on
- * error. Does not NUL-terminate. */
-static ssize_t read_file(const char *path, void *out, size_t cap)
+static int remove_entry(const char *path, const struct stat *st, int flag, struct FTW *ftw)
 {
-    int fd = open(path, O_RDONLY);
-    if (fd < 0)
-        return -1;
-    ssize_t n = read(fd, out, cap);
-    close(fd);
-    return n;
+    (void)st;
+    (void)flag;
+    (void)ftw;
+
+    return remove(path);
 }
 
-static long file_size(const char *path)
+static void drop(void) { nftw(g_dir, remove_entry, 8, FTW_DEPTH | FTW_PHYS); }
+
+static void in_dir(char *out, size_t cap, const char *name)
+{
+    snprintf(out, cap, "%s/%s", g_dir, name);
+}
+
+static void write_text(const char *path, const char *text)
+{
+    FILE *f = fopen(path, "w");
+    if (f) {
+        fputs(text, f);
+        fclose(f);
+    }
+}
+
+static int has_text(const char *path, const char *text)
+{
+    char  buf[64] = "";
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return 0;
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+
+    return strcmp(buf, text) == 0;
+}
+
+static int exists(const char *path)
 {
     struct stat st;
-    if (stat(path, &st) != 0)
-        return -1;
-    return (long)st.st_size;
+    return lstat(path, &st) == 0;
+}
+
+static int private_file(const char *path)
+{
+    struct stat st;
+    return lstat(path, &st) == 0 && S_ISREG(st.st_mode) && (st.st_mode & 0777) == 0600;
 }
 
 /* --- Tests: migrations.c ------------------------------------------------ */
@@ -128,116 +186,155 @@ static int test_migrations_v0_script_bumps_user_version(void)
     return (strstr(m->script, "PRAGMA user_version = 1") != NULL) ? 0 : 1;
 }
 
-/* --- Tests: snapshot.c -------------------------------------------------- */
+/* --- Tests: snapshot.c --- */
 
-/* Happy path: copy a small file, verify the destination matches the source
- * byte-for-byte and is the expected size. */
-static int test_snapshot_copies_file(void)
+/* VACUUM INTO ?1 writes into a temporary file, already created empty and private, which then takes
+ * dst's name. */
+static int test_snapshot_copies_through_a_temporary_file(void)
 {
-    char src[256], dst[256];
-    temp_path(src, sizeof(src), "src.bin");
-    temp_path(dst, sizeof(dst), "dst.bin");
+    fresh();
+    char dst[128], tmp[160];
+    in_dir(dst, sizeof(dst), "db.backup");
+    snprintf(tmp, sizeof(tmp), "%s.tmp", dst);
 
-    const char payload[] = "minimoni snapshot test payload - 0123456789\n";
-    int        ok = (write_file(src, payload, sizeof(payload) - 1) == 0);
-    if (ok)
-        ok = (migrate_snapshot(src, dst) == 0);
-    if (ok) {
-        char    buf[256];
-        ssize_t n = read_file(dst, buf, sizeof(buf));
-        ok = (n == (ssize_t)(sizeof(payload) - 1) && memcmp(buf, payload, n) == 0);
-    }
+    int ok = migrate_snapshot("minimoni", "db", dst) == 0 &&
+             strcmp(g_exec_sql, "VACUUM INTO ?1") == 0 && strcmp(g_exec_value, tmp) == 0 &&
+             g_exec_saw_empty_private && has_text(dst, COPY) && private_file(dst) && !exists(tmp);
+    drop();
 
-    unlink(src);
-    unlink(dst);
     return ok ? 0 : 1;
 }
 
-/* Destination already exists with stale contents; snapshot must overwrite
- * (truncate) it rather than refusing. */
-static int test_snapshot_overwrites_existing(void)
+static int test_snapshot_replaces_an_earlier_backup(void)
 {
-    char src[256], dst[256];
-    temp_path(src, sizeof(src), "src2.bin");
-    temp_path(dst, sizeof(dst), "dst2.bin");
+    fresh();
+    char dst[128];
+    in_dir(dst, sizeof(dst), "db.backup");
+    write_text(dst, "earlier");
+    chmod(dst, 0644);
 
-    const char old[] = "this is stale destination content that should be replaced";
-    const char src_bytes[] = "fresh";
-    int        ok = (write_file(dst, old, sizeof(old) - 1) == 0 &&
-                     write_file(src, src_bytes, sizeof(src_bytes) - 1) == 0);
-    if (ok)
-        ok = (migrate_snapshot(src, dst) == 0);
-    if (ok) {
-        long n = file_size(dst);
-        ok = (n == (long)(sizeof(src_bytes) - 1));
-    }
-    if (ok) {
-        char    buf[64];
-        ssize_t n = read_file(dst, buf, sizeof(buf));
-        ok = (n == (ssize_t)(sizeof(src_bytes) - 1) && memcmp(buf, src_bytes, n) == 0);
-    }
+    int ok =
+        migrate_snapshot("minimoni", "db", dst) == 0 && has_text(dst, COPY) && private_file(dst);
+    drop();
 
-    unlink(src);
-    unlink(dst);
     return ok ? 0 : 1;
 }
 
-/* Source path does not exist: snapshot must fail with non-zero return. */
-static int test_snapshot_source_missing(void)
+static int test_snapshot_is_private_under_any_umask(void)
 {
-    char src[256], dst[256];
-    temp_path(src, sizeof(src), "missing-src.bin");
-    temp_path(dst, sizeof(dst), "dst3.bin");
-    unlink(src);
-    unlink(dst);
+    fresh();
+    char dst[128];
+    in_dir(dst, sizeof(dst), "db.backup");
 
-    int rc = migrate_snapshot(src, dst);
-    int ok = (rc != 0);
-    /* Destination must not have been created on failure. */
-    if (ok)
-        ok = (file_size(dst) < 0);
+    mode_t old = umask(0);
+    int    rc = migrate_snapshot("minimoni", "db", dst);
+    umask(old);
+    int ok = rc == 0 && private_file(dst);
+    drop();
 
-    unlink(dst);
     return ok ? 0 : 1;
 }
 
-/* Destination path lives in a directory that does not exist: snapshot must
- * fail with non-zero, not crash. */
-static int test_snapshot_target_unwritable_dir(void)
+static int test_snapshot_replaces_a_symlink_not_its_target(void)
 {
-    char src[256], dst[256];
-    temp_path(src, sizeof(src), "src4.bin");
-    snprintf(dst, sizeof(dst), "/tmp/minimoni-no-such-dir-%d/dst.bin", getpid());
+    fresh();
+    char dst[128], target[128];
+    in_dir(dst, sizeof(dst), "db.backup");
+    in_dir(target, sizeof(target), "target");
+    write_text(target, "not a backup");
+    int ok = symlink(target, dst) == 0;
 
-    const char payload[] = "x";
-    if (write_file(src, payload, 1) != 0) {
-        unlink(src);
-        return 1;
+    ok = ok && migrate_snapshot("minimoni", "db", dst) == 0 && has_text(target, "not a backup") &&
+         private_file(dst) && has_text(dst, COPY);
+    drop();
+
+    return ok ? 0 : 1;
+}
+
+/* Left beside the new copy, an earlier backup's journal would be applied to it. */
+static int test_snapshot_removes_an_earlier_backups_leftovers(void)
+{
+    fresh();
+    char dst[128], side[3][160];
+    in_dir(dst, sizeof(dst), "db.backup");
+    write_text(dst, "earlier");
+    const char *suffix[3] = {"-journal", "-wal", "-shm"};
+    for (int i = 0; i < 3; i++) {
+        snprintf(side[i], sizeof(side[i]), "%s%s", dst, suffix[i]);
+        write_text(side[i], "leftover");
     }
 
-    int rc = migrate_snapshot(src, dst);
-    int ok = (rc != 0);
+    int ok = migrate_snapshot("minimoni", "db", dst) == 0 && has_text(dst, COPY);
+    for (int i = 0; i < 3; i++)
+        ok = ok && !exists(side[i]);
+    drop();
 
-    unlink(src);
     return ok ? 0 : 1;
 }
 
-/* Edge case: empty (zero-byte) source. Snapshot must succeed and leave a
- * zero-byte destination. */
-static int test_snapshot_zero_byte_source(void)
+/* A temporary file that an interrupted earlier run left behind is cleared first. */
+static int test_snapshot_clears_a_stale_temporary(void)
 {
-    char src[256], dst[256];
-    temp_path(src, sizeof(src), "src5.bin");
-    temp_path(dst, sizeof(dst), "dst5.bin");
+    fresh();
+    char dst[128], tmp[160], tmp_journal[180];
+    in_dir(dst, sizeof(dst), "db.backup");
+    snprintf(tmp, sizeof(tmp), "%s.tmp", dst);
+    snprintf(tmp_journal, sizeof(tmp_journal), "%s-journal", tmp);
+    write_text(tmp, "stale");
+    write_text(tmp_journal, "stale");
 
-    if (write_file(src, "", 0) != 0)
-        return 1;
+    int ok = migrate_snapshot("minimoni", "db", dst) == 0 && g_exec_saw_empty_private &&
+             has_text(dst, COPY) && !exists(tmp) && !exists(tmp_journal);
+    drop();
 
-    int rc = migrate_snapshot(src, dst);
-    int ok = (rc == 0 && file_size(dst) == 0);
+    return ok ? 0 : 1;
+}
 
-    unlink(src);
-    unlink(dst);
+static int test_snapshot_failed_copy_keeps_the_earlier_backup(void)
+{
+    fresh();
+    char dst[128], tmp[160];
+    in_dir(dst, sizeof(dst), "db.backup");
+    snprintf(tmp, sizeof(tmp), "%s.tmp", dst);
+    write_text(dst, "earlier");
+    g_exec_rc = 1;
+
+    int ok =
+        migrate_snapshot("minimoni", "db", dst) != 0 && has_text(dst, "earlier") && !exists(tmp);
+    drop();
+
+    return ok ? 0 : 1;
+}
+
+static int test_snapshot_onto_a_directory_fails(void)
+{
+    fresh();
+    char dst[128], inside[160], tmp[160];
+    in_dir(dst, sizeof(dst), "db.backup");
+    snprintf(inside, sizeof(inside), "%s/inside", dst);
+    snprintf(tmp, sizeof(tmp), "%s.tmp", dst);
+    mkdir(dst, 0700);
+    mkdir(inside, 0700);
+
+    int ok = migrate_snapshot("minimoni", "db", dst) != 0 && exists(inside) && !exists(tmp);
+    drop();
+
+    return ok ? 0 : 1;
+}
+
+/* Refused before anything is created or run. */
+static int test_snapshot_path_too_long_fails(void)
+{
+    fresh();
+    char dst[1200];
+    snprintf(dst, sizeof(dst), "%s/", g_dir);
+    size_t len = strlen(dst);
+    memset(dst + len, 'a', sizeof(dst) - 1 - len);
+    dst[sizeof(dst) - 1] = '\0';
+
+    int ok = migrate_snapshot("minimoni", "db", dst) != 0 && g_exec_sql[0] == '\0';
+    drop();
+
     return ok ? 0 : 1;
 }
 
@@ -252,11 +349,15 @@ static const test_t ALL_TESTS[] = {
     T(migrations_find_unknown),
     T(migrations_v0_script_bumps_user_version),
     /* snapshot.c */
-    T(snapshot_copies_file),
-    T(snapshot_overwrites_existing),
-    T(snapshot_source_missing),
-    T(snapshot_target_unwritable_dir),
-    T(snapshot_zero_byte_source),
+    T(snapshot_copies_through_a_temporary_file),
+    T(snapshot_replaces_an_earlier_backup),
+    T(snapshot_is_private_under_any_umask),
+    T(snapshot_replaces_a_symlink_not_its_target),
+    T(snapshot_removes_an_earlier_backups_leftovers),
+    T(snapshot_clears_a_stale_temporary),
+    T(snapshot_failed_copy_keeps_the_earlier_backup),
+    T(snapshot_onto_a_directory_fails),
+    T(snapshot_path_too_long_fails),
 };
 
 int main(void)

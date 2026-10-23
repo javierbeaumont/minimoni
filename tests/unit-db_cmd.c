@@ -276,8 +276,8 @@ static int test_dbinfo_v01(void)
 
 /* Capture stdout AND stderr from db_cmd_exec into caller buffers; returns the
  * exec exit code. dup2 to temp files (pipes would risk deadlock with no reader). */
-static int capture_exec(const char *db_path, const char *sql, char *out, size_t out_cap, char *err,
-                        size_t err_cap)
+static int capture_exec_with(const char *db_path, const char *sql, const char *value, char *out,
+                             size_t out_cap, char *err, size_t err_cap)
 {
     char op[256], ep[256];
     snprintf(op, sizeof(op), "/tmp/minimoni-exec-out-%d.txt", getpid());
@@ -299,7 +299,7 @@ static int capture_exec(const char *db_path, const char *sql, char *out, size_t 
     dup2(fileno(of), STDOUT_FILENO);
     dup2(fileno(ef), STDERR_FILENO);
 
-    int rc = db_cmd_exec(db_path, sql);
+    int rc = db_cmd_exec(db_path, sql, value);
 
     fflush(stdout);
     fflush(stderr);
@@ -319,6 +319,12 @@ static int capture_exec(const char *db_path, const char *sql, char *out, size_t 
     unlink(op);
     unlink(ep);
     return rc;
+}
+
+static int capture_exec(const char *db_path, const char *sql, char *out, size_t out_cap, char *err,
+                        size_t err_cap)
+{
+    return capture_exec_with(db_path, sql, NULL, out, out_cap, err, err_cap);
 }
 
 /* Create an empty, writable SQLite DB at a fresh temp path; NULL on error. */
@@ -343,6 +349,69 @@ static void exec_cleanup(const char *p)
     snprintf(side, sizeof(side), "%s-shm", p);
     unlink(side);
     unlink(p);
+}
+
+/* A quote in the value stays data, never SQL. */
+static int test_exec_binds_the_value(void)
+{
+    const char *p = exec_db();
+    if (!p)
+        return 1;
+    char out[1024], err[1024];
+    int  rc =
+        capture_exec_with(p, "SELECT ?1, length(?1)", "it's", out, sizeof(out), err, sizeof(err));
+    int fail = rc != 0 || strcmp(out, "it's\t4\n") != 0;
+    exec_cleanup(p);
+
+    return fail;
+}
+
+static int test_exec_parameter_without_value_fails(void)
+{
+    const char *p = exec_db();
+    if (!p)
+        return 1;
+    char out[1024], err[1024];
+    int  rc = capture_exec(p, "SELECT ?1", out, sizeof(out), err, sizeof(err));
+    int  fail = rc != 1 || !strstr(err, "db exec: error at statement 1: ?1 has no value");
+    exec_cleanup(p);
+
+    return fail;
+}
+
+static int test_exec_second_parameter_fails(void)
+{
+    const char *p = exec_db();
+    if (!p)
+        return 1;
+    char out[1024], err[1024];
+    int  rc = capture_exec_with(p, "SELECT ?1, ?2", "x", out, sizeof(out), err, sizeof(err));
+    int  fail = rc != 1 || !strstr(err, "db exec: error at statement 1: only ?1 can take a value");
+    exec_cleanup(p);
+
+    return fail;
+}
+
+/* VACUUM INTO ?1, as minimoni-migrate's backup runs it. */
+static int test_exec_vacuum_into_copies_the_database(void)
+{
+    const char *p = exec_db();
+    if (!p)
+        return 1;
+    char src[256], dst[256], out[1024], err[1024];
+    snprintf(src, sizeof(src), "%s", p);
+    snprintf(dst, sizeof(dst), "%s", dbcmd_tmp());
+
+    int fail =
+        capture_exec(src, "CREATE TABLE t (x); INSERT INTO t VALUES (1), (2);", out, sizeof(out),
+                     err, sizeof(err)) != 0 ||
+        capture_exec_with(src, "VACUUM INTO ?1", dst, out, sizeof(out), err, sizeof(err)) != 0 ||
+        capture_exec(dst, "SELECT count(*) FROM t", out, sizeof(out), err, sizeof(err)) != 0 ||
+        strcmp(out, "2\n") != 0;
+    exec_cleanup(src);
+    exec_cleanup(dst);
+
+    return fail;
 }
 
 static int test_exec_blob_rendering(void)
@@ -485,6 +554,10 @@ static const test_t ALL_TESTS[] = {
     T(dbinfo_no_metrics),
     T(dbinfo_v01),
     /* db exec */
+    T(exec_binds_the_value),
+    T(exec_parameter_without_value_fails),
+    T(exec_second_parameter_fails),
+    T(exec_vacuum_into_copies_the_database),
     T(exec_blob_rendering),
     T(exec_empty_script),
     T(exec_multi_stmt_script),

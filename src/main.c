@@ -288,11 +288,11 @@ int main(int argc, char **argv)
         }
 
         if (strcmp(action, "exec") == 0) {
-            if (argc != 5) {
-                arg_error(argv[0], "'db exec' requires <db_path> <SQL>");
+            if (argc != 5 && argc != 6) {
+                arg_error(argv[0], "'db exec' requires <db_path> <SQL> [VALUE]");
                 return 1;
             }
-            return db_cmd_exec(argv[3], argv[4]);
+            return db_cmd_exec(argv[3], argv[4], argc == 6 ? argv[5] : NULL);
         }
 
         arg_error(argv[0], "unknown 'db' action '%s'", action);

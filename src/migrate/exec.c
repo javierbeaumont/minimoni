@@ -79,8 +79,8 @@ static void drain_both(int out_fd, sink_t *out, int err_fd, sink_t *err)
             sink[i]->buf[sink[i]->len] = '\0';
 }
 
-int migrate_exec(const char *minimoni_exec, const char *db_path, const char *sql, char *out_buf,
-                 size_t out_size, char *err_buf, size_t err_size)
+int migrate_exec(const char *minimoni_exec, const char *db_path, const char *sql, const char *value,
+                 char *out_buf, size_t out_size, char *err_buf, size_t err_size)
 {
     if (out_size > 0)
         out_buf[0] = '\0';
@@ -115,13 +115,15 @@ int migrate_exec(const char *minimoni_exec, const char *db_path, const char *sql
         close(err_pipe[0]);
         close(err_pipe[1]);
 
-        char *argv[6];
+        char *argv[7];
         int   i = 0;
         argv[i++] = (char *)minimoni_exec;
         argv[i++] = (char *)"db";
         argv[i++] = (char *)"exec";
         argv[i++] = (char *)db_path;
         argv[i++] = (char *)sql;
+        if (value)
+            argv[i++] = (char *)value;
         argv[i] = NULL;
 
         execvp(minimoni_exec, argv);
