@@ -179,9 +179,9 @@ test-unit: ci-image \
       tests/*.test.js"
 
 # Integration (Docker): our X.509 policy and trust anchor loader against the real BearSSL engine,
-# in process and with no sockets. Needs only the BearSSL library, not a built binary. The
-# certificates are generated, never stored: a committed valid one would expire and flip the verdict
-# it expects.
+# and migrate's process plumbing with a real child, in process and with no sockets. Needs no built
+# binary. The certificates are generated, never stored: a committed valid one would expire and flip
+# the verdict it expects.
 test-integration: ci-image
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
 	  sh -c "mkdir -p build && make $(BEARSSL_LIB) && \
@@ -204,7 +204,10 @@ test-integration: ci-image
 	    gcc -Wall -Wextra -std=c23 -Isrc -Itests $(BEARSSL_INC) \
 	      tests/integration-trust.c src/trust.c $(BEARSSL_LIB) \
 	      -o build/integration-trust-test && \
-	    ./build/integration-alerts-test && ./build/integration-trust-test"
+	    gcc -Wall -Wextra -std=c23 -Isrc/migrate -Itests \
+	      tests/integration-migrate.c -o build/integration-migrate-test && \
+	    ./build/integration-alerts-test && ./build/integration-trust-test && \
+	    ./build/integration-migrate-test"
 
 # End to end (Docker): build release once, then the black-box suites that drive it.
 test-e2e: ci-image

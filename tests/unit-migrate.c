@@ -24,10 +24,6 @@
  *   - migrations.c: the in-binary migration registry (pure data + tiny accessors).
  *   - snapshot.c:   the pre-migration backup file copy.
  *
- * preflight.c, exec.c and main.c are covered end-to-end by the shell suite tests/e2e-migrate.sh
- * because they all depend on the live `minimoni` binary being present at run time (unit-testing
- * them would require injecting the SQL executor as a callback).
- *
  * Standalone (no framework). #includes the migrate .c modules directly so the static helpers are
  * reachable. */
 
