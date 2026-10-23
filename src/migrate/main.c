@@ -27,6 +27,7 @@
 #include "preflight.h"
 #include "snapshot.h"
 
+#include <errno.h>
 #include <libgen.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -47,9 +48,10 @@ static void usage(const char *prog)
             "Options:\n"
             "  --dry-run     Rehearse the migration on a throwaway copy of the\n"
             "                database; never touch the original. Prints a\n"
-            "                'status:' line to stdout (up-to-date,\n"
+            "                'status:' line to stdout (up-to-date, absent,\n"
             "                migration-pending, or blocked) and exits 0 when it\n"
-            "                is safe to migrate, 1 otherwise.\n"
+            "                is safe to migrate or there is nothing to do, 1\n"
+            "                otherwise.\n"
             "  --force       Skip the schema fingerprint check, for a schema you\n"
             "                have reviewed and know is safe to migrate. A backup\n"
             "                is mandatory, so this cannot be combined with\n"
@@ -134,6 +136,16 @@ static void remove_db_with_sidecars(const char *path)
 static int do_migrate(const char *minimoni_exec, const char *db_path, int do_backup, int dry_run,
                       int force)
 {
+    /* minimoni creates a missing database at the latest version, so there is nothing to migrate. */
+    struct stat st;
+    if (stat(db_path, &st) != 0 && errno == ENOENT) {
+        fprintf(stderr, "migrate: %s does not exist; nothing to migrate\n", db_path);
+        if (dry_run)
+            printf("status: absent\n");
+
+        return 0;
+    }
+
     int current = -1;
     if (migrate_preflight(minimoni_exec, db_path, &current) != 0) {
         if (dry_run)

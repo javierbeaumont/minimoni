@@ -305,13 +305,22 @@ t_already_at_latest() {
 
 # --- Refusals (ordered by the check that trips) --------------------------
 
-t_nonexistent_db() {
-    if "$MIG" --use "$MIN" "$TMP/does-not-exist.db" >/dev/null 2>&1; then
-        report "refuses non-existent DB" "exit=0 (want 1)"
+t_absent_db_is_nothing_to_do() {
+    out=$("$MIG" --use "$MIN" "$TMP/does-not-exist.db" 2>&1) && rc=0 || rc=$?
+
+    if [ "$rc" = 0 ] && printf '%s' "$out" | grep -qF "does not exist; nothing to migrate"; then
+        report "a database that does not exist is nothing to do" ok
     else
-        rc=$?
-        expect_rc "refuses non-existent DB" "$rc" 1
+        report "a database that does not exist is nothing to do" "exit=$rc, $out"
     fi
+}
+
+# Only a missing file is absent: any other path that cannot be opened still fails.
+t_unopenable_path_still_fails() {
+    printf 'a file, not a directory\n' >"$TMP/not-a-dir"
+
+    "$MIG" --use "$MIN" "$TMP/not-a-dir/x.db" >/dev/null 2>&1 && rc=0 || rc=$?
+    expect_rc "a path that cannot be opened still fails" "$rc" 1
 }
 
 t_refuses_corrupted_db() {
@@ -477,6 +486,16 @@ t_dry_run_up_to_date() {
         report "dry-run reports up-to-date" ok
     else
         report "dry-run reports up-to-date" "exit=$rc stdout='$out'"
+    fi
+}
+
+t_dry_run_absent() {
+    out=$("$MIG" --use "$MIN" --dry-run "$TMP/does-not-exist.db" 2>/dev/null) && rc=0 || rc=$?
+
+    if [ "$rc" = 0 ] && [ "$out" = "status: absent" ]; then
+        report "dry-run reports absent" ok
+    else
+        report "dry-run reports absent" "exit=$rc stdout='$out'"
     fi
 }
 
@@ -681,7 +700,8 @@ t_backup_created_by_default
 t_backup_holds_rows_still_in_the_wal
 t_no_backup_flag
 t_already_at_latest
-t_nonexistent_db
+t_absent_db_is_nothing_to_do
+t_unopenable_path_still_fails
 t_refuses_corrupted_db
 t_wrong_application_id
 t_fingerprint_refuses_missing_table
@@ -691,6 +711,7 @@ t_fingerprint_refuses_wrong_type
 t_dry_run_pending_migration
 t_dry_run_pending_alter_derived
 t_dry_run_up_to_date
+t_dry_run_absent
 t_dry_run_blocked_corrupt
 t_dry_run_blocked_structural
 t_force_migrates_past_fingerprint

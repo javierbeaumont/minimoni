@@ -244,8 +244,9 @@ minimoni-migrate /var/lib/minimoni/metrics.db             # migrate (auto-backup
 sudo systemctl start minimoni
 ```
 
-`--dry-run` prints `status: up-to-date | migration-pending | blocked` and changes
-nothing, so a deploy can verify the upgrade will apply before swapping the binary.
+`--dry-run` prints `status: up-to-date | absent | migration-pending | blocked` and changes nothing,
+so a deploy can verify the upgrade will apply before swapping the binary. A database that does not
+exist is `absent`, and a real run exits 0 on it: minimoni creates it at the latest version.
 A real run first copies the database to `<db>.backup-pre-migrate-vN`, replacing an earlier copy
 (opt out: `--no-backup`). The copy holds the same data in a compacted file, so it can be smaller
 than the original.
