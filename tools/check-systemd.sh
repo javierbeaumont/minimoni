@@ -59,7 +59,7 @@ until in_c 'systemctl is-system-running 2>/dev/null' | grep -qE 'running|degrade
 done
 
 in_c 'cp -r /src /w && cd /w && make clean >/dev/null 2>&1 && make release >/dev/null 2>&1 &&
-    install -m755 minimoni /usr/local/bin/minimoni &&
+    install -m755 minimoni minimoni-migrate /usr/local/bin/ &&
     cp contrib/systemd/*.service contrib/systemd/*.timer /etc/systemd/system/ &&
     systemctl daemon-reload' || {
     echo "check-systemd: building minimoni or installing the units failed" >&2
@@ -84,6 +84,16 @@ in_c 'mkdir -p /etc/minimoni && printf "[server]\nlisten = \"127.0.0.1:18080\"\n
     >/etc/minimoni/config.toml && systemctl start minimoni; sleep 3'
 check "with a config, serve answers" in_c "$health | grep -q '\"status\":\"ok\"'"
 check "a relative db lands in the state directory" in_c "[ -s $state/metrics.db ]"
+
+# Only root reaches the database.
+db='/var/lib/minimoni/metrics.db'
+nobody='setpriv --reuid=65534 --regid=65534 --clear-groups'
+check "an unprivileged user cannot read the database" in_c \
+    "$nobody minimoni db info $db; [ \$? = 1 ]"
+check "an unprivileged migrate is refused, not taken for an absent database" in_c \
+    "[ \"\$($nobody minimoni-migrate --dry-run $db 2>/dev/null)\" = 'status: blocked' ]"
+check "migrate as root reaches it" in_c \
+    "[ \"\$(minimoni-migrate --dry-run $db 2>/dev/null)\" = 'status: up-to-date' ]"
 
 rows="minimoni db exec $state/metrics.db 'SELECT count(*) FROM metrics' | tail -1"
 check "collect stores a sample" in_c \

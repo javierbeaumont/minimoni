@@ -239,17 +239,25 @@ Then stop the service, migrate, and start it again:
 
 ```sh
 sudo systemctl stop minimoni
-minimoni-migrate --dry-run /var/lib/minimoni/metrics.db   # rehearse, no changes
-minimoni-migrate /var/lib/minimoni/metrics.db             # migrate (auto-backup)
+sudo minimoni-migrate --dry-run /var/lib/minimoni/metrics.db   # rehearse, no changes
+sudo minimoni-migrate /var/lib/minimoni/metrics.db             # migrate (auto-backup)
 sudo systemctl start minimoni
 ```
 
+`minimoni-migrate` runs with `sudo` there because the systemd units keep the database where only
+root can reach it.
+
 `--dry-run` prints `status: up-to-date | absent | migration-pending | blocked` and changes nothing,
 so a deploy can verify the upgrade will apply before swapping the binary. A database that does not
-exist is `absent`, and a real run exits 0 on it: minimoni creates it at the latest version.
-A real run first copies the database to `<db>.backup-pre-migrate-vN`, replacing an earlier copy
-(opt out: `--no-backup`). The copy holds the same data in a compacted file, so it can be smaller
-than the original.
+exist is `absent`, since minimoni creates it at the latest version. A real run first copies the
+database to `<db>.backup-pre-migrate-vN`, replacing an earlier copy (opt out: `--no-backup`). The
+copy holds the same data in a compacted file, so it can be smaller than the original.
+
+A real run exits `0` once migrated or when there is nothing to do (up to date, or no database); `1`
+when it refuses before changing anything (bad arguments, a failed check, a schema this build does
+not know); `2` when a migration step fails and is rolled back, or when the closing compaction fails
+after the migration was saved; and `3` when the backup cannot be made, leaving the database as it
+was.
 
 If migrate refuses with a schema-fingerprint mismatch, the database structure
 diverges from the canonical schema (e.g. a hand-added column or a different

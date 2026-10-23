@@ -557,6 +557,51 @@ t_force_rejects_no_backup() {
     expect_rc "--force rejects --no-backup" "$rc" 1
 }
 
+# --- Exit 2: a step fails once the checks have passed ---------------------
+
+# A minimoni that runs the real one, except for the SQL that matches PATTERN (a case pattern): that
+# one fails.
+fake_minimoni() { # PATH PATTERN
+    cat >"$1" <<EOF
+#!/bin/sh
+case "\$4" in $2) echo "fake failure" >&2; exit 1 ;; esac
+exec "$PWD/$MIN" "\$@"
+EOF
+    chmod +x "$1"
+}
+
+t_failed_step_exits_2() {
+    db=$TMP/failstep.db
+    make_v01_db "$db"
+    fake_minimoni "$TMP/fail-step-minimoni" '*"ALTER TABLE"*'
+
+    "$MIG" --use "$TMP/fail-step-minimoni" "$db" >/dev/null 2>&1 && rc=0 || rc=$?
+    uv=$(sqlite3 "$db" 'PRAGMA user_version')
+
+    name="a failed migration step exits 2 and changes nothing"
+    if [ "$rc" = 2 ] && [ "$uv" = 0 ] && [ -f "$db.backup-pre-migrate-v0" ]; then
+        report "$name" ok
+    else
+        report "$name" "exit=$rc user_version=$uv"
+    fi
+}
+
+t_failed_compaction_exits_2() {
+    db=$TMP/failvacuum.db
+    make_v01_db "$db"
+    fake_minimoni "$TMP/fail-vacuum-minimoni" VACUUM
+
+    "$MIG" --use "$TMP/fail-vacuum-minimoni" "$db" >/dev/null 2>&1 && rc=0 || rc=$?
+    uv=$(sqlite3 "$db" 'PRAGMA user_version')
+
+    name="a failed closing compaction exits 2, the database migrated"
+    if [ "$rc" = 2 ] && [ "$uv" = 1 ]; then
+        report "$name" ok
+    else
+        report "$name" "exit=$rc user_version=$uv"
+    fi
+}
+
 # --- CLI -----------------------------------------------------------------
 
 # Regression: a 1023-byte database path left no room for the dry-run or backup suffix, so the cut
@@ -716,6 +761,8 @@ t_dry_run_blocked_corrupt
 t_dry_run_blocked_structural
 t_force_migrates_past_fingerprint
 t_force_rejects_no_backup
+t_failed_step_exits_2
+t_failed_compaction_exits_2
 t_long_path_dry_run_keeps_db
 t_long_path_migration_keeps_db
 t_help_and_version

@@ -58,7 +58,15 @@ static void usage(const char *prog)
             "                --no-backup.\n"
             "  --no-backup   Skip snapshot before migrating (default: on).\n"
             "  --use PATH    Path to the minimoni binary. Default: search in\n"
-            "                the same directory as this binary, then $PATH.\n",
+            "                the same directory as this binary, then $PATH.\n"
+            "\n"
+            "Exit status, without --dry-run:\n"
+            "  0  migrated, or nothing to do (up to date, or no database)\n"
+            "  1  refused before any change: bad arguments, a failed check,\n"
+            "     or a schema this build does not know\n"
+            "  2  a migration step failed and was rolled back, or the closing\n"
+            "     compaction failed after the migration was saved\n"
+            "  3  the backup could not be made; nothing changed\n",
             prog, prog, prog, prog);
 }
 
