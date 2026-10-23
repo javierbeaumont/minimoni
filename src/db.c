@@ -21,11 +21,14 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "db.h"
 
@@ -115,15 +118,47 @@ static int build_consolidate_sql(char *sql, size_t cap, long now);
 
 /* --- Public API --- */
 
+/* Create the database file empty, before sqlite3_open, to give it mode 0600; its -wal and -shm take
+ * the same mode. Without O_EXCL, a symlink to a database not created yet is followed. Returns 0, or
+ * -1 with the reason reported. */
+static int create_private(const char *path)
+{
+    int fd = open(path, O_WRONLY | O_CREAT, 0600);
+    if (fd >= 0) {
+        close(fd);
+        return 0;
+    }
+
+    if (errno == ENOENT)
+        fprintf(stderr, "db: cannot create %s: the directory it goes in does not exist\n", path);
+    else
+        fprintf(stderr, "db: cannot create %s: %s\n", path, strerror(errno));
+
+    return -1;
+}
+
 int db_open(db_t *db, const char *path, long interval_sec)
 {
     memset(db, 0, sizeof(*db));
     db->interval_sec = interval_sec;
 
-    /* sqlite3_open creates a missing file, and only a file it created gets the schema and version
-     * pragmas from the daemon: any other must already be this version, or be migrated first. */
+    /* A missing file is created here, and only such a file gets the schema and version pragmas from
+     * the daemon: any other must already be this version, or be migrated first. */
     struct stat st;
     int         existed_before = (stat(path, &st) == 0);
+
+    if (existed_before && S_ISDIR(st.st_mode)) {
+        fprintf(stderr, "db: cannot open %s: it is a directory\n", path);
+        return -1;
+    }
+
+    /* Anyone who can write the file can change its data. */
+    if (existed_before && (st.st_mode & S_IWOTH))
+        fprintf(stderr, "db: %s is writable by every user on this host; run chmod o-w on it\n",
+                path);
+
+    if (!existed_before && create_private(path) != 0)
+        return -1;
 
     if (sqlite3_open(path, &db->handle) != SQLITE_OK) {
         fprintf(stderr, "db: cannot open %s: %s\n", path, sqlite3_errmsg(db->handle));

@@ -45,11 +45,11 @@ typedef struct {
     char         *sql_consolidate;  /* buffer allocated in db_open, refilled per pass */
 } db_t;
 
-/* Open (or create) the database at path. Enables WAL mode, sets cache
- * to 64 KB, creates the schema, stamps the "moni" application_id and the
- * schema user_version into the file header, and prepares reusable statements.
- * interval_sec is the collect interval, stored as the bucket_sec of raw rows.
- * Returns 0 on success, -1 on error (message written to stderr). */
+/* Open (or create) the database at path. Enables WAL mode, sets cache to 64 KB, creates the schema,
+ * stamps the "moni" application_id and the schema user_version into the file header, and prepares
+ * reusable statements. A new file is readable by its owner only; an existing one every user can
+ * write is reported on stderr, and opened. interval_sec is the collect interval, stored as the
+ * bucket_sec of raw rows. Returns 0 on success, -1 on error (message written to stderr). */
 [[nodiscard]] int db_open(db_t *db, const char *path, long interval_sec);
 
 /* Open an existing database read-only, for the HTTP server. Does not create

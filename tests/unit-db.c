@@ -888,22 +888,53 @@ static int test_db_open_corrupt_file(void)
     return 0;
 }
 
-/* 8. Path points at a directory: sqlite3_open fails, db_open returns non-zero,
- *    no crash. */
+/* db_open with stderr captured into `err`; returns db_open's result. */
+static int open_capturing(db_t *db, const char *path, char *err, size_t cap)
+{
+    char tmp[64];
+    snprintf(tmp, sizeof(tmp), "/tmp/minimoni-test-dbopen-err-%d.txt", getpid());
+
+    fflush(stderr);
+    if (!freopen(tmp, "w", stderr))
+        return -2;
+
+    int rc = db_open(db, path, 60);
+
+    fflush(stderr);
+    if (!freopen("/dev/null", "w", stderr))
+        return -2;
+
+    FILE  *f = fopen(tmp, "r");
+    size_t n = f ? fread(err, 1, cap - 1, f) : 0;
+    err[n] = '\0';
+    if (f)
+        fclose(f);
+    unlink(tmp);
+
+    return rc;
+}
+
+static int mode_of(const char *path)
+{
+    struct stat st;
+    return stat(path, &st) == 0 ? (int)(st.st_mode & 0777) : -1;
+}
+
+/* 8. Path points at a directory: refused, and the message says why. */
 static int test_db_open_directory_as_path(void)
 {
-    char path[256];
+    char path[256], err[512], want[400];
     snprintf(path, sizeof(path), "/tmp/minimoni-test-dbopen-dir-%d", getpid());
     rmdir(path);
     if (mkdir(path, 0755) != 0)
         return 1;
+    snprintf(want, sizeof(want), "db: cannot open %s: it is a directory", path);
 
     db_t db;
-    int  rc = db_open(&db, path, 60);
-    int  refused = (rc != 0);
-
+    int  rc = open_capturing(&db, path, err, sizeof(err));
     rmdir(path);
-    return refused ? 0 : 1;
+
+    return rc != 0 && strstr(err, want) ? 0 : 1;
 }
 
 /* 9. Fresh install + close + reopen: the second open goes through the
@@ -931,18 +962,116 @@ static int test_db_open_reopen_after_fresh(void)
     return ok ? 0 : 1;
 }
 
-/* 10. Path points inside a non-existent directory: sqlite3_open fails, no .db
- *     file ever gets created. */
+/* 10. Path points inside a non-existent directory: refused, and the message says why. */
 static int test_db_open_path_in_nonexistent_dir(void)
 {
-    char path[256];
+    char path[256], err[512], want[400];
     snprintf(path, sizeof(path), "/tmp/minimoni-nonexistent-%d/foo.db", getpid());
+    snprintf(want, sizeof(want), "db: cannot create %s: the directory it goes in does not exist",
+             path);
 
     db_t db;
-    int  rc = db_open(&db, path, 60);
-    int  refused = (rc != 0);
+    int  rc = open_capturing(&db, path, err, sizeof(err));
 
-    return refused ? 0 : 1;
+    return rc != 0 && strstr(err, want) ? 0 : 1;
+}
+
+/* A new database is readable by its owner only, and so are the -wal and -shm it opens with. */
+static int test_db_open_new_db_is_private(void)
+{
+    char path[256], wal[300], shm[300];
+    temp_db_path(path, sizeof(path));
+    cleanup_db(path);
+    snprintf(wal, sizeof(wal), "%s-wal", path);
+    snprintf(shm, sizeof(shm), "%s-shm", path);
+
+    db_t db;
+    int  ok = db_open(&db, path, 60) == 0;
+    ok = ok && mode_of(path) == 0600 && mode_of(wal) == 0600 && mode_of(shm) == 0600;
+    if (ok)
+        db_close(&db);
+    cleanup_db(path);
+
+    return ok ? 0 : 1;
+}
+
+static int test_db_open_new_db_is_private_under_any_umask(void)
+{
+    char path[256];
+    temp_db_path(path, sizeof(path));
+    cleanup_db(path);
+
+    mode_t old = umask(0);
+    db_t   db;
+    int    rc = db_open(&db, path, 60);
+    umask(old);
+    int ok = rc == 0 && mode_of(path) == 0600;
+    if (rc == 0)
+        db_close(&db);
+    cleanup_db(path);
+
+    return ok ? 0 : 1;
+}
+
+/* The database is the user's: a symlink to one not created yet is followed, and the file it names
+ * is created. */
+static int test_db_open_follows_a_symlink_to_a_new_db(void)
+{
+    char path[256], target[256];
+    temp_db_path(path, sizeof(path));
+    temp_db_path(target, sizeof(target));
+    cleanup_db(path);
+    cleanup_db(target);
+
+    db_t db;
+    int  ok = symlink(target, path) == 0 && db_open(&db, path, 60) == 0;
+    if (ok)
+        db_close(&db);
+    struct stat st;
+    ok = ok && lstat(path, &st) == 0 && S_ISLNK(st.st_mode) && mode_of(target) == 0600;
+    unlink(path);
+    cleanup_db(target);
+
+    return ok ? 0 : 1;
+}
+
+/* Every user able to write to the database could change its data. */
+static int test_db_open_warns_on_a_db_every_user_can_write(void)
+{
+    char path[256], err[512], want[400];
+    temp_db_path(path, sizeof(path));
+    cleanup_db(path);
+    snprintf(want, sizeof(want),
+             "db: %s is writable by every user on this host; run chmod o-w on it", path);
+
+    db_t db;
+    int  ok = db_open(&db, path, 60) == 0;
+    if (ok)
+        db_close(&db);
+    ok = ok && chmod(path, 0666) == 0 && open_capturing(&db, path, err, sizeof(err)) == 0;
+    if (ok)
+        db_close(&db);
+    cleanup_db(path);
+
+    return ok && strstr(err, want) ? 0 : 1;
+}
+
+static int test_db_open_no_warning_otherwise(void)
+{
+    char path[256], err[512];
+    temp_db_path(path, sizeof(path));
+    cleanup_db(path);
+
+    db_t db;
+    int  ok = db_open(&db, path, 60) == 0;
+    if (ok)
+        db_close(&db);
+    ok = ok && chmod(path, 0644) == 0 && open_capturing(&db, path, err, sizeof(err)) == 0;
+    if (ok)
+        db_close(&db);
+    cleanup_db(path);
+
+    return ok && !strstr(err, "writable") ? 0 : 1;
 }
 
 /* --- Runner --- */
@@ -1091,6 +1220,11 @@ static const test_t ALL_TESTS[] = {
     T(db_open_directory_as_path),
     T(db_open_reopen_after_fresh),
     T(db_open_path_in_nonexistent_dir),
+    T(db_open_new_db_is_private),
+    T(db_open_new_db_is_private_under_any_umask),
+    T(db_open_follows_a_symlink_to_a_new_db),
+    T(db_open_warns_on_a_db_every_user_can_write),
+    T(db_open_no_warning_otherwise),
     T(readonly_reads_an_existing_db),
     T(readonly_refuses_to_write),
     T(readonly_does_not_create),

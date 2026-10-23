@@ -205,14 +205,13 @@ To use a config file:
 minimoni serve --config /etc/minimoni/config.toml
 ```
 
-`db info` takes the path to a database file (not the config file) and prints a
-read-only report: the file size (plus any WAL/SHM sidecars), the format
-identifier (minimoni's schema version, or a hex id when the file is not a
-minimoni database), the row count with the oldest and newest timestamps and the
-time span they cover, the per-tier row distribution (or a note when the database
-uses an older schema without tiered consolidation), and a summary of the alert
-log. It opens the file read-only, so it is safe to run against the database of a
-live daemon.
+`db info` takes the path to a database file (not the config file) and prints a read-only report: the
+file size (plus any WAL/SHM sidecars), the format identifier (minimoni's schema version, or a hex id
+when the file is not a minimoni database), the row count with the oldest and newest timestamps and
+the time span they cover, the per-tier row distribution (or a note when the database uses an older
+schema without tiered consolidation), and a summary of the alert log. It opens the file read-only,
+so it is safe to run against the database of a live daemon. It needs read access to the file: for
+the database of the systemd service, under `/var/lib/minimoni`, run it with `sudo`.
 
 ## Upgrading
 
@@ -348,8 +347,10 @@ interval  = 60
 disk_path = "/"
 ```
 
-**`db`**: path to the SQLite database. Default: `./metrics.db`. For a persistent installation,
-use `/var/lib/minimoni/metrics.db` (create the directory first).
+**`db`**: path to the SQLite database. Default: `./metrics.db`. For a persistent installation, use
+`/var/lib/minimoni/metrics.db` (create the directory first). A new database is created readable by
+its owner only, so another user needs `sudo` to read it, with `db info` for instance. One that every
+user on the host can write is reported at startup, since any of them could change its data.
 
 **`interval`**: how often to collect, in seconds (integer). Range: `1` to `3600`. Default: `60`.
 Values below 1 abort with an error; values above 3600 emit a warning and clamp to 3600.
