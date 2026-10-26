@@ -71,6 +71,20 @@ static db_row_t sample_row(void)
     return r;
 }
 
+/* sample_row with swap: 256 of 1024 MB in use, as db.c's read_row works it out. */
+static db_row_t swap_row(void)
+{
+    db_row_t r = sample_row();
+    r.swap_valid = 1;
+    r.swap_total_mb = 1024.0;
+    r.swap_free_mb = 768.0;
+    r.swap_used_mb = 256.0;
+    r.swap_used_percent = 25.0;
+    r.swap_free_percent = 75.0;
+
+    return r;
+}
+
 static config_t base_cfg(void)
 {
     config_t c;
@@ -262,9 +276,10 @@ static int test_show_all_emits_every_group(void)
     db_row_t r = sample_row();
     config_t c = base_cfg();
     emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
     return (has(b, "\"load_1m\"") && has(b, "\"cpu_user_percent\"") && has(b, "\"mem_percent\"") &&
-            has(b, "\"disk_percent\"") && has(b, "\"temp\"") && has(b, "\"net_rx\"") &&
-            has(b, "\"uptime_seconds\""))
+            has(b, "\"swap_free\"") && has(b, "\"disk_percent\"") && has(b, "\"temp\"") &&
+            has(b, "\"net_rx\"") && has(b, "\"uptime_seconds\""))
                ? 0
                : 1;
 }
@@ -339,6 +354,16 @@ static int test_thresh_cpu_mem_disk_fixed(void)
             has(b, "\"thresh_disk\":[80,90]"))
                ? 0
                : 1;
+}
+
+static int test_thresh_swap_fixed(void)
+{
+    char     b[2048];
+    db_row_t r = swap_row();
+    config_t c = base_cfg();
+    emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    return has(b, "\"thresh_swap\":[80,95]") ? 0 : 1;
 }
 
 static int test_thresh_temp_from_critical(void)
@@ -641,6 +666,84 @@ static int test_units_bits_ladder(void)
     return has(b, "\"net\":{\"sym\":\"Kbps\",\"mul\":8,\"div\":1000}") ? 0 : 1;
 }
 
+/* Only the rows with swap set its magnitude. */
+static int test_units_swap_ignores_rows_without_swap(void)
+{
+    char     b[512];
+    db_row_t rows[2];
+    memset(rows, 0, sizeof(rows));
+    rows[0].swap_used_mb = rows[0].swap_free_mb = 9.0e9; /* not read: swap_valid is 0 */
+    rows[1].swap_valid = 1;
+    rows[1].swap_used_mb = rows[1].swap_free_mb = 100.0;
+    config_t c = base_cfg();
+    emit_units(b, sizeof(b), rows, 2, &c);
+
+    return has(b, "\"swap\":{\"sym\":\"MB\",\"mul\":1,\"div\":1}") ? 0 : 1;
+}
+
+/* The free line is drawn too, so it sets the magnitude when it is the larger one. */
+static int test_units_swap_free_sets_the_magnitude(void)
+{
+    char     b[512];
+    db_row_t rows[1];
+    memset(rows, 0, sizeof(rows));
+    rows[0].swap_valid = 1;
+    rows[0].swap_used_mb = 100.0;
+    rows[0].swap_free_mb = 12000.0; /* five digits */
+    config_t c = base_cfg();
+    emit_units(b, sizeof(b), rows, 1, &c);
+
+    return has(b, "\"swap\":{\"sym\":\"GB\",\"mul\":1,\"div\":1024}") ? 0 : 1;
+}
+
+static int test_units_swap_absent_without_swap(void)
+{
+    char     b[512];
+    db_row_t rows[1];
+    memset(rows, 0, sizeof(rows));
+    rows[0].mem_used_mb = 500.0;
+    config_t c = base_cfg();
+    emit_units(b, sizeof(b), rows, 1, &c);
+
+    return (has(b, "\"mem\"") && !has(b, "\"swap\"")) ? 0 : 1;
+}
+
+static int test_units_swap_skipped_in_percent(void)
+{
+    char     b[512];
+    db_row_t rows[1];
+    memset(rows, 0, sizeof(rows));
+    rows[0].swap_valid = 1;
+    rows[0].swap_used_mb = 256.0;
+    rows[0].swap_free_mb = 768.0;
+    config_t c = base_cfg();
+    strcpy(c.swap_chart_unit, "%");
+    emit_units(b, sizeof(b), rows, 1, &c);
+
+    return !has(b, "\"swap\"") ? 0 : 1;
+}
+
+static int test_largest_units_fit_their_buffer(void)
+{
+    db_row_t rows[1];
+    memset(rows, 0, sizeof(rows));
+    rows[0].mem_used_mb = rows[0].disk_used_gb = 1.0e18;
+    rows[0].swap_valid = rows[0].net_valid = 1;
+    rows[0].swap_used_mb = rows[0].swap_free_mb = rows[0].net_rx_bps = 1.0e18;
+    config_t c = base_cfg(); /* net in bytes: the longer divisor */
+
+    char   buf[JSON_UNITS_CAP];
+    jbuf_t j;
+    jbuf_init(&j, buf, sizeof(buf));
+    j.comma = 0;
+    json_serialize_units(&j, rows, 1, &c);
+
+    int widest = has(buf, "\"swap\":{\"sym\":\"TB\"") && has(buf, "\"sym\":\"PB\"") &&
+                 has(buf, "\"sym\":\"GB/s\"");
+
+    return !j.overflow && widest ? 0 : 1;
+}
+
 /* --- charts/cards echo: the three visibility states --- */
 
 static int test_charts_echo_null_by_default(void)
@@ -717,6 +820,74 @@ static int test_disk_absolute_emits_used(void)
     return (has(b, "\"disk_used\"") && has(b, "\"disk_percent\"")) ? 0 : 1;
 }
 
+/* In "%" just the free share, so a public dashboard shows no size. */
+static int test_swap_card_pct_sends_the_free_share_alone(void)
+{
+    char     b[2048];
+    db_row_t r = swap_row();
+    config_t c = base_cfg(); /* swap_card_unit defaults to "%" */
+    emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    int free_share = has(b, "\"swap_free\":75");
+    int no_size = !has(b, "\"swap_total\"") && !has(b, "\"swap_used");
+
+    return free_share && no_size ? 0 : 1;
+}
+
+/* In "auto" the total and free the kernel gives; the dashboard computes the rest. */
+static int test_swap_card_auto_sends_total_and_free(void)
+{
+    char     b[2048];
+    db_row_t r = swap_row();
+    config_t c = base_cfg();
+    strcpy(c.swap_card_unit, "auto");
+    emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    int sizes = has(b, "\"swap_total\":1024") && has(b, "\"swap_free\":768");
+    int no_used = !has(b, "\"swap_used");
+
+    return sizes && no_used ? 0 : 1;
+}
+
+/* No swap: the card stays on screen with a dash, so its fields are null, not missing. */
+static int test_swap_null_without_swap(void)
+{
+    char     pct[2048], abs[2048];
+    db_row_t r = sample_row(); /* swap_valid 0 */
+    config_t c = base_cfg();
+    emit(pct, sizeof(pct), &r, &c, 4, 1, 100.0);
+    strcpy(c.swap_card_unit, "auto");
+    emit(abs, sizeof(abs), &r, &c, 4, 1, 100.0);
+
+    int pct_null = has(pct, "\"swap_free\":null") && !has(pct, "\"swap_total\"");
+    int abs_null = has(abs, "\"swap_total\":null") && has(abs, "\"swap_free\":null");
+
+    return pct_null && abs_null ? 0 : 1;
+}
+
+static int test_swap_gated_out_by_cards(void)
+{
+    char     b[2048];
+    db_row_t r = swap_row();
+    config_t c = base_cfg();
+    only_card(&c, "memory");
+    emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    int no_swap = !has(b, "\"swap_free\"") && !has(b, "\"thresh_swap\"");
+
+    return no_swap && has(b, "\"mem_percent\"") ? 0 : 1;
+}
+
+static int test_swap_units_echoed(void)
+{
+    char     b[2048];
+    db_row_t r = swap_row();
+    config_t c = base_cfg();
+    emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    return (has(b, "\"swap_card_unit\":\"%\"") && has(b, "\"swap_chart_unit\":\"auto\"")) ? 0 : 1;
+}
+
 /* --- Serializer: history point (/api/metrics, short keys, chart units) --- */
 
 static int test_point_emits_short_keys(void)
@@ -770,8 +941,10 @@ static int test_point_hides_all_charts(void)
     config_t c = base_cfg();
     c.chart_count = -1; /* explicit empty charts list -> every chart group gated out */
     emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
-    return (!has(b, "\"l1\"") && !has(b, "\"cu\"") && !has(b, "\"mp\"") && !has(b, "\"dp\"") &&
-            !has(b, "\"tp\"") && !has(b, "\"nr\"") && has(b, "\"t\":") && has(b, "\"up\":"))
+
+    return (!has(b, "\"l1\"") && !has(b, "\"cu\"") && !has(b, "\"mp\"") && !has(b, "\"sf\"") &&
+            !has(b, "\"dp\"") && !has(b, "\"tp\"") && !has(b, "\"nr\"") && has(b, "\"t\":") &&
+            has(b, "\"up\":"))
                ? 0
                : 1;
 }
@@ -839,6 +1012,74 @@ static int test_point_mem_chart_abs_emits(void)
     return has(b, "\"mu\":") ? 0 : 1;
 }
 
+static int test_point_swap_auto_sends_total_and_free(void)
+{
+    char     b[1024];
+    db_row_t r = swap_row();
+    config_t c = base_cfg(); /* swap_chart_unit defaults to "auto" */
+    emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    return has(b, "\"st\":1024") && has(b, "\"sf\":768") ? 0 : 1;
+}
+
+static int test_point_swap_pct_sends_the_free_share_alone(void)
+{
+    char     b[1024];
+    db_row_t r = swap_row();
+    config_t c = base_cfg();
+    strcpy(c.swap_chart_unit, "%");
+    emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    return has(b, "\"sf\":75") && !has(b, "\"st\"") ? 0 : 1;
+}
+
+/* No swap: the chart stays on screen and empty. */
+static int test_point_swap_null_without_swap(void)
+{
+    char     b[1024];
+    db_row_t r = sample_row(); /* swap_valid 0 */
+    config_t c = base_cfg();
+    emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    return (has(b, "\"st\":null") && has(b, "\"sf\":null")) ? 0 : 1;
+}
+
+static int test_point_swap_gated_out_by_charts(void)
+{
+    char     b[1024];
+    db_row_t r = swap_row();
+    config_t c = base_cfg();
+    strcpy(c.charts[0], "memory");
+    c.chart_count = 1;
+    emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    return (has(b, "\"mp\":") && !has(b, "\"st\"") && !has(b, "\"sf\"")) ? 0 : 1;
+}
+
+/* Every chart in the units that send the most fields, each value at its widest. */
+static int test_largest_point_fits_its_buffer(void)
+{
+    db_row_t r = sample_row();
+    double   w = -1.797e308;
+    r.load_1m = r.load_5m = r.load_15m = w;
+    r.cpu_user_percent = r.cpu_system_percent = r.cpu_idle_percent = w;
+    r.mem_total_mb = r.mem_used_mb = r.mem_available_mb = r.mem_percent = w;
+    r.swap_valid = 1;
+    r.swap_total_mb = r.swap_free_mb = w;
+    r.disk_total_gb = r.disk_used_gb = r.disk_free_gb = r.disk_percent = w;
+    r.temp_celsius = r.net_rx_bps = r.net_tx_bps = r.uptime_seconds = w;
+    config_t c = base_cfg();
+
+    char   buf[JSON_POINT_CAP];
+    jbuf_t j;
+    jbuf_init(&j, buf, sizeof(buf));
+    jbuf_begin(&j);
+    json_serialize_point(&j, &r, &c, 1 << 20, 1, w, 1000000);
+    jbuf_end(&j);
+
+    return !j.overflow && has(buf, "\"sf\":-1.797e+308") ? 0 : 1;
+}
+
 /* --- The largest /api/current a config can produce --- */
 
 /* `n` control characters as TOML escapes, each six bytes once escaped in JSON. */
@@ -860,7 +1101,8 @@ static void largest_toml(char *out, size_t cap, const char *title, const char *c
         known++;
 
     snprintf(out, cap,
-             "[dashboard]\ntitle = \"%s\"\nmemory_card_unit = \"auto\"\ndisk_card_unit = \"auto\"\n"
+             "[dashboard]\ntitle = \"%s\"\nmemory_card_unit = \"auto\"\nswap_card_unit = \"auto\"\n"
+             "disk_card_unit = \"auto\"\n"
              "ranges = [\"000120m\", \"000120m\", \"000120m\", \"000120m\", \"000120m\", "
              "\"000120m\", \"000120m\", \"000120m\"]\ncharts = [",
              title);
@@ -899,6 +1141,8 @@ static int current_overflows(const char *toml)
     r.load_1m = r.load_5m = r.load_15m = w;
     r.cpu_user_percent = r.cpu_system_percent = r.cpu_idle_percent = w;
     r.mem_total_mb = r.mem_used_mb = r.mem_available_mb = r.mem_percent = w;
+    r.swap_valid = 1;
+    r.swap_total_mb = r.swap_free_mb = r.swap_free_percent = w;
     r.disk_total_gb = r.disk_used_gb = r.disk_free_gb = r.disk_percent = w;
     r.temp_celsius = r.net_rx_bps = r.net_tx_bps = r.uptime_seconds = w;
 
@@ -938,6 +1182,8 @@ static const test_t ALL_TESTS[] = {
     T(dropped_field_leaves_no_comma),
     T(overflow_marks_the_buffer),
     T(largest_current_fits_its_buffer),
+    T(largest_point_fits_its_buffer),
+    T(largest_units_fit_their_buffer),
     T(show_all_emits_every_group),
     T(gating_single_card),
     T(hide_all_emits_no_metrics),
@@ -945,6 +1191,7 @@ static const test_t ALL_TESTS[] = {
     T(thresh_load_abs_eight_cores),
     T(thresh_load_percent_fixed),
     T(thresh_cpu_mem_disk_fixed),
+    T(thresh_swap_fixed),
     T(thresh_temp_from_critical),
     T(thresh_temp_fallback_no_critical),
     T(temp_null_when_sensor_invalid),
@@ -970,6 +1217,10 @@ static const test_t ALL_TESTS[] = {
     T(units_step_beyond_the_base_rung),
     T(units_ignore_rows_without_a_net_delta),
     T(units_bits_ladder),
+    T(units_swap_ignores_rows_without_swap),
+    T(units_swap_free_sets_the_magnitude),
+    T(units_swap_absent_without_swap),
+    T(units_swap_skipped_in_percent),
     T(charts_echo_null_by_default),
     T(charts_echo_empty_when_hidden),
     T(charts_echo_list),
@@ -977,6 +1228,11 @@ static const test_t ALL_TESTS[] = {
     T(mem_percent_only_when_pct_unit),
     T(mem_absolute_emits_used),
     T(disk_absolute_emits_used),
+    T(swap_card_pct_sends_the_free_share_alone),
+    T(swap_card_auto_sends_total_and_free),
+    T(swap_null_without_swap),
+    T(swap_gated_out_by_cards),
+    T(swap_units_echoed),
     T(point_emits_short_keys),
     T(point_temp_shown_when_chart_enabled),
     T(point_temp_gated_out_by_charts),
@@ -988,6 +1244,10 @@ static const test_t ALL_TESTS[] = {
     T(point_net_null_when_invalid),
     T(point_mem_chart_pct_omits_abs),
     T(point_mem_chart_abs_emits),
+    T(point_swap_auto_sends_total_and_free),
+    T(point_swap_pct_sends_the_free_share_alone),
+    T(point_swap_null_without_swap),
+    T(point_swap_gated_out_by_charts),
 };
 
 int main(void) { return run_tests(ALL_TESTS, sizeof(ALL_TESTS) / sizeof(ALL_TESTS[0])); }

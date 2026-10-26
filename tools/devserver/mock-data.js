@@ -30,6 +30,7 @@ const CYCLE_PERIOD = 60; /* seconds for one good -> critical -> good sweep of th
 const SCENARIO_STRESS = { normal: 0.1, warn: 0.85, critical: 0.97 };
 
 const MEM_TOTAL_MB = 1959.0;
+const SWAP_TOTAL_MB = 1024.0;
 const DISK_TOTAL_GB = 97.9;
 const TEMP_CRITICAL_C = 105.0;
 const NET_SPEED_MBIT = 1000; /* mock link: what sysfs would report on GbE */
@@ -84,6 +85,7 @@ function band(s, ripple, lo, hi, amp = 0.0) {
 /* Base-unit metric values at stress s (0 healthy .. 1 critical). */
 function metrics(s, ripple) {
   const memPercent = Math.min(99.0, band(s, ripple, 38.0, 95.0, 2.0));
+  const swapUsedPercent = Math.min(99.0, band(s, ripple, 4.0, 99.0, 1.0));
   const diskPercent = Math.min(99.0, band(s, ripple, 8.0, 95.0, 1.0));
   const load1m = band(s, ripple, 0.35, 4.6, 0.2);
   const cpuUser = Math.min(99.0, band(s, ripple, 12.0, 95.0, 4.0));
@@ -100,6 +102,8 @@ function metrics(s, ripple) {
     mem_avail_mb: (MEM_TOTAL_MB * (100.0 - memPercent)) / 100.0,
     mem_total_mb: MEM_TOTAL_MB,
     mem_percent: memPercent,
+    swap_total_mb: SWAP_TOTAL_MB,
+    swap_free_mb: (SWAP_TOTAL_MB * (100.0 - swapUsedPercent)) / 100.0,
     disk_used_gb: (DISK_TOTAL_GB * diskPercent) / 100.0,
     disk_total_gb: DISK_TOTAL_GB,
     disk_free_gb: (DISK_TOTAL_GB * (100.0 - diskPercent)) / 100.0,

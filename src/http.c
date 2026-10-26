@@ -328,7 +328,7 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
               "{\"range\":\"%s\",\"points\":[",
               range_str);
 
-    char pt[512];
+    char pt[JSON_POINT_CAP];
     int  emitted = 0;
     for (int i = 0; i < cnt; i++) {
         jbuf_t j;
@@ -341,7 +341,7 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
         emit_part(conn, &j, &emitted, "/api/metrics point");
     }
 
-    char   tail[256];
+    char   tail[JSON_UNITS_CAP];
     jbuf_t u;
     jbuf_init(&u, tail, sizeof(tail));
     u.comma = 0;

@@ -172,7 +172,7 @@ static void unit_copy(char *dst, size_t dsize, toml_datum_t v, const char *key,
 /* --- Chart and card names --- */
 
 /* The names the dashboard draws. */
-#define CHARTS "cpu_load", "cpu_usage", "memory", "disk", "temp", "net"
+#define CHARTS "cpu_load", "cpu_usage", "memory", "swap", "disk", "temp", "net"
 static const char *const CHART_NAMES[] = {CHARTS, NULL};
 static const char *const CARD_NAMES[] = {CHARTS, "uptime", NULL};
 #undef CHARTS
@@ -213,6 +213,8 @@ static int known_name(const char *name, const char *const *known, const char *ke
 static const char *const SERVER_KEYS[] = {"listen", "max_dashboards", "sse_keepalive"};
 static const char *const COLLECT_KEYS[] = {"db", "disk_path", "interval"};
 static const char *const WEBHOOK_KEYS[] = {"ca_file", "insecure_skip_verify"};
+/* One key per line, so a new one never reflows the list. */
+/* clang-format off */
 static const char *const DASHBOARD_KEYS[] = {"cards",
                                              "charts",
                                              "cpu_load_card_unit",
@@ -227,12 +229,15 @@ static const char *const DASHBOARD_KEYS[] = {"cards",
                                              "ranges",
                                              "refresh",
                                              "show_footer",
+                                             "swap_card_unit",
+                                             "swap_chart_unit",
                                              "temp_card_unit",
                                              "temp_chart_unit",
                                              "temp_critical_fallback",
                                              "theme",
                                              "title",
                                              "uptime_unit"};
+/* clang-format on */
 static const char *const ALERT_KEYS[] = {"command",  "cooldown",  "metric", "name",
                                          "operator", "threshold", "webhook"};
 
@@ -354,6 +359,8 @@ void config_defaults(config_t *cfg)
     cfg->show_footer = 1;
     snprintf(cfg->memory_card_unit, sizeof(cfg->memory_card_unit), "%s", "%");
     snprintf(cfg->memory_chart_unit, sizeof(cfg->memory_chart_unit), "%s", "auto");
+    snprintf(cfg->swap_card_unit, sizeof(cfg->swap_card_unit), "%s", "%");
+    snprintf(cfg->swap_chart_unit, sizeof(cfg->swap_chart_unit), "%s", "auto");
     snprintf(cfg->disk_card_unit, sizeof(cfg->disk_card_unit), "%s", "%");
     snprintf(cfg->disk_chart_unit, sizeof(cfg->disk_chart_unit), "%s", "auto");
     snprintf(cfg->temp_card_unit, sizeof(cfg->temp_card_unit), "%s", "c");
@@ -518,6 +525,10 @@ int config_load(config_t *cfg, const char *path)
     v = toml_seek(root, "dashboard.memory_chart_unit");
     unit_copy(cfg->memory_chart_unit, sizeof(cfg->memory_chart_unit), v, "memory_chart_unit",
               SIZE_UNITS);
+    v = toml_seek(root, "dashboard.swap_card_unit");
+    unit_copy(cfg->swap_card_unit, sizeof(cfg->swap_card_unit), v, "swap_card_unit", SIZE_UNITS);
+    v = toml_seek(root, "dashboard.swap_chart_unit");
+    unit_copy(cfg->swap_chart_unit, sizeof(cfg->swap_chart_unit), v, "swap_chart_unit", SIZE_UNITS);
     v = toml_seek(root, "dashboard.disk_card_unit");
     unit_copy(cfg->disk_card_unit, sizeof(cfg->disk_card_unit), v, "disk_card_unit", SIZE_UNITS);
     v = toml_seek(root, "dashboard.disk_chart_unit");

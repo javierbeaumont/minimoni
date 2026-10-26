@@ -171,7 +171,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   wireCards();
   buildLegends();
   buildTabs();
-  ['g-load', 'g-cpu', 'g-mem', 'g-disk', 'g-temp', 'g-net'].forEach(attachHover);
+  ['g-load', 'g-cpu', 'g-mem', 'g-swap', 'g-disk', 'g-temp', 'g-net'].forEach(attachHover);
   /* Touch has no mouseleave: a click off the charts clears the crosshair and
    * tooltip (on-chart clicks stopPropagation, so they set the lock instead).
    * Desktop keeps its mouseleave behaviour, so this listener is touch-only. */

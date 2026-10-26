@@ -690,6 +690,39 @@ static int test_unit_magnitude_rejected(void)
                : 1;
 }
 
+static int test_swap_units_default(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[dashboard]\ntitle = \"x\"\n") != 0)
+        return 1;
+
+    return strcmp(cfg.swap_card_unit, "%") == 0 && strcmp(cfg.swap_chart_unit, "auto") == 0 ? 0 : 1;
+}
+
+static int test_swap_units_applied(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[dashboard]\nswap_card_unit = \"auto\"\nswap_chart_unit = \"%\"\n") != 0)
+        return 1;
+
+    return strcmp(cfg.swap_card_unit, "auto") == 0 && strcmp(cfg.swap_chart_unit, "%") == 0 ? 0 : 1;
+}
+
+static int test_swap_unit_invalid_warns_and_keeps_default(void)
+{
+    config_t cfg;
+    char     err[512];
+    int rc = load_cfg_err(&cfg, "[dashboard]\nswap_card_unit = \"mb\"\nswap_chart_unit = \"gb\"\n",
+                          err, sizeof(err));
+
+    int kept = strcmp(cfg.swap_card_unit, "%") == 0 && strcmp(cfg.swap_chart_unit, "auto") == 0;
+    int warned =
+        strstr(err, "config: swap_card_unit: invalid unit 'mb' (use %, auto); using default") &&
+        strstr(err, "config: swap_chart_unit: invalid unit 'gb' (use %, auto); using default");
+
+    return rc == 0 && kept && warned ? 0 : 1;
+}
+
 /* --- [server] --- */
 
 static int test_server_listen_and_max_dashboards(void)
@@ -868,6 +901,19 @@ static int test_unknown_card_name_warns_and_is_skipped(void)
                    strstr(err, "config: dashboard.cards[1]: unknown name 'uptiem'")
                ? 0
                : 1;
+}
+
+static int test_swap_is_a_chart_and_a_card(void)
+{
+    config_t cfg;
+    char     err[512];
+    int      rc = load_cfg_err(&cfg, "[dashboard]\ncharts = [\"swap\"]\ncards = [\"swap\"]\n", err,
+                               sizeof(err));
+
+    int chart = cfg.chart_count == 1 && strcmp(cfg.charts[0], "swap") == 0;
+    int card = cfg.card_count == 1 && strcmp(cfg.cards[0], "swap") == 0;
+
+    return rc == 0 && err[0] == '\0' && chart && card ? 0 : 1;
 }
 
 /* With every name skipped, the list counts as unset. */
@@ -1077,6 +1123,13 @@ static int test_keys_all_known(void)
                ? 0
                : 1;
 }
+static int test_keys_swap_units_known(void)
+{
+    const char *toml = "[dashboard]\nswap_card_unit = \"%\"\nswap_chart_unit = \"auto\"\n";
+
+    return count_unknown(toml) == 0 ? 0 : 1;
+}
+
 static int test_keys_typo_in_dashboard(void)
 {
     return count_unknown("[dashboard]\ntitel = \"x\"\n") == 1 ? 0 : 1;
@@ -1437,6 +1490,9 @@ static const test_t ALL_TESTS[] = {
     T(unit_valid_applied),
     T(unit_case_sensitive),
     T(unit_magnitude_rejected),
+    T(swap_units_default),
+    T(swap_units_applied),
+    T(swap_unit_invalid_warns_and_keeps_default),
     /* [server] */
     T(server_listen_and_max_dashboards),
     T(server_max_dashboards_below_min_aborts),
@@ -1458,6 +1514,7 @@ static const test_t ALL_TESTS[] = {
     T(unknown_chart_name_warns_and_is_skipped),
     T(unknown_card_name_warns_and_is_skipped),
     T(uptime_is_not_a_chart),
+    T(swap_is_a_chart_and_a_card),
     T(config_has_states),
     /* alerts */
     T(alert_full_entry),
@@ -1491,6 +1548,7 @@ static const test_t ALL_TESTS[] = {
     T(ca_file_ignored_while_insecure),
     /* unknown keys */
     T(keys_all_known),
+    T(keys_swap_units_known),
     T(keys_typo_in_dashboard),
     T(keys_typo_in_collect),
     T(keys_typo_in_alert),

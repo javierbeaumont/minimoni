@@ -77,6 +77,15 @@ function loadConvert(load, cores, unit) {
   return load;
 }
 
+/* The used swap and its free share, worked out from total and free as db.c's read_row does. */
+function swapUsed(m) {
+  return Math.max(m.swap_total_mb - m.swap_free_mb, 0.0);
+}
+
+function swapFreePercent(m) {
+  return m.swap_total_mb > 0 ? 100.0 - (swapUsed(m) * 100.0) / m.swap_total_mb : 100.0;
+}
+
 /* Mirror config_has(): absent list => show-all, else must contain the name. */
 function configHas(list, name) {
   return list == null || (Array.isArray(list) && list.includes(name));
@@ -90,6 +99,7 @@ function toCurrent(raw, f, fallback, netMaxSpeed = 0) {
   const cards = f.cards;
   const lu = String(f.cpu_load_card_unit);
   const mu = String(f.mem_card_unit);
+  const su = String(f.swap_card_unit);
   const du = String(f.disk_card_unit);
   const nu = String(f.net_card_unit);
   const tu = String(f.temp_card_unit);
@@ -116,6 +126,16 @@ function toCurrent(raw, f, fallback, netMaxSpeed = 0) {
     }
 
     out.mem_percent = round(m.mem_percent, 1);
+  }
+
+  if (configHas(cards, 'swap')) {
+    const has = m.swap_total_mb != null;
+    const pct = su[0] === '%';
+
+    out.swap_free = has ? (pct ? round(swapFreePercent(m), 1) : round(m.swap_free_mb, 2)) : null;
+
+    if (!pct)
+      out.swap_total = has ? round(m.swap_total_mb, 2) : null;
   }
 
   if (configHas(cards, 'disk')) {
@@ -156,6 +176,9 @@ function toCurrent(raw, f, fallback, netMaxSpeed = 0) {
 
   if (configHas(cards, 'memory'))
     out.thresh_mem = [70.0, 90.0];
+
+  if (configHas(cards, 'swap'))
+    out.thresh_swap = [80.0, 95.0];
 
   if (configHas(cards, 'disk'))
     out.thresh_disk = [80.0, 90.0];
@@ -210,13 +233,25 @@ function unitsFor(raws, f) {
 
   if (String(f.mem_chart_unit)[0] !== '%')
     out.mem = unitFor(peak(raws, 'mem_used_mb', 'mem_avail_mb'), 'mem');
+
+  if (String(f.swap_chart_unit)[0] !== '%') {
+    const withUsed = raws.map((r) => ({
+      ...r, swap_used_mb: r.swap_total_mb != null ? swapUsed(r) : null,
+    }));
+
+    out.swap = unitFor(peak(withUsed, 'swap_used_mb', 'swap_free_mb'), 'mem');
+  }
+
   if (String(f.disk_chart_unit)[0] !== '%')
     out.disk = unitFor(peak(raws, 'disk_used_gb', 'disk_free_gb'), 'disk');
+
   if (String(f.net_chart_unit)[0] !== '%') {
     out.net = unitFor(peak(withNet, 'net_rx_bps', 'net_tx_bps'),
       String(f.net_chart_unit) === 'bits' ? 'bits' : 'bytes');
   }
+
   Object.keys(out).forEach((k) => { if (!out[k]) delete out[k]; });
+
   return out;
 }
 
@@ -225,6 +260,7 @@ function toPoint(raw, f, fallback, netMaxSpeed = 0) {
   const m = raw;
   const lu = String(f.cpu_load_chart_unit);
   const mu = String(f.mem_chart_unit);
+  const su = String(f.swap_chart_unit);
   const du = String(f.disk_chart_unit);
   const nu = String(f.net_chart_unit);
   const tu = String(f.temp_chart_unit);
@@ -246,6 +282,16 @@ function toPoint(raw, f, fallback, netMaxSpeed = 0) {
   }
 
   out.mp = round(m.mem_percent, 1);
+
+  if (configHas(f.charts, 'swap')) {
+    const has = m.swap_total_mb != null;
+    const pct = su[0] === '%';
+
+    out.sf = has ? (pct ? round(swapFreePercent(m), 1) : round(m.swap_free_mb, 2)) : null;
+
+    if (!pct)
+      out.st = has ? round(m.swap_total_mb, 2) : null;
+  }
 
   if (du[0] !== '%') {
     out.du = round(m.disk_used_gb, 2);

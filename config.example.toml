@@ -19,14 +19,16 @@ disk_path = "/"
 # refresh     = 30          # SSE push interval in seconds
 # ranges      = ["1d", "7d", "30d", "90d"] # largest value sets retention; units: m/h/d
 
-# charts = ["cpu_load", "cpu_usage", "memory", "disk", "temp", "net"]
-# cards  = ["cpu_load", "cpu_usage", "memory", "disk", "temp", "net", "uptime"]
+# charts = ["cpu_load", "cpu_usage", "memory", "swap", "disk", "temp", "net"]
+# cards  = ["cpu_load", "cpu_usage", "memory", "swap", "disk", "temp", "net", "uptime"]
 # Omit to show all in default order. Set to [] to hide all. Listed order is respected.
 
 # cpu_load_card_unit     = "abs"  # status card: "%" | "abs" (% = normalized by core count)
 # cpu_load_chart_unit    = "abs"  # chart Y-axis: "%" | "abs"
 # memory_card_unit       = "%"    # status card: "%" | "auto" (auto = MB/GB/TB by capacity)
 # memory_chart_unit      = "auto" # chart Y-axis: "%" | "auto"
+# swap_card_unit         = "%"    # status card: "%" | "auto" (auto = MB/GB/TB by capacity)
+# swap_chart_unit        = "auto" # chart Y-axis: "%" | "auto"
 # disk_card_unit         = "%"    # status card: "%" | "auto" (auto = GB/TB by capacity)
 # disk_chart_unit        = "auto" # chart Y-axis: "%" | "auto"
 # temp_card_unit         = "c"    # status card: "%" | "c" | "f"

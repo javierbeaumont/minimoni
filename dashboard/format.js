@@ -84,6 +84,11 @@ function fmtUptime(s, unit) {
   return 'up ' + m + 'm';
 }
 
+/* Total minus free, never below 0; null when either is missing. */
+function usedOf(total, free) {
+  return total == null || free == null ? null : Math.max(total - free, 0);
+}
+
 /* `u` is a served unit: {sym, mul, div}. */
 function scaleTo(v, u) {
   return v == null || !u ? v : (v * u.mul) / u.div;
@@ -185,6 +190,7 @@ if (typeof module !== 'undefined' && module.exports) {
     fmtX: fmtX,
     fmtXFull: fmtXFull,
     fmtUptime: fmtUptime,
+    usedOf: usedOf,
     scaleTo: scaleTo,
     fmtScaled: fmtScaled,
     fmtUnit: fmtUnit,

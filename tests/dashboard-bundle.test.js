@@ -96,3 +96,71 @@ test('refreshLockedIdx pins the closest point and drops stale locks', () => {
   assert.strictEqual(run('lockedIdx'), null);
   assert.strictEqual(run('lockedTs = null; refreshLockedIdx(); lockedIdx'), null);
 });
+
+/* --- What each chart and card needs, across the files --- */
+
+const read = (f) => fs.readFileSync(path.join(dash, f), 'utf8');
+const css = read('style.css');
+
+test('every chart and card the server knows has its element', () => {
+  const config = fs.readFileSync(path.join(__dirname, '..', 'src', 'config.c'), 'utf8');
+  const charts = [...config.match(/#define CHARTS (.*)/)[1].matchAll(/"(\w+)"/g)].map((m) => m[1]);
+  const cards = read('cards.js');
+  const ids = (map) => Object.fromEntries(
+    [...cards.match(new RegExp(`const ${map} = \\{([^}]*)\\}`))[1]
+      .matchAll(/(\w+):\s*'([\w-]+)'/g)].map((m) => [m[1], m[2]]));
+  const boxes = ids('CHART_BOX');
+  const order = ids('CARD_ORDER');
+
+  assert.deepStrictEqual(Object.keys(boxes), charts);
+  assert.deepStrictEqual(Object.keys(order), [...charts, 'uptime']);
+
+  for (const id of [...Object.values(boxes), ...Object.values(order)])
+    assert.ok(html.includes(`id="${id}"`), `index.html has no #${id}`);
+});
+
+/* Like memory and disk: used and free, each with its legend entry. */
+test('the swap chart draws used and free', () => {
+  const legend = html.match(/<div class="legend" id="leg-g-swap"[^>]*>([\s\S]*?)<\/div>/);
+
+  assert.ok(legend, 'the swap chart has no legend');
+  assert.deepStrictEqual([...legend[1].matchAll(/<\/span>(\w+)<\/span>/g)].map((m) => m[1]),
+    ['used', 'free']);
+  assert.ok(read('chart.js').includes("k: 'swap-free'"), 'chart.js draws no free swap line');
+});
+
+test('every chart legend has one hidden flag per series', () => {
+  const hidden = vm.runInContext('seriesHidden', ctx);
+  const legends = [...html.matchAll(
+    /<div class="legend" id="leg-([\w-]+)" data-chart="([\w-]+)">([\s\S]*?)<\/div>/g)];
+
+  assert.ok(legends.length > 0);
+
+  for (const [, id, chart, body] of legends) {
+    assert.strictEqual(id, chart);
+    assert.ok(Array.isArray(hidden[chart]), `chart.js seriesHidden misses ${chart}`);
+    assert.strictEqual(hidden[chart].length, body.split('class="leg-item"').length - 1, chart);
+  }
+
+  assert.strictEqual(Object.keys(hidden).length, legends.length,
+    'a seriesHidden entry has no legend');
+});
+
+test('every chart canvas gets the hover', () => {
+  const hover = read('app.js').match(/\[([^\]]*)\]\.forEach\(attachHover\)/)[1];
+
+  for (const [, id] of html.matchAll(/<canvas id="(g-[\w-]+)"/g))
+    assert.ok(hover.includes(`'${id}'`), `app.js attaches no hover to ${id}`);
+});
+
+test('every series a chart draws has its tooltip dot', () => {
+  for (const [, k] of read('chart.js').matchAll(/\bk: '([\w-]+)'/g))
+    assert.ok(css.includes(`\n.tt-dot--${k} {`), `style.css misses .tt-dot--${k}`);
+});
+
+test('every series colour class in index.html has its rule', () => {
+  const classes = [...html.matchAll(/class="([^"]+)"/g)].flatMap((m) => m[1].split(/\s+/));
+
+  for (const c of new Set(classes.filter((n) => n.startsWith('s-'))))
+    assert.ok(css.includes(`\n.${c} {`), `style.css misses .${c}`);
+});

@@ -219,6 +219,7 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
 {
     const char *lu = cfg->cpu_load_card_unit;
     const char *mu = cfg->memory_card_unit;
+    const char *su = cfg->swap_card_unit;
     const char *du = cfg->disk_card_unit;
     const char *nu = cfg->net_card_unit;
     double      nref = net_ref_bps(cfg->net_max_speed, detected_speed_mbit);
@@ -257,6 +258,23 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
         jbuf_real(j, "mem_percent", r->mem_percent);
     }
 
+    /* Only what the unit needs: in "%" just the free share, so a public dashboard shows no size */
+    if (config_has(cfg->cards, cfg->card_count, "swap")) {
+        int pct = su[0] == '%';
+
+        if (r->swap_valid)
+            jbuf_real(j, "swap_free", pct ? r->swap_free_percent : r->swap_free_mb);
+        else
+            jbuf_null(j, "swap_free");
+
+        if (!pct) {
+            if (r->swap_valid)
+                jbuf_real(j, "swap_total", r->swap_total_mb);
+            else
+                jbuf_null(j, "swap_total");
+        }
+    }
+
     if (config_has(cfg->cards, cfg->card_count, "disk")) {
         if (du[0] != '%') {
             jbuf_real(j, "disk_used", r->disk_used_gb);
@@ -288,6 +306,8 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
 
     jbuf_str(j, "mem_card_unit", cfg->memory_card_unit);
     jbuf_str(j, "mem_chart_unit", cfg->memory_chart_unit);
+    jbuf_str(j, "swap_card_unit", cfg->swap_card_unit);
+    jbuf_str(j, "swap_chart_unit", cfg->swap_chart_unit);
     jbuf_str(j, "disk_card_unit", cfg->disk_card_unit);
     jbuf_str(j, "disk_chart_unit", cfg->disk_chart_unit);
     jbuf_str(j, "temp_card_unit", cfg->temp_card_unit);
@@ -346,6 +366,7 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
      *   load : [0.75*cores, 1.0*cores] for abs; [70, 90] for %
      *   cpu  : [70, 90]   (always %)
      *   mem  : [70, 90]   (compared against mem_percent)
+     *   swap : [80, 95]   (compared against the used share)
      *   disk : [80, 90]   (compared against disk_percent)
      *   temp : [trip-20, trip-10] converted to the card unit; [70, 80] fallback
      *   net  : [85%, 98%] of the link ceiling, converted to the card unit */
@@ -364,6 +385,8 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
         jbuf_pair(j, "thresh_cpu", 70.0, 90.0);
     if (config_has(cfg->cards, cfg->card_count, "memory"))
         jbuf_pair(j, "thresh_mem", 70.0, 90.0);
+    if (config_has(cfg->cards, cfg->card_count, "swap"))
+        jbuf_pair(j, "thresh_swap", 80.0, 95.0);
     if (config_has(cfg->cards, cfg->card_count, "disk"))
         jbuf_pair(j, "thresh_disk", 80.0, 90.0);
     if (config_has(cfg->cards, cfg->card_count, "temp")) {
@@ -405,10 +428,12 @@ static void unit_entry(jbuf_t *j, const char *key, double max, const char *const
 
 void json_serialize_units(jbuf_t *j, const db_row_t *rows, int cnt, const config_t *cfg)
 {
-    double mem = 0.0, disk = 0.0, net = 0.0;
+    double mem = 0.0, swap = 0.0, disk = 0.0, net = 0.0;
 
     for (int i = 0; i < cnt; i++) {
         mem = max2(mem, max2(rows[i].mem_used_mb, rows[i].mem_available_mb));
+        if (rows[i].swap_valid)
+            swap = max2(swap, max2(rows[i].swap_used_mb, rows[i].swap_free_mb));
         disk = max2(disk, max2(rows[i].disk_used_gb, rows[i].disk_free_gb));
         if (rows[i].net_valid)
             net = max2(net, max2(rows[i].net_rx_bps, rows[i].net_tx_bps));
@@ -419,6 +444,8 @@ void json_serialize_units(jbuf_t *j, const db_row_t *rows, int cnt, const config
     j->comma = 0; /* nested object: the first entry takes no leading comma */
     if (cfg->memory_chart_unit[0] != '%')
         unit_entry(j, "mem", mem, MEM_LADDER, 3, 1.0, 1024.0, 0);
+    if (cfg->swap_chart_unit[0] != '%')
+        unit_entry(j, "swap", swap, MEM_LADDER, 3, 1.0, 1024.0, 0);
     if (cfg->disk_chart_unit[0] != '%')
         unit_entry(j, "disk", disk, DISK_LADDER, 3, 1.0, 1024.0, 0);
     if (cfg->net_chart_unit[0] != '%') {
@@ -435,6 +462,7 @@ void json_serialize_point(jbuf_t *j, const db_row_t *r, const config_t *cfg, int
 {
     const char *lu = cfg->cpu_load_chart_unit;
     const char *mu = cfg->memory_chart_unit;
+    const char *su = cfg->swap_chart_unit;
     const char *du = cfg->disk_chart_unit;
     const char *nu = cfg->net_chart_unit;
     double      tref = temp_ref(temp_critical_valid, temp_critical, cfg->temp_critical_fallback);
@@ -468,6 +496,22 @@ void json_serialize_point(jbuf_t *j, const db_row_t *r, const config_t *cfg, int
             jbuf_real(j, "mt", r->mem_total_mb);
         }
         jbuf_real(j, "mp", r->mem_percent);
+    }
+
+    if (config_has(cfg->charts, cfg->chart_count, "swap")) {
+        int pct = su[0] == '%';
+
+        if (r->swap_valid)
+            jbuf_real(j, "sf", pct ? r->swap_free_percent : r->swap_free_mb);
+        else
+            jbuf_null(j, "sf");
+
+        if (!pct) {
+            if (r->swap_valid)
+                jbuf_real(j, "st", r->swap_total_mb);
+            else
+                jbuf_null(j, "st");
+        }
     }
 
     if (config_has(cfg->charts, cfg->chart_count, "disk")) {

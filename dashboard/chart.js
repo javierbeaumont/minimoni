@@ -24,7 +24,7 @@
  * globals app.js owns and the config globals cards.js owns; the pointer layer on
  * top lives in hover.js. bundle.sh inlines format.js, this, hover.js, cards.js,
  * then app.js (one shared global scope). */
-/* global fmtY, fmtTip, fmtX, fmtScaled, scaleTo, niceTicks, timeTicks, srvUnits */
+/* global fmtY, fmtTip, fmtX, fmtScaled, scaleTo, usedOf, niceTicks, timeTicks, srvUnits */
 /* global THRESH, cfgCardUnits, cfgChartUnits, cfgVisCharts, pts */
 /* global refreshLockedIdx, scheduleHoverDraw, lockedIdx */
 /* exported renderAll, buildLegends, invalidateCssCache, drawChart, chartCache */
@@ -55,6 +55,8 @@ const CLR = {
   sys:      cssv('--clr-cpu-sys'),
   mem:      cssv('--clr-mem-used'),
   memAvail: cssv('--clr-mem-avail'),
+  swap:     cssv('--clr-swap-used'),
+  swapFree: cssv('--clr-swap-free'),
   disk:     cssv('--clr-disk-used'),
   diskFree: cssv('--clr-disk-free'),
   temp:     cssv('--clr-temp'),
@@ -71,6 +73,7 @@ const seriesHidden = {
   'g-load': [false, false, false],
   'g-cpu':  [false, false],
   'g-mem':  [false, false],
+  'g-swap': [false, false],
   'g-disk': [false, false],
   'g-net':  [false, false],
 };
@@ -243,24 +246,31 @@ function renderAll() {
   function chartVisible(name, fieldKey, boxId) {
     const excluded = cfgVisCharts !== null && cfgVisCharts.indexOf(name) === -1;
     const el = document.getElementById(boxId);
+
     if (pts.length === 0) {
       if (excluded) {
         if (el) el.classList.add('hide');
         delete chartCache[boxId.replace('b-', 'g-')];
+
         return false;
       }
+
       return !(el && el.classList.contains('hide'));
     }
+
     const present = fieldKey in pts[0];
     const visible = !excluded && present;
+
     if (el) el.classList.toggle('hide', !visible);
     if (!visible) delete chartCache[boxId.replace('b-', 'g-')];
+
     return visible;
   }
 
   /* A metric with nothing to scale gets no unit, hence the guards below. */
-  const memU = srvUnits.mem, diskU = srvUnits.disk, netU = srvUnits.net;
+  const memU = srvUnits.mem, swapU = srvUnits.swap, diskU = srvUnits.disk, netU = srvUnits.net;
   const memUL  = cfgChartUnits.mem === '%' ? '%' : memU && memU.sym;
+  const swpUL  = cfgChartUnits.swap === '%' ? '%' : swapU && swapU.sym;
   const dskUL  = cfgChartUnits.disk === '%' ? '%' : diskU && diskU.sym;
   const tmpSym = cfgChartUnits.temp[0] === 'f' ? '°F'
              : cfgChartUnits.temp[0] === '%' ? '%' : '°C';
@@ -278,6 +288,7 @@ function renderAll() {
      * percent mode has a unit to show. */
     document.getElementById('b-load').querySelector('.ctitle').textContent =
       cfgChartUnits.load === '%' ? 'CPU Load (%)' : 'CPU Load';
+
     drawChart('g-load', [
       { c: CLR.load1,  k: 'load1',  v: pts.map((p) => { return p.l1;  }), label: '1m'  },
       { c: CLR.load5,  k: 'load5',  v: pts.map((p) => { return p.l5;  }), label: '5m'  },
@@ -287,6 +298,7 @@ function renderAll() {
 
   if (chartVisible('cpu_usage', 'cu', 'b-cpu')) {
     document.getElementById('b-cpu').querySelector('.ctitle').textContent = 'CPU Usage (%)';
+
     drawChart('g-cpu', [
       { c: CLR.user, k: 'cpu-user', v: pts.map((p) => p.cu), label: 'user' },
       { c: CLR.sys,  k: 'cpu-sys',  v: pts.map((p) => p.cs), label: 'system' },
@@ -297,11 +309,13 @@ function renderAll() {
   if (chartVisible('memory', 'mp', 'b-mem')) {
     document.getElementById('b-mem').querySelector('.ctitle').textContent =
       'Memory (' + memUL + ')';
+
     const memIsPct = cfgChartUnits.mem === '%';
     const memOpts  = { yMin: 0, ts: ts, unit: memIsPct ? '%' : null };
     if (memIsPct) memOpts.thresh = THRESH.mem;
     /* Tooltip suffix so a "512" reading does not strand the user on MB vs GB. */
     if (!memIsPct) memOpts.fmtFn = (v) => fmtTip(v, null) + ' ' + memUL;
+
     drawChart('g-mem', [
       {
         c: CLR.mem, k: 'mem-used', label: 'used',
@@ -314,13 +328,38 @@ function renderAll() {
     ].filter((_, i) => !seriesHidden['g-mem'][i]), memOpts);
   }
 
+  /* A swap point has the free swap (sf) in the chart unit, % or MB, plus the total (st) in MB. */
+  if (chartVisible('swap', 'sf', 'b-swap')) {
+    document.getElementById('b-swap').querySelector('.ctitle').textContent =
+      swpUL ? 'Swap (' + swpUL + ')' : 'Swap';
+
+    const swapIsPct = cfgChartUnits.swap === '%';
+    const swapOpts = { yMin: 0, ts: ts, unit: swapIsPct ? '%' : null };
+    if (swapIsPct) swapOpts.thresh = THRESH.swap;
+    if (!swapIsPct) swapOpts.fmtFn = (v) => fmtTip(v, null) + ' ' + swpUL;
+
+    const swapScale = swapIsPct ? null : swapU; /* in "%" nothing to scale */
+    drawChart('g-swap', [
+      {
+        c: CLR.swap, k: 'swap-used', label: 'used',
+        v: pts.map((p) => scaleTo(usedOf(swapIsPct ? 100 : p.st, p.sf), swapScale)),
+      },
+      {
+        c: CLR.swapFree, k: 'swap-free', label: 'free',
+        v: pts.map((p) => scaleTo(p.sf, swapScale)),
+      },
+    ].filter((_, i) => !seriesHidden['g-swap'][i]), swapOpts);
+  }
+
   if (chartVisible('disk', 'dp', 'b-disk')) {
     document.getElementById('b-disk').querySelector('.ctitle').textContent =
       'Disk (' + dskUL + ')';
+
     const diskIsPct = cfgChartUnits.disk === '%';
     const diskOpts  = { yMin: 0, ts: ts, unit: diskIsPct ? '%' : null };
     if (diskIsPct) diskOpts.thresh = THRESH.disk;
     if (!diskIsPct) diskOpts.fmtFn = (v) => fmtTip(v, null) + ' ' + dskUL;
+
     drawChart('g-disk', [
       {
         c: CLR.disk, k: 'disk-used', label: 'used',
@@ -336,6 +375,7 @@ function renderAll() {
   if (chartVisible('temp', 'tp', 'b-temp')) {
     document.getElementById('b-temp').querySelector('.ctitle').textContent =
       'Temperature (' + tmpSym + ')';
+
     const tempUnitsMatch = (cfgChartUnits.temp || 'c')[0] === (cfgCardUnits.temp || 'c')[0];
     const tempOpts = {
       yMin: 0,
@@ -345,6 +385,7 @@ function renderAll() {
       fmtFn: (v) => v.toFixed(1) + tmpSym,
     };
     if (tempUnitsMatch) tempOpts.thresh = THRESH.temp;
+
     drawChart('g-temp',
       [{ c: CLR.temp, k: 'temp', v: pts.map((p) => p.tp), label: 'temperature' }],
       tempOpts);
@@ -353,6 +394,7 @@ function renderAll() {
   if (chartVisible('net', 'nr', 'b-net')) {
     document.getElementById('b-net').querySelector('.ctitle').textContent =
       'Network (' + netUL + ')';
+
     /* Thresholds arrive in CARD units: they only apply if the chart shares it. */
     const netIsPct      = cfgChartUnits.net === '%';
     const netUnitsMatch = cfgChartUnits.net === cfgCardUnits.net;
@@ -364,6 +406,7 @@ function renderAll() {
     if (netUnitsMatch && THRESH.net) {
       netOpts.thresh = netIsPct ? THRESH.net : THRESH.net.map((t) => scaleTo(t, netU));
     }
+
     drawChart('g-net', [
       { c: CLR.tx, k: 'net-tx', v: pts.map((p) => (netIsPct ? p.nt : scaleTo(p.nt, netU))), label: 'upload' },
       { c: CLR.rx, k: 'net-rx', v: pts.map((p) => (netIsPct ? p.nr : scaleTo(p.nr, netU))), label: 'download' },

@@ -40,6 +40,12 @@ typedef struct {
 /* /api/current and each /stream frame; the largest valid config must fit. */
 #define JSON_CURRENT_CAP 4096
 
+/* One /api/metrics point; the widest values of every chart must fit. */
+#define JSON_POINT_CAP 512
+
+/* The units at the end of /api/metrics; every magnitude at the top of its ladder must fit. */
+#define JSON_UNITS_CAP 256
+
 void jbuf_init(jbuf_t *j, char *buf, size_t cap);
 void jbuf_raw(jbuf_t *j, const char *s);
 void jbuf_sep(jbuf_t *j);
@@ -72,9 +78,8 @@ void json_serialize_units(jbuf_t *j, const db_row_t *rows, int cnt, const config
 void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, int num_cores,
                             int temp_critical_valid, double temp_critical, int detected_speed_mbit);
 
-/* Serialize one history point (for /api/metrics) into `j` using the configured
- * chart units and short keys. Only the temperature series is gated server-side
- * (it may lack a sensor); other charts are shown or hidden by the dashboard. */
+/* Serialize one history point (for /api/metrics) into `j` using the configured chart units and
+ * short keys; a chart that is not configured sends no fields. */
 void json_serialize_point(jbuf_t *j, const db_row_t *r, const config_t *cfg, int num_cores,
                           int temp_critical_valid, double temp_critical, int detected_speed_mbit);
 

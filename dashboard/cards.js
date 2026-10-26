@@ -23,7 +23,7 @@
  * also applies server config: units, thresholds, visibility, title/theme/footer).
  * Owns the config state (written here, read by chart.js/app.js via globals).
  * bundle.sh inlines format.js, chart.js, this, then app.js (one shared scope). */
-/* global fmtUptime, fmtTempVal, cardLevel, pairLevel, fmtUnit, srvUnits */
+/* global fmtUptime, fmtTempVal, cardLevel, pairLevel, fmtUnit, usedOf, srvUnits */
 /* global buildTabs */
 /* exported updateCards, wireCards, replayCards, THRESH, cfgCardUnits, cfgChartUnits, cfgVisCharts, cfgRanges */
 
@@ -32,14 +32,15 @@
 const THRESH = {
   cpu:  [70, 90],
   mem:  [70, 90],
+  swap: [80, 95],
   disk: [80, 90],
   load: [3, 4],    /* abs fallback = [0.75x4, 1.0x4], 4 cores assumed */
   temp: [70, 80],  /* degC fallback when no sysfs trip point */
 };
 
 /* Units read from server config; sensible defaults until first /current */
-const cfgCardUnits  = { mem: '%',  disk: '%',  temp: 'c', net: 'kb', load: 'abs' };
-const cfgChartUnits = { mem: 'mb', disk: 'gb', temp: 'c', net: 'kb', load: 'abs' };
+const cfgCardUnits  = { mem: '%',  swap: '%',    disk: '%',  temp: 'c', net: 'kb', load: 'abs' };
+const cfgChartUnits = { mem: 'mb', swap: 'auto', disk: 'gb', temp: 'c', net: 'kb', load: 'abs' };
 let cfgUptimeUnit = 'auto';
 let cfgRanges     = ['1d', '7d', '30d', '90d'];
 /* Three-state visibility: null = show all, [] = hide all, [...] = listed only */
@@ -49,7 +50,7 @@ let cfgVisCards   = null;
 /* Which sub-metric is shown as the primary value in each card, as a 0-based
  * index into that card's series (load has three, the others two); toggled by
  * clicking a sub-value. */
-const cardPrimary  = { load: 0, cpu: 0, mem: 0, disk: 0, net: 0 };
+const cardPrimary  = { load: 0, cpu: 0, mem: 0, swap: 0, disk: 0, net: 0 };
 let lastCurrent  = null;    /* last /current snapshot; replayed on swapCard */
 
 /* --- Card helpers --- */
@@ -123,10 +124,13 @@ function updateNumericCard(cardId, primaryKey, values, fmt, cardLvl, subLvl) {
 
 function updateCards(d) {
   if (!d) return;
+
   lastCurrent = d;
 
   if (d.mem_card_unit)       cfgCardUnits.mem   = d.mem_card_unit;
   if (d.mem_chart_unit)      cfgChartUnits.mem  = d.mem_chart_unit;
+  if (d.swap_card_unit)      cfgCardUnits.swap  = d.swap_card_unit;
+  if (d.swap_chart_unit)     cfgChartUnits.swap = d.swap_chart_unit;
   if (d.disk_card_unit)      cfgCardUnits.disk  = d.disk_card_unit;
   if (d.disk_chart_unit)     cfgChartUnits.disk = d.disk_chart_unit;
   if (d.temp_card_unit)      cfgCardUnits.temp  = d.temp_card_unit;
@@ -139,6 +143,7 @@ function updateCards(d) {
   if (d.thresh_load) THRESH.load = d.thresh_load;
   if (d.thresh_cpu)  THRESH.cpu  = d.thresh_cpu;
   if (d.thresh_mem)  THRESH.mem  = d.thresh_mem;
+  if (d.thresh_swap) THRESH.swap = d.thresh_swap;
   if (d.thresh_disk) THRESH.disk = d.thresh_disk;
   if (d.thresh_temp) THRESH.temp = d.thresh_temp;
   if (d.thresh_net)  THRESH.net  = d.thresh_net;
@@ -148,10 +153,12 @@ function updateCards(d) {
     document.title = d.title;
     document.getElementById('ttl').textContent = d.title;
   }
+
   if (d.show_footer !== undefined) {
     const ftr = document.getElementById('ftr');
     ftr.classList.toggle('hide', !d.show_footer);
   }
+
   /* When theme is fixed server-side, apply it and hide the toggle button */
   if (d.theme && d.theme !== 'auto') {
     document.documentElement.dataset.theme = d.theme;
@@ -169,18 +176,23 @@ function updateCards(d) {
   /* Chart visibility & ordering */
   if (d.charts !== undefined) {
     cfgVisCharts = d.charts === null ? null : d.charts;
+
     const CHART_BOX = {
       cpu_load:  'b-load',
       cpu_usage: 'b-cpu',
       memory:    'b-mem',
+      swap:      'b-swap',
       disk:      'b-disk',
       temp:      'b-temp',
       net:       'b-net',
     };
+
     Object.keys(CHART_BOX).forEach((nm) => {
       const el  = document.getElementById(CHART_BOX[nm]);
       if (!el) return;
+
       const idx = cfgVisCharts !== null ? cfgVisCharts.indexOf(nm) : -1;
+
       /* Hide when excluded; CSS order drives the configured sequence */
       el.classList.toggle('hide', cfgVisCharts !== null && idx === -1);
       el.style.order = (cfgVisCharts !== null && idx !== -1) ? idx : '';
@@ -191,19 +203,24 @@ function updateCards(d) {
    * on every tick the payload carries `d.cards`, and only sets flex `order`. */
   if (d.cards !== undefined) {
     cfgVisCards = d.cards === null ? null : d.cards;
+
     const CARD_ORDER = {
       cpu_load:  'c-load',
       cpu_usage: 'c-cpu',
       memory:    'c-mem',
+      swap:      'c-swap',
       disk:      'c-disk',
       temp:      'c-temp',
       net:       'c-net',
       uptime:    'upt',
     };
+
     Object.keys(CARD_ORDER).forEach((nm) => {
       const el  = document.getElementById(CARD_ORDER[nm]);
       if (!el) return;
+
       const idx = cfgVisCards !== null ? cfgVisCards.indexOf(nm) : -1;
+
       el.style.order = (idx !== -1) ? idx : '';
     });
   }
@@ -216,14 +233,17 @@ function updateCards(d) {
     ['c-load', 'cpu_load',  'load_1m'],
     ['c-cpu',  'cpu_usage', 'cpu_user_percent'],
     ['c-mem',  'memory',    'mem_percent'],
+    ['c-swap', 'swap',      'swap_free'],
     ['c-disk', 'disk',      'disk_percent'],
     ['c-temp', 'temp',      'temp'],
     ['c-net',  'net',       'net_rx'],
   ].forEach((c) => {
     const el = document.getElementById(c[0]);
     if (!el) return;
+
     const excluded = cfgVisCards !== null && cfgVisCards.indexOf(c[1]) === -1;
     const present  = c[2] in d;
+
     el.classList.toggle('hide', excluded || !present);
   });
 
@@ -232,6 +252,7 @@ function updateCards(d) {
     const loadFmt = cfgCardUnits.load === '%'
       ? (v) => v.toFixed(1) + '%'
       : (v) => v.toFixed(2);
+
     updateNumericCard('c-load', 'load',
       [d.load_1m, d.load_5m, d.load_15m], loadFmt,
       cardLevel(d.load_1m, THRESH.load),
@@ -241,6 +262,7 @@ function updateCards(d) {
   /* CPU Usage: card and each sub coloured by its own value vs the cpu threshold */
   if ('cpu_user_percent' in d) {
     const pctFmt = (v) => v.toFixed(1) + '%';
+
     updateNumericCard('c-cpu', 'cpu',
       [d.cpu_user_percent, d.cpu_system_percent], pctFmt,
       cardLevel(d.cpu_user_percent, THRESH.cpu),
@@ -252,12 +274,30 @@ function updateCards(d) {
     const memFmt = cfgCardUnits.mem !== '%'
       ? (v) => fmtUnit(v, srvUnits.mem)
       : (v) => v.toFixed(1) + '%';
+
     const memAuto = cfgCardUnits.mem !== '%';
     const memV = memAuto
       ? [d.mem_used, d.mem_available]
       : [d.mem_percent, d.mem_percent != null ? 100 - d.mem_percent : null];
     const memLvl = cardLevel(d.mem_percent, THRESH.mem);
+
     updateNumericCard('c-mem', 'mem', memV, memFmt, memLvl, memLvl);
+  }
+
+  /* Swap: used and free like memory, both coloured by the level of the used share. swap_free comes
+   * in the card unit, % or MB, with swap_total in MB; the used part is computed here. */
+  if ('swap_free' in d) {
+    const swapAuto = cfgCardUnits.swap !== '%';
+    const swapFmt = swapAuto
+      ? (v) => fmtUnit(v, srvUnits.swap)
+      : (v) => v.toFixed(1) + '%';
+
+    const swapTotal = swapAuto ? d.swap_total : 100;
+    const swapUsed = usedOf(swapTotal, d.swap_free);
+    const swapUsedPct = swapUsed != null && swapTotal > 0 ? (swapUsed * 100) / swapTotal : null;
+    const swapLvl = cardLevel(swapUsedPct, THRESH.swap);
+
+    updateNumericCard('c-swap', 'swap', [swapUsed, d.swap_free], swapFmt, swapLvl, swapLvl);
   }
 
   /* Disk: same shape as memory */
@@ -265,11 +305,13 @@ function updateCards(d) {
     const diskFmt = cfgCardUnits.disk !== '%'
       ? (v) => fmtUnit(v, srvUnits.disk)
       : (v) => v.toFixed(1) + '%';
+
     const diskAuto = cfgCardUnits.disk !== '%';
     const diskV = diskAuto
       ? [d.disk_used, d.disk_free]
       : [d.disk_percent, d.disk_percent != null ? 100 - d.disk_percent : null];
     const diskLvl = cardLevel(d.disk_percent, THRESH.disk);
+
     updateNumericCard('c-disk', 'disk', diskV, diskFmt, diskLvl, diskLvl);
   }
 
@@ -279,9 +321,11 @@ function updateCards(d) {
   if ('temp' in d && (cfgVisCards === null || cfgVisCards.indexOf('temp') !== -1)) {
     const tc      = document.getElementById('c-temp');
     const tempLvl = cardLevel(d.temp, THRESH.temp);
+
     tc.querySelector('.cval').textContent = fmtTempVal(d.temp, cfgCardUnits.temp);
     tc.className = 'card' + (tempLvl ? ' ' + tempLvl : '');
   }
+
   /* Network: netV[0]=tx, netV[1]=rx, matching the HTML card-sub order. Both
    * may be null on the first collect before a delta exists (rendered as the
    * dash). Values and thresholds stay in base bytes/s here; only the formatter
@@ -290,6 +334,7 @@ function updateCards(d) {
     const netFmt = cfgCardUnits.net === '%'
       ? (v) => (v == null ? '—' : v.toFixed(1) + '%')
       : (v) => fmtUnit(v, srvUnits.net);
+
     updateNumericCard('c-net', 'net', [d.net_tx, d.net_rx], netFmt,
       pairLevel(d.net_tx, d.net_rx, THRESH.net), (v) => cardLevel(v, THRESH.net));
   }

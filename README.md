@@ -7,7 +7,7 @@
 [![Latest release][b-rel]][rel]
 [![License: GPLv3][b-lic]][lic]
 
-Zero-dependency system monitoring in a single C binary. Collects CPU, memory, disk,
+Zero-dependency system monitoring in a single C binary. Collects CPU, memory, swap, disk,
 temperature, and network metrics into SQLite and serves an interactive canvas dashboard.
 
 Try the [live demo][demo]: a Raspberry Pi 3B monitoring itself.
@@ -16,7 +16,7 @@ Designed for resource-constrained Linux systems (small VPS, single-board compute
 and homelab servers) where every MB counts.
 
 - Single static binary (~1.2 MB), zero runtime dependencies, no package manager
-- CPU load and usage, memory, disk, temperature, network throughput, and uptime
+- CPU load and usage, memory, swap, disk, temperature, network throughput, and uptime
 - Interactive canvas dashboard, responsive, accessible, dark/light theme, live updates via SSE
 - SQLite storage with configurable retention
 - Webhook and command alerts with per-alert cooldown
@@ -414,13 +414,15 @@ refresh      = 30          # SSE push interval in seconds (default: 30)
 
 ranges = ["1d", "7d", "30d", "90d"] # time range tabs; largest sets retention
 
-charts = ["cpu_load", "cpu_usage", "memory", "disk", "temp", "net"]
-cards  = ["cpu_load", "cpu_usage", "memory", "disk", "temp", "net", "uptime"]
+charts = ["cpu_load", "cpu_usage", "memory", "swap", "disk", "temp", "net"]
+cards  = ["cpu_load", "cpu_usage", "memory", "swap", "disk", "temp", "net", "uptime"]
 
 cpu_load_card_unit     = "abs"  # status card: "%" | "abs" (% = normalized by core count)
 cpu_load_chart_unit    = "abs"  # chart Y-axis: "%" | "abs"
 memory_card_unit       = "%"    # status card: "%" | "auto"
 memory_chart_unit      = "auto" # chart Y-axis: "%" | "auto"
+swap_card_unit         = "%"    # status card: "%" | "auto"
+swap_chart_unit        = "auto" # chart Y-axis: "%" | "auto"
 disk_card_unit         = "%"    # status card: "%" | "auto"
 disk_chart_unit        = "auto" # chart Y-axis: "%" | "auto"
 temp_card_unit         = "c"    # status card: "%" | "c" | "f"
@@ -450,16 +452,14 @@ hidden. `"auto"` (default) follows the OS preference and shows the toggle.
 metrics are shown in the default order. Set to `[]` to hide everything. Set to a list to show only
 those metrics in the listed order, e.g. `charts = ["memory", "disk"]` shows only those two charts,
 with Memory first. A name not in the example above (`uptime` is a card only) is reported at startup
-and skipped; if none is left, the list counts as not set. API endpoints always return all collected
-metrics; these lists only control what the dashboard renders. Temperature is the exception (see
-below).
+and skipped; if none is left, the list counts as not set. The API follows the same lists:
+`/api/current` and `/stream` send only the fields of the listed cards, `/api/metrics` only those of
+the listed charts (plus each point's time and uptime). Every metric is still collected, stored and
+available to alerts.
 
-**Temperature visibility**: `temp` is special: it depends on hardware. Two rules apply:
-
-- If `temp` is omitted from `charts` or `cards`, the sensor is not read and no temperature data
-  is sent in API responses. This is the only metric where dashboard config affects the API.
-- If `temp` is included (or the list is not set), but no sensor is present on the host, `null`
-  is sent and the card/chart is hidden. A missing sensor never produces a visible empty card.
+**On a host without a temperature sensor or without swap**, those cards and charts are still shown
+when `cards` and `charts` include them, as they do by default. The API sends `null` for them: the
+card shows a dash and the chart stays empty.
 
 **`refresh`**: how often the dashboard receives a live data push over SSE, in seconds. Must not
 exceed `collect.interval`: a push more frequent than collection would send stale data and waste
@@ -475,15 +475,16 @@ Repeats and custom ordering are valid (e.g. `["4h", "2d", "45d", "2d"]` shows fo
 that order with 45-day retention). Sub-day ranges round up to 1 day for retention purposes
 (prune granularity is days). Default: `["1d", "7d", "30d", "90d"]`.
 
-**`memory_card_unit`** / **`memory_chart_unit`** / **`disk_card_unit`** / **`disk_chart_unit`**:
-`"%"` shows the share of capacity in use; `"auto"` shows the amount itself. The two keys are
-independent, so a percentage card next to an absolute chart is a valid combination. Under `"auto"`
-the magnitude is not configurable, see **Automatic magnitudes** below.
+**`memory_card_unit`** / **`memory_chart_unit`** / **`swap_card_unit`** / **`swap_chart_unit`** /
+**`disk_card_unit`** / **`disk_chart_unit`**: `"%"` shows the share of capacity in use; `"auto"`
+shows the amount itself. Each card key is independent of its chart key: a percentage card next to an
+absolute chart is fine. Under `"auto"` the magnitude is not configurable, see **Automatic
+magnitudes** below.
 
 **`net_card_unit`** / **`net_chart_unit`**: `"%"` measures throughput against the link ceiling (see
 `net_max_speed`); `"bytes"` counts in KB/s, MB/s and GB/s, and `"bits"` in Kbps, Mbps and Gbps, the
 form link speeds are usually quoted in. Bytes climb in steps of 1024, bits in steps of 1000, as each
-convention has it. As with memory and disk, the magnitude itself is automatic.
+convention has it. As with memory, swap and disk, the magnitude itself is automatic.
 
 **`temp_card_unit`** / **`temp_chart_unit`**: `"c"` for Celsius, `"f"` for Fahrenheit, or `"%"` of
 the critical trip point the kernel reports for the sensor, falling back to

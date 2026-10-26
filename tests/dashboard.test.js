@@ -32,8 +32,8 @@ const assert = require('node:assert');
 const path = require('path');
 
 const {
-  fmtY, fmtX, fmtTip, fmtXFull, fmtUptime, scaleTo, fmtScaled, fmtUnit, fmtTempVal, cardLevel,
-  pairLevel, metricsUrl,
+  fmtY, fmtX, fmtTip, fmtXFull, fmtUptime, usedOf, scaleTo, fmtScaled, fmtUnit, fmtTempVal,
+  cardLevel, pairLevel, metricsUrl,
   clampPoints,
   niceTicks, timeTicks,
 } = require(path.join(__dirname, '..', 'dashboard', 'format.js'));
@@ -92,6 +92,13 @@ test('fmtUptime by unit', () => {
   assert.strictEqual(fmtUptime(90000, 'auto'), 'up 1d 1h'); /* d>0 branch */
   assert.strictEqual(fmtUptime(7260, 'auto'), 'up 2h 1m'); /* h>0 branch */
   assert.strictEqual(fmtUptime(300, 'auto'), 'up 5m'); /* minutes branch */
+});
+
+test('usedOf: total minus free, never below 0, null without data', () => {
+  assert.strictEqual(usedOf(1024, 768), 256);
+  assert.strictEqual(usedOf(1024, 2048), 0);
+  assert.strictEqual(usedOf(null, 768), null);
+  assert.strictEqual(usedOf(1024, null), null);
 });
 
 test('scaleTo / fmtUnit: apply the unit the server chose', () => {

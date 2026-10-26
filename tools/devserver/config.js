@@ -37,6 +37,8 @@ const CONFIG_DEFAULTS = {
   show_footer: true,
   memory_card_unit: '%',
   memory_chart_unit: 'auto',
+  swap_card_unit: '%',
+  swap_chart_unit: 'auto',
   disk_card_unit: '%',
   disk_chart_unit: 'auto',
   temp_card_unit: 'c',
@@ -213,6 +215,8 @@ function configFields(d) {
   return {
     mem_card_unit: g('memory_card_unit'),
     mem_chart_unit: g('memory_chart_unit'),
+    swap_card_unit: g('swap_card_unit'),
+    swap_chart_unit: g('swap_chart_unit'),
     disk_card_unit: g('disk_card_unit'),
     disk_chart_unit: g('disk_chart_unit'),
     temp_card_unit: g('temp_card_unit'),

@@ -54,6 +54,11 @@ function point(scenario = 'normal') {
   return p;
 }
 
+/* The same snapshot from a host without swap; the mock always has some. */
+function swapless(raw) {
+  return { ...raw, swap_total_mb: null, swap_free_mb: null };
+}
+
 test('clampPointsParam: valid', () => {
   assert.strictEqual(clampPointsParam('480'), 480);
 });
@@ -200,6 +205,44 @@ test('toCurrent: percent unit omits the raw mem/disk fields', () => {
   assert.ok('mem_used' in raw && 'mem_total' in raw && 'disk_free' in raw);
 });
 
+/* The swap fields of an /api/current response, without the unit echoes. */
+const swapFields = (out) =>
+  Object.keys(out).filter((k) => k.startsWith('swap_') && !k.endsWith('_unit'));
+
+test('toCurrent: swap_free in the card unit, and swap_total only in "auto"', () => {
+  const raw = { ...currentSnapshot('normal'), swap_total_mb: 1024, swap_free_mb: 768 };
+  const pct = toCurrent(raw, configFields({}), 85.0); /* swap_card_unit defaults to '%' */
+
+  assert.deepStrictEqual(swapFields(pct), ['swap_free']);
+  assert.strictEqual(pct.swap_free, 75);
+
+  const abs = toCurrent(raw, configFields({ swap_card_unit: 'auto' }), 85.0);
+
+  assert.deepStrictEqual(swapFields(abs), ['swap_free', 'swap_total']);
+  assert.strictEqual(abs.swap_total, 1024);
+  assert.strictEqual(abs.swap_free, 768);
+});
+
+test('toCurrent: without swap the fields are null, so the card shows a dash', () => {
+  const raw = swapless(currentSnapshot('normal'));
+  const pct = toCurrent(raw, configFields({}), 85.0);
+  const abs = toCurrent(raw, configFields({ swap_card_unit: 'auto' }), 85.0);
+
+  assert.strictEqual(pct.swap_free, null);
+  assert.strictEqual(abs.swap_total, null);
+  assert.strictEqual(abs.swap_free, null);
+});
+
+test('toCurrent: thresh_swap is sent, and no swap field when its card is not listed', () => {
+  const all = toCurrent(currentSnapshot('normal'), configFields({}), 85.0);
+
+  assert.deepStrictEqual(all.thresh_swap, [80.0, 95.0]);
+
+  const mem = toCurrent(currentSnapshot('normal'), configFields({ cards: ['memory'] }), 85.0);
+
+  assert.ok(!('swap_free' in mem) && !('thresh_swap' in mem) && 'mem_percent' in mem);
+});
+
 test('toCurrent: thresh_temp derives from the sysfs critical point', () => {
   const out = toCurrent(currentSnapshot('normal'), configFields({}), 85.0);
 
@@ -248,6 +291,25 @@ test('unitsFor: mirrors the C choice for a window', () => {
     configFields({ net_chart_unit: 'bits' }));
 
   assert.deepStrictEqual(bits.net, { sym: 'Kbps', mul: 8, div: 1000 });
+});
+
+test('unitsFor: swap takes the larger of used and free, from rows with swap', () => {
+  const free = unitsFor([{ swap_total_mb: 12100, swap_free_mb: 12000 }], configFields({}));
+
+  assert.deepStrictEqual(free.swap, { sym: 'GB', mul: 1, div: 1024 });
+
+  const used = unitsFor([{ swap_total_mb: 12100, swap_free_mb: 100 }], configFields({}));
+
+  assert.deepStrictEqual(used.swap, { sym: 'GB', mul: 1, div: 1024 });
+
+  const small = unitsFor([{ swap_total_mb: 200, swap_free_mb: 100 }], configFields({}));
+
+  assert.deepStrictEqual(small.swap, { sym: 'MB', mul: 1, div: 1 });
+
+  /* No row with swap, or a "%" chart: no unit at all. */
+  assert.ok(!('swap' in unitsFor([{ mem_used_mb: 500 }], configFields({}))));
+  assert.ok(!('swap' in unitsFor([{ swap_total_mb: 200, swap_free_mb: 100 }],
+    configFields({ swap_chart_unit: '%' }))));
 });
 
 test('toPoint: emits short keys', () => {
@@ -357,6 +419,30 @@ test('loadDashboardConfig: reads the [dashboard] table from disk', () => {
   }
 });
 
+test('toPoint: sf in the chart unit, and st only in "auto"', () => {
+  const raw = { ...point(), swap_total_mb: 1024, swap_free_mb: 768 };
+  const abs = toPoint(raw, configFields({}), 85.0); /* swap_chart_unit defaults to 'auto' */
+
+  assert.strictEqual(abs.st, 1024);
+  assert.strictEqual(abs.sf, 768);
+
+  const pct = toPoint(raw, configFields({ swap_chart_unit: '%' }), 85.0);
+
+  assert.strictEqual(pct.sf, 75);
+  assert.ok(!('st' in pct));
+});
+
+test('toPoint: without swap the fields are null; with its chart not listed, absent', () => {
+  const none = toPoint(swapless(point()), configFields({}), 85.0);
+
+  assert.strictEqual(none.st, null);
+  assert.strictEqual(none.sf, null);
+
+  const mem = toPoint(point(), configFields({ charts: ['memory'] }), 85.0);
+
+  assert.ok(!('st' in mem) && !('sf' in mem));
+});
+
 test('dashboardTempCriticalFallback: valid, non-positive, absent', () => {
   assert.strictEqual(dashboardTempCriticalFallback({ temp_critical_fallback: 90 }), 90);
   assert.strictEqual(dashboardTempCriticalFallback({ temp_critical_fallback: 0 }), 85);
@@ -373,8 +459,12 @@ test('configFields: defaults, memory rename, overrides', () => {
   assert.strictEqual(def.charts, null); /* absent -> show all */
   assert.strictEqual(def.cards, null);
 
-  const over = configFields({ memory_card_unit: 'auto', title: 'X' });
+  assert.strictEqual(def.swap_card_unit, '%');
+  assert.strictEqual(def.swap_chart_unit, 'auto');
+
+  const over = configFields({ memory_card_unit: 'auto', swap_chart_unit: '%', title: 'X' });
 
   assert.strictEqual(over.mem_card_unit, 'auto');
+  assert.strictEqual(over.swap_chart_unit, '%');
   assert.strictEqual(over.title, 'X');
 });
