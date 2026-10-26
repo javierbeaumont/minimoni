@@ -231,12 +231,51 @@ static int test_every_config_metric_has_a_value(void)
     static const char *const names[] = {ALERT_METRICS, NULL};
     db_row_t                 row;
     memset(&row, 0, sizeof(row));
-    row.cpu_valid = row.temp_valid = row.net_valid = 1;
+    row.cpu_valid = row.temp_valid = row.net_valid = row.swap_valid = 1;
 
     for (int i = 0; names[i]; i++) {
         int valid = 0;
         get_metric_value(&row, names[i], &valid);
         if (!valid)
+            return 1;
+    }
+
+    return 0;
+}
+
+static const char *const SWAP_METRICS[] = {"swap_free_mb", "swap_used_mb", "swap_free_percent",
+                                           "swap_used_percent"};
+
+/* Each swap metric reads its own field. */
+static int test_swap_metrics_read_their_fields(void)
+{
+    db_row_t row;
+    memset(&row, 0, sizeof(row));
+    row.swap_valid = 1;
+    row.swap_free_mb = 1.0;
+    row.swap_used_mb = 2.0;
+    row.swap_free_percent = 3.0;
+    row.swap_used_percent = 4.0;
+
+    for (size_t i = 0; i < sizeof(SWAP_METRICS) / sizeof(SWAP_METRICS[0]); i++) {
+        int valid = 0;
+        if (get_metric_value(&row, SWAP_METRICS[i], &valid) != i + 1.0 || !valid)
+            return 1;
+    }
+
+    return 0;
+}
+
+/* Without swap, a swap alert has nothing to compare. */
+static int test_swap_metrics_without_swap_have_no_value(void)
+{
+    db_row_t row;
+    memset(&row, 0, sizeof(row));
+
+    for (size_t i = 0; i < sizeof(SWAP_METRICS) / sizeof(SWAP_METRICS[0]); i++) {
+        int valid = 1;
+        get_metric_value(&row, SWAP_METRICS[i], &valid);
+        if (valid)
             return 1;
     }
 
@@ -346,6 +385,8 @@ static const test_t ALL_TESTS[] = {
     T(propagates_empty_chain),
     T(drops_the_server_name),
     T(every_config_metric_has_a_value),
+    T(swap_metrics_read_their_fields),
+    T(swap_metrics_without_swap_have_no_value),
     T(fit_printf_exact_fit),
     T(fit_printf_one_byte_short),
     T(parse_url_host_at_max),

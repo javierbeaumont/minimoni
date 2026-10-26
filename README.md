@@ -550,12 +550,16 @@ cooldown  = "1h"           # minimum time between repeated firings
 | `net_rx_bps`         | bytes/s  | Receive throughput                                |
 | `net_tx_bps`         | bytes/s  | Transmit throughput                               |
 | `uptime_seconds`     | s        | Seconds since boot                                |
+| `swap_free_mb`       | MB       | Free swap                                         |
+| `swap_used_mb`       | MB       | Used swap                                         |
+| `swap_free_percent`  | %        | Free swap as percent of total                     |
+| `swap_used_percent`  | %        | Used swap as percent of total                     |
 
-Thresholds are compared against the raw metric value, in the unit named by its suffix:
-`_mb` is megabytes, `_gb` is gigabytes, `_percent` is a percentage, `_celsius` is degrees
-Celsius, `_bps` is bytes per second. `load_*` are raw load averages; `uptime_seconds` is
-in seconds. Dashboard unit settings do not affect alert thresholds; alerts read the
-stored database values directly.
+Thresholds are compared against the raw metric value, in the unit named by its suffix: `_mb` is
+megabytes, `_gb` is gigabytes, `_percent` is a percentage, `_celsius` is degrees Celsius, `_bps` is
+bytes per second. `load_*` are raw load averages; `uptime_seconds` is in seconds. Dashboard unit
+settings do not affect alert thresholds: alerts work from the database, never in the dashboard's
+units. The `swap_*` metrics are skipped on a host without swap.
 
 When `webhook` is set, minimoni sends a POST request (`Content-Type: application/json`).
 **Requires outbound HTTP connectivity from the server.** A delivery that takes over 10 s, DNS and

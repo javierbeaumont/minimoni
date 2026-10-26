@@ -46,6 +46,7 @@
 static double get_metric_value(const db_row_t *row, const char *m, int *valid)
 {
     *valid = 1;
+
     if (!strcmp(m, "load_1m"))
         return row->load_1m;
     if (!strcmp(m, "load_5m"))
@@ -94,6 +95,22 @@ static double get_metric_value(const db_row_t *row, const char *m, int *valid)
     }
     if (!strcmp(m, "uptime_seconds"))
         return row->uptime_seconds;
+    if (!strcmp(m, "swap_free_mb")) {
+        *valid = row->swap_valid;
+        return row->swap_free_mb;
+    }
+    if (!strcmp(m, "swap_used_mb")) {
+        *valid = row->swap_valid;
+        return row->swap_used_mb;
+    }
+    if (!strcmp(m, "swap_free_percent")) {
+        *valid = row->swap_valid;
+        return row->swap_free_percent;
+    }
+    if (!strcmp(m, "swap_used_percent")) {
+        *valid = row->swap_valid;
+        return row->swap_used_percent;
+    }
 
     /* Unreachable from a loaded config: config_load refuses any other name. */
     *valid = 0;

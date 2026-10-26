@@ -1329,6 +1329,26 @@ static int test_unknown_alert_metric_fails(void)
     return rc == -1 && strstr(err, "config: alert 'cpu-high': unknown metric 'cpu_pct'") ? 0 : 1;
 }
 
+static int test_swap_alert_metrics_accepted(void)
+{
+    static const char *const names[] = {"swap_free_mb", "swap_used_mb", "swap_free_percent",
+                                        "swap_used_percent"};
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        char toml[256];
+        snprintf(toml, sizeof(toml),
+                 "[[alert]]\nname = \"swap\"\nmetric = \"%s\"\noperator = \">\"\n"
+                 "threshold = 1\nwebhook = \"w\"\n",
+                 names[i]);
+
+        config_t cfg;
+        if (load_cfg(&cfg, toml) != 0 || cfg.alert_count != 1 ||
+            strcmp(cfg.alerts[0].metric, names[i]))
+            return 1;
+    }
+
+    return 0;
+}
+
 /* A missing disk_path was once loaded: serve then failed every collection and stored nothing. */
 static int test_missing_disk_path_fails(void)
 {
@@ -1496,6 +1516,7 @@ static const test_t ALL_TESTS[] = {
     T(alerts_over_max_fail),
     T(ranges_over_max_fail),
     T(unknown_alert_metric_fails),
+    T(swap_alert_metrics_accepted),
     T(missing_disk_path_fails),
 };
 
