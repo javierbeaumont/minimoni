@@ -26,26 +26,23 @@
 #include <stdio.h>
 #include <string.h>
 
-/* --- v0 schema fingerprint (structural) -------------------------------- */
+/* --- Schema fingerprints (structural) ---------------------------------- */
 
-/* A canonical minimoni v0.1 database, described by STRUCTURE rather than by
- * the raw `CREATE TABLE` text. For each table (ordered by name) the query
- * emits its columns as `name:type:notnull` sorted by column NAME; for each
- * index it emits the target table and the indexed columns in index order.
+/* A canonical minimoni database, described by STRUCTURE rather than by the raw `CREATE TABLE` text.
+ * For each table (ordered by name) the query emits its columns as `name:type:notnull` sorted by
+ * column NAME; for each index it emits the target table and the indexed columns in index order.
  *
- * Sorting columns by name makes the fingerprint insensitive to physical
- * column ORDER and to `CREATE TABLE` whitespace. That is deliberate: a real
- * v0.1 database that grew its columns via `ALTER TABLE ADD COLUMN` (which
- * SQLite always appends at the end) is structurally identical to a
- * fresh-install schema and must migrate cleanly. This is sound only because
- * every migration script addresses columns by explicit name (no `SELECT *`,
- * no positional `INSERT`), so column order never affects the result.
+ * Sorting columns by name makes the fingerprint insensitive to physical column ORDER and to
+ * `CREATE TABLE` whitespace. That is deliberate: a real v0.1 database that grew its columns via
+ * `ALTER TABLE ADD COLUMN` (which SQLite always appends at the end) is structurally identical to a
+ * fresh-install schema and must migrate cleanly. This is sound only because every migration script
+ * addresses columns by explicit name (no `SELECT *`, no positional `INSERT`), so column order never
+ * affects the result.
  *
- * A genuine structural divergence (a column with a different type, an extra
- * or missing column/table/index) still fails the fingerprint and aborts
- * before any write or snapshot. The operator can override with `--force`
- * once they have reviewed the divergence. */
-static const char V0_SCHEMA_QUERY[] =
+ * A genuine structural divergence (a column with a different type, an extra or missing
+ * column/table/index) still fails the fingerprint and aborts before any write or snapshot. The
+ * operator can override with `--force` once they have reviewed the divergence. */
+static const char SCHEMA_QUERY[] =
     "SELECT 'table:' || sm.name || ':' || ("
     "  SELECT group_concat(ti.name || ':' || ti.type || ':' || ti.\"notnull\","
     "                      ',' ORDER BY ti.name)"
@@ -58,8 +55,8 @@ static const char V0_SCHEMA_QUERY[] =
     " FROM sqlite_master sm WHERE sm.type = 'index' AND sm.name NOT LIKE 'sqlite_%'"
     " ORDER BY 1";
 
-/* The structure V0_SCHEMA_QUERY produces for a canonical v0.1 database
- * (db exec prints one row per line, with a trailing newline). */
+/* The structure SCHEMA_QUERY produces for a canonical database of each version (db exec prints one
+ * row per line, with a trailing newline): v0 is what minimoni v0.1 created, v1 what v0.2 did. */
 static const char V0_SCHEMA_FINGERPRINT[] =
     "index:idx_alert_log_name:alert_log:alert_name\n"
     "index:idx_metrics_ts:metrics:timestamp\n"
@@ -71,29 +68,56 @@ static const char V0_SCHEMA_FINGERPRINT[] =
     "mem_used_mb:REAL:0,net_rx_bytes:INTEGER:0,net_tx_bytes:INTEGER:0,"
     "temp_celsius:REAL:0,timestamp:TEXT:1,uptime_seconds:REAL:0\n";
 
-static int verify_v0_schema(const char *minimoni_exec, const char *db_path)
+static const char V1_SCHEMA_FINGERPRINT[] =
+    "index:idx_alert_log_name:alert_log:alert_name\n"
+    "index:idx_metrics_ts:metrics:timestamp\n"
+    "table:alert_log:alert_name:TEXT:1,fired_at:TEXT:1\n"
+    "table:metrics:bucket_sec:INTEGER:0,cpu_idle_percent:REAL:0,cpu_system_percent:REAL:0,"
+    "cpu_user_percent:REAL:0,disk_free_gb:REAL:0,disk_percent:REAL:0,disk_total_gb:REAL:0,"
+    "disk_used_gb:REAL:0,load_15m:REAL:0,load_1m:REAL:0,load_5m:REAL:0,"
+    "mem_available_mb:REAL:0,mem_percent:REAL:0,mem_total_mb:REAL:0,mem_used_mb:REAL:0,"
+    "net_rx_bps:REAL:0,net_tx_bps:REAL:0,temp_celsius:REAL:0,timestamp:TEXT:1,"
+    "uptime_seconds:REAL:0\n";
+
+/* 0 when the database has the structure `expected` describes for `version`; 1, with the reason
+ * reported, otherwise. */
+static int verify_schema(const char *minimoni_exec, const char *db_path, int version,
+                         const char *expected)
 {
     char out[4096];
     char err[1024];
-    int  rc = migrate_exec(minimoni_exec, db_path, V0_SCHEMA_QUERY, NULL, out, sizeof(out), err,
+    int  rc = migrate_exec(minimoni_exec, db_path, SCHEMA_QUERY, NULL, out, sizeof(out), err,
                            sizeof(err));
+
     if (rc != 0) {
         fprintf(stderr, "migrate: failed to read schema for fingerprint check: %s",
                 err[0] ? err : "(no error message)\n");
         return 1;
     }
-    if (strcmp(out, V0_SCHEMA_FINGERPRINT) != 0) {
+
+    if (strcmp(out, expected) != 0) {
         fprintf(stderr,
-                "migrate: v0 schema fingerprint mismatch: this database is not "
-                "structurally a canonical minimoni v0.1 schema, refusing.\n"
+                "migrate: v%d schema fingerprint mismatch: this database is not "
+                "structurally a canonical minimoni v0.%d schema, refusing.\n"
                 "Review the divergence; re-run with --force to migrate anyway "
                 "(a backup is always taken).\n"
                 "--- expected ---\n%s"
                 "--- got ---\n%s",
-                V0_SCHEMA_FINGERPRINT, out);
+                version, version + 1, expected, out);
         return 1;
     }
+
     return 0;
+}
+
+static int verify_v0_schema(const char *minimoni_exec, const char *db_path)
+{
+    return verify_schema(minimoni_exec, db_path, 0, V0_SCHEMA_FINGERPRINT);
+}
+
+static int verify_v1_schema(const char *minimoni_exec, const char *db_path)
+{
+    return verify_schema(minimoni_exec, db_path, 1, V1_SCHEMA_FINGERPRINT);
 }
 
 /* --- v0 -> v1 migration ------------------------------------------------ */
@@ -142,10 +166,20 @@ static const char SCRIPT_V0_TO_V1[] =
     "PRAGMA user_version = 1;"
     "COMMIT;";
 
+/* --- v1 -> v2 migration ------------------------------------------------ */
+
+/* Swap columns; rows from before the migration keep them NULL. */
+static const char SCRIPT_V1_TO_V2[] = "BEGIN;"
+                                      "ALTER TABLE metrics ADD COLUMN swap_total_mb REAL;"
+                                      "ALTER TABLE metrics ADD COLUMN swap_free_mb REAL;"
+                                      "PRAGMA user_version = 2;"
+                                      "COMMIT;";
+
 /* --- Public table ------------------------------------------------------ */
 
 const migration_t MIGRATIONS[] = {
     {0, 1, verify_v0_schema, SCRIPT_V0_TO_V1},
+    {1, 2, verify_v1_schema, SCRIPT_V1_TO_V2},
 };
 
 const size_t NUM_MIGRATIONS = sizeof(MIGRATIONS) / sizeof(MIGRATIONS[0]);

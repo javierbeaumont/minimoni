@@ -33,6 +33,10 @@ typedef struct {
     /* Memory */
     double mem_total_mb, mem_used_mb, mem_available_mb, mem_percent;
 
+    /* Swap, as the kernel reports it: swap_valid=0 when the host has none */
+    int    swap_valid;
+    double swap_total_mb, swap_free_mb;
+
     /* Disk */
     double disk_total_gb, disk_used_gb, disk_free_gb, disk_percent;
 

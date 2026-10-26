@@ -87,16 +87,19 @@ static int insert_raw_row(sqlite3 *h, long unix_ts)
              "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
              "  mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
              "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
-             "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds"
+             "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds,"
+             "  swap_total_mb, swap_free_mb"
              ") VALUES ("
              "  strftime('%%Y-%%m-%%dT%%H:%%M:%%SZ',%ld,'unixepoch'),"
              "  1.0,1.0,1.0,"
              "  50.0,5.0,45.0,"
              "  1000.0,500.0,500.0,50.0,"
              "  10.0,5.0,5.0,50.0,"
-             "  42.0,100.0,200.0,1000.0"
+             "  42.0,100.0,200.0,1000.0,"
+             "  400.0,300.0"
              ");",
              unix_ts);
+
     return sqlite3_exec(h, sql, NULL, NULL, NULL);
 }
 
@@ -210,7 +213,10 @@ static int test_db_insert_roundtrip(void)
         return 1;
 
     metrics_t m = sample_metrics(1, 1, 1);
-    int       ok = (db_insert(&db, &m) == 0);
+    m.swap_valid = 1;
+    m.swap_total_mb = 512.0;
+    m.swap_free_mb = 384.0;
+    int ok = (db_insert(&db, &m) == 0);
 
     db_row_t row;
     ok = ok && (db_current(&db, &row) == 0);
@@ -220,9 +226,13 @@ static int test_db_insert_roundtrip(void)
     ok = ok && row.temp_valid && approx(row.temp_celsius, 42.5);
     ok = ok && row.net_valid && approx(row.net_rx_bps, 1000.0) && approx(row.net_tx_bps, 2000.0);
     ok = ok && approx(row.uptime_seconds, 123456.0);
+    ok = ok && row.swap_valid && approx(row.swap_total_mb, 512.0) &&
+         approx(row.swap_free_mb, 384.0) && approx(row.swap_used_mb, 128.0) &&
+         approx(row.swap_used_percent, 25.0) && approx(row.swap_free_percent, 75.0);
     ok = ok && (count_rows(db.handle, "bucket_sec = 60") == 1);
 
     close_test_db(&db);
+
     return ok ? 0 : 1;
 }
 
@@ -240,9 +250,11 @@ static int test_db_insert_null_gating(void)
     db_row_t row;
     ok = ok && (db_current(&db, &row) == 0);
     ok = ok && !row.cpu_valid && !row.temp_valid && !row.net_valid;
+    ok = ok && !row.swap_valid;
     ok = ok && approx(row.load_1m, 1.5) && approx(row.mem_used_mb, 400.0);
 
     close_test_db(&db);
+
     return ok ? 0 : 1;
 }
 
@@ -269,6 +281,81 @@ static int test_db_query_range_bucketed_avg(void)
     free(rows);
 
     close_test_db(&db);
+    return ok ? 0 : 1;
+}
+
+/* Should the kernel ever report more free swap than the total, none reads as used. */
+static int test_db_swap_free_above_total_reads_as_unused(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    metrics_t m = sample_metrics(1, 1, 1);
+    m.swap_valid = 1;
+    m.swap_total_mb = 1024.0;
+    m.swap_free_mb = 2048.0;
+    int ok = (db_insert(&db, &m) == 0);
+
+    db_row_t row;
+    ok = ok && (db_current(&db, &row) == 0);
+    ok = ok && row.swap_valid && approx(row.swap_used_mb, 0.0) &&
+         approx(row.swap_used_percent, 0.0) && approx(row.swap_free_percent, 100.0);
+
+    close_test_db(&db);
+
+    return ok ? 0 : 1;
+}
+
+/* A range with no bucket reads the rows as stored, swap included. */
+static int test_db_query_range_raw_reads_swap(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    metrics_t m = sample_metrics(1, 1, 1);
+    m.swap_valid = 1;
+    m.swap_total_mb = 512.0;
+    m.swap_free_mb = 384.0;
+    int ok = (db_insert(&db, &m) == 0);
+
+    db_row_t *rows = NULL;
+    int       n = db_query_range(&db, 600, 0, &rows);
+    ok = ok && n == 1 && rows != NULL && rows[0].swap_valid &&
+         approx(rows[0].swap_total_mb, 512.0) && approx(rows[0].swap_free_mb, 384.0) &&
+         approx(rows[0].swap_used_mb, 128.0) && approx(rows[0].swap_used_percent, 25.0);
+    free(rows);
+
+    close_test_db(&db);
+
+    return ok ? 0 : 1;
+}
+
+/* A bucket averages swap over the rows that have it, as it does the CPU. */
+static int test_db_query_range_bucketed_swap_skips_rows_without_it(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    long bucket = (time(NULL) / 300) * 300;
+    int  ok = 1;
+    ok = ok && insert_valued_row(db.handle, bucket + 0, 1.0, 0) == SQLITE_OK;
+    ok = ok && insert_valued_row(db.handle, bucket + 60, 1.0, 0) == SQLITE_OK;
+    ok = ok && sqlite3_exec(db.handle,
+                            "UPDATE metrics SET swap_total_mb = 512, swap_free_mb = 384"
+                            " WHERE rowid = 1",
+                            NULL, NULL, NULL) == SQLITE_OK;
+
+    db_row_t *rows = NULL;
+    int       n = db_query_range(&db, 600, 300, &rows);
+    ok = ok && n == 1 && rows != NULL && rows[0].swap_valid &&
+         approx(rows[0].swap_total_mb, 512.0) && approx(rows[0].swap_used_percent, 25.0);
+    free(rows);
+
+    close_test_db(&db);
+
     return ok ? 0 : 1;
 }
 
@@ -408,6 +495,7 @@ static int test_consolidate_rows_queryable(void)
             return 1;
         }
     }
+
     if (db_consolidate(&db) != 0) {
         close_test_db(&db);
         return 1;
@@ -417,6 +505,7 @@ static int test_consolidate_rows_queryable(void)
     int       n = db_query_range(&db, 8L * 86400, 300, &rows);
     int       ok = (n == 1 && rows != NULL && rows[0].net_valid && rows[0].net_rx_bps > 99.0 &&
                     rows[0].net_rx_bps < 101.0);
+    ok = ok && rows[0].swap_valid && approx(rows[0].swap_used_percent, 25.0);
     free(rows);
     close_test_db(&db);
 
@@ -650,8 +739,11 @@ static int make_db_v01(const char *path)
     return sql_exec(path, sql);
 }
 
-/* DB at the current v0.2 schema with the correct pragmas. */
-static int make_db_v02(const char *path)
+/* A database with v0.2's tables at user_version `version`, plus the `extra` columns (SWAP_COLUMNS
+ * makes it the current schema). */
+#define SWAP_COLUMNS ", swap_total_mb REAL, swap_free_mb REAL"
+
+static int make_db_at(const char *path, int version, const char *extra)
 {
     char sql[2048];
     snprintf(sql, sizeof(sql),
@@ -666,12 +758,13 @@ static int make_db_v02(const char *path)
              "  temp_celsius REAL,"
              "  net_rx_bps REAL, net_tx_bps REAL,"
              "  uptime_seconds REAL,"
-             "  bucket_sec INTEGER"
+             "  bucket_sec INTEGER%s"
              ");"
              "CREATE INDEX idx_metrics_ts ON metrics(timestamp);"
              "CREATE TABLE alert_log (alert_name TEXT NOT NULL, fired_at TEXT NOT NULL);"
              "CREATE INDEX idx_alert_log_name ON alert_log(alert_name);",
-             MINIMONI_APPLICATION_ID, MINIMONI_SCHEMA_VERSION);
+             MINIMONI_APPLICATION_ID, version, extra);
+
     return sql_exec(path, sql);
 }
 
@@ -736,13 +829,13 @@ static int test_db_open_sync_normal(void)
     return rc == 0 && sync == 1 ? 0 : 1;
 }
 
-/* 2. Pre-existing v0.2 DB with correct pragmas: daemon proceeds silently. */
-static int test_db_open_existing_v02_ok(void)
+/* 2. Pre-existing DB at the current schema, with correct pragmas: daemon proceeds silently. */
+static int test_db_open_existing_current_ok(void)
 {
     char path[256];
     temp_db_path(path, sizeof(path));
     cleanup_db(path);
-    if (make_db_v02(path) != 0) {
+    if (make_db_at(path, MINIMONI_SCHEMA_VERSION, SWAP_COLUMNS) != 0) {
         cleanup_db(path);
         return 1;
     }
@@ -759,7 +852,28 @@ static int test_db_open_existing_v02_ok(void)
         db_close(&db);
     }
     cleanup_db(path);
+
     return ok ? 0 : 1;
+}
+
+/* What every v0.2 install meets on upgrade: refused until migrated, its pragmas untouched. */
+static int test_db_open_unmigrated_v02(void)
+{
+    char path[256];
+    temp_db_path(path, sizeof(path));
+    cleanup_db(path);
+    if (make_db_at(path, 1, "") != 0) {
+        cleanup_db(path);
+        return 1;
+    }
+
+    db_t db;
+    int  refused = db_open(&db, path, 60) != 0;
+    long version = -1;
+    int  unchanged = read_pragma(path, "user_version", &version) == 0 && version == 1;
+    cleanup_db(path);
+
+    return refused && unchanged ? 0 : 1;
 }
 
 /* 3. minimoni v0.1 DB (moni stamped, user_version=0, schema lacks the v0.2
@@ -1211,7 +1325,8 @@ static const test_t ALL_TESTS[] = {
     /* db_open validate-on-open state machine */
     T(db_open_fresh_install),
     T(db_open_sync_normal),
-    T(db_open_existing_v02_ok),
+    T(db_open_existing_current_ok),
+    T(db_open_unmigrated_v02),
     T(db_open_unmigrated_v01),
     T(db_open_foreign_app_id),
     T(db_open_outdated_minimoni),
@@ -1232,6 +1347,9 @@ static const test_t ALL_TESTS[] = {
     T(db_insert_roundtrip),
     T(db_insert_null_gating),
     T(db_query_range_bucketed_avg),
+    T(db_swap_free_above_total_reads_as_unused),
+    T(db_query_range_raw_reads_swap),
+    T(db_query_range_bucketed_swap_skips_rows_without_it),
     /* consolidation: positive cases */
     T(consolidate_basic),
     T(consolidate_multiple_buckets),

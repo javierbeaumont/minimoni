@@ -215,11 +215,11 @@ the database of the systemd service, under `/var/lib/minimoni`, run it with `sud
 
 ## Upgrading
 
-minimoni versions the database schema (`PRAGMA user_version`). When you move to
-a release that changes it (e.g. v0.1 to v0.2, which adds tiered consolidation),
-the daemon refuses to start against the old database rather than corrupt it.
-Migrate it first with `minimoni-migrate`, published alongside `minimoni` on the
-[releases page][rel] (one build per architecture). Download the one matching your system:
+minimoni versions the database schema (`PRAGMA user_version`). When you move to a release that
+changes it (v0.1 to v0.2 added tiered consolidation, v0.2 to v0.3 adds the swap metrics), the daemon
+refuses to start against the old database rather than corrupt it. Migrate it first with
+`minimoni-migrate`, published alongside `minimoni` on the [releases page][rel] (one build per
+architecture). Download the one matching your system:
 
 ```sh
 ARCH=$(uname -m)

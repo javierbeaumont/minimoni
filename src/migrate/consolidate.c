@@ -68,6 +68,7 @@ static int build_consolidate_sql(char *sql, size_t cap, long now)
     n = snprintf(p, remaining, "BEGIN IMMEDIATE;");
     if (n < 0 || n >= remaining)
         return -1;
+
     p += n;
     remaining -= n;
 
@@ -82,7 +83,8 @@ static int build_consolidate_sql(char *sql, size_t cap, long now)
             "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
             "  mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
             "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
-            "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds, bucket_sec"
+            "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds, bucket_sec,"
+            "  swap_total_mb, swap_free_mb"
             ") SELECT"
             "  strftime('%%Y-%%m-%%dT%%H:%%M:%%SZ',"
             "           (CAST(strftime('%%s',timestamp) AS INTEGER)/%d)*%d, 'unixepoch'),"
@@ -91,7 +93,8 @@ static int build_consolidate_sql(char *sql, size_t cap, long now)
             "  AVG(mem_total_mb), AVG(mem_used_mb), AVG(mem_available_mb), AVG(mem_percent),"
             "  AVG(disk_total_gb), AVG(disk_used_gb), AVG(disk_free_gb), AVG(disk_percent),"
             "  AVG(temp_celsius), AVG(net_rx_bps), AVG(net_tx_bps), AVG(uptime_seconds),"
-            "  %d"
+            "  %d,"
+            "  AVG(swap_total_mb), AVG(swap_free_mb)"
             " FROM metrics"
             " WHERE (CAST(strftime('%%s',timestamp) AS INTEGER)/%d)*%d + %d <= %ld"
             "   AND (bucket_sec IS NULL OR bucket_sec < %d)"
@@ -106,6 +109,7 @@ static int build_consolidate_sql(char *sql, size_t cap, long now)
             bs, bs, bs, cut, bs); /* DELETE WHERE */
         if (n < 0 || n >= remaining)
             return -1;
+
         p += n;
         remaining -= n;
     }

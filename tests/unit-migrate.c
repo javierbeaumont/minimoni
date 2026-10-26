@@ -40,24 +40,27 @@
 
 /* --- The migrate_exec seam --- */
 
-/* The fake `minimoni db exec` records its last call and returns g_exec_rc; on success it writes
- * COPY into the file its value names, as VACUUM INTO would. */
+/* The fake `minimoni db exec` records its last call, prints g_exec_out and returns g_exec_rc; on
+ * success it writes COPY into the file its value names, as VACUUM INTO would. */
 #define COPY "a copy\n"
 
-static int  g_exec_rc;
-static char g_exec_sql[64];
-static char g_exec_value[1200];
-static int  g_exec_saw_empty_private; /* that file existed, empty and 0600, when called */
+static int         g_exec_rc;
+static const char *g_exec_out;
+static char        g_exec_sql[64];
+static char        g_exec_value[1200];
+static int         g_exec_saw_empty_private; /* that file existed, empty and 0600, when called */
 
 int migrate_exec(const char *minimoni_exec, const char *db_path, const char *sql, const char *value,
                  char *out_buf, size_t out_size, char *err_buf, size_t err_size)
 {
     (void)minimoni_exec;
     (void)db_path;
+
     if (out_size > 0)
-        out_buf[0] = '\0';
+        snprintf(out_buf, out_size, "%s", g_exec_out ? g_exec_out : "");
     if (err_size > 0)
         err_buf[0] = '\0';
+
     snprintf(g_exec_sql, sizeof(g_exec_sql), "%s", sql);
     snprintf(g_exec_value, sizeof(g_exec_value), "%s", value ? value : "");
 
@@ -86,6 +89,7 @@ static void fresh(void)
         g_dir[0] = '\0';
 
     g_exec_rc = 0;
+    g_exec_out = NULL;
     g_exec_sql[0] = '\0';
     g_exec_value[0] = '\0';
     g_exec_saw_empty_private = 0;
@@ -143,11 +147,10 @@ static int private_file(const char *path)
 
 /* --- Tests: migrations.c ------------------------------------------------ */
 
-/* The latest migration target is whatever the last entry of the registry
- * lists. As of v0.2 there is exactly one migration (0 -> 1). */
+/* The latest migration target is whatever the last entry of the registry lists. */
 static int test_migrations_latest_version(void)
 {
-    return (migrations_latest_version() == 1) ? 0 : 1;
+    return (migrations_latest_version() == 2) ? 0 : 1;
 }
 
 /* The registry contains the 0 -> 1 migration. */
@@ -170,6 +173,62 @@ static int test_migrations_find_v0(void)
     if (n < 7 || strncmp(m->script + n - 7, "COMMIT;", 7) != 0)
         return 1;
     return 0;
+}
+
+/* The 1 -> 2 migration: verified first, atomic, and bumping user_version to 2. */
+static int test_migrations_find_v1(void)
+{
+    const migration_t *m = migrations_find(1);
+    if (!m || m->from_version != 1 || m->to_version != 2 || !m->script || !m->verify_source)
+        return 1;
+
+    size_t n = strlen(m->script);
+
+    return strncmp(m->script, "BEGIN;", 6) == 0 && n >= 7 &&
+                   strncmp(m->script + n - 7, "COMMIT;", 7) == 0 &&
+                   strstr(m->script, "PRAGMA user_version = 2")
+               ? 0
+               : 1;
+}
+
+/* Before the 1 -> 2 step, the structure is read, and it must be v0.2's. */
+static int test_v1_fingerprint_accepts_a_v02_database(void)
+{
+    fresh();
+    g_exec_out = V1_SCHEMA_FINGERPRINT;
+
+    int rc = migrations_find(1)->verify_source("minimoni", "metrics.db");
+    int read_schema = strncmp(g_exec_sql, SCHEMA_QUERY, sizeof(g_exec_sql) - 1) == 0;
+    drop();
+
+    return rc == 0 && read_schema ? 0 : 1;
+}
+
+static int test_v1_fingerprint_refuses_an_extra_column(void)
+{
+    char        out[1024];
+    const char *end = "uptime_seconds:REAL:0\n";
+    fresh();
+    snprintf(out, sizeof(out), "%.*suptime_seconds:REAL:0,my_extra_col:TEXT:0\n",
+             (int)(strstr(V1_SCHEMA_FINGERPRINT, end) - V1_SCHEMA_FINGERPRINT),
+             V1_SCHEMA_FINGERPRINT);
+    g_exec_out = out;
+
+    int rc = migrations_find(1)->verify_source("minimoni", "metrics.db");
+    drop();
+
+    return rc == 1 ? 0 : 1;
+}
+
+static int test_v1_fingerprint_refuses_when_the_schema_cannot_be_read(void)
+{
+    fresh();
+    g_exec_rc = 1;
+
+    int rc = migrations_find(1)->verify_source("minimoni", "metrics.db");
+    drop();
+
+    return rc == 1 ? 0 : 1;
 }
 
 /* No migration starts from version 99 (unknown future version). */
@@ -346,6 +405,10 @@ static const test_t ALL_TESTS[] = {
     /* migrations.c */
     T(migrations_latest_version),
     T(migrations_find_v0),
+    T(migrations_find_v1),
+    T(v1_fingerprint_accepts_a_v02_database),
+    T(v1_fingerprint_refuses_an_extra_column),
+    T(v1_fingerprint_refuses_when_the_schema_cannot_be_read),
     T(migrations_find_unknown),
     T(migrations_v0_script_bumps_user_version),
     /* snapshot.c */

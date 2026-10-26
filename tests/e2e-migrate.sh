@@ -31,6 +31,7 @@ set -eu
 
 MIN=./minimoni
 MIG=./minimoni-migrate
+LATEST=2 # the schema version a migration ends at
 
 if ! [ -x "$MIN" ] || ! [ -x "$MIG" ]; then
     echo "  $MIN and $MIG must be built first (run: make)" >&2
@@ -76,6 +77,29 @@ INSERT INTO metrics VALUES
      0.6,0.5,0.4, 12,6,82, 1000,410,590,41,
      10,5,5,50, 46, 106000, 53000, 3660);
 PRAGMA application_id = 1836019305;
+SQL
+}
+
+# A database as minimoni v0.2 created it, user_version 1, holding one recent row.
+make_v02_db() {
+    sqlite3 "$1" <<'SQL'
+CREATE TABLE IF NOT EXISTS metrics (
+    timestamp TEXT NOT NULL,
+    load_1m REAL, load_5m REAL, load_15m REAL,
+    cpu_user_percent REAL, cpu_system_percent REAL, cpu_idle_percent REAL,
+    mem_total_mb REAL, mem_used_mb REAL, mem_available_mb REAL, mem_percent REAL,
+    disk_total_gb REAL, disk_used_gb REAL, disk_free_gb REAL, disk_percent REAL,
+    temp_celsius REAL,
+    net_rx_bps REAL, net_tx_bps REAL,
+    uptime_seconds REAL,
+    bucket_sec INTEGER);
+CREATE INDEX IF NOT EXISTS idx_metrics_ts ON metrics(timestamp);
+CREATE TABLE IF NOT EXISTS alert_log (alert_name TEXT NOT NULL, fired_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_alert_log_name ON alert_log(alert_name);
+INSERT INTO metrics (timestamp, load_1m, bucket_sec)
+    VALUES (strftime('%Y-%m-%dT%H:%M:%SZ','now'), 0.5, 60);
+PRAGMA application_id = 1836019305;
+PRAGMA user_version = 1;
 SQL
 }
 
@@ -155,20 +179,36 @@ t_basic_v01_to_v1() {
     db=$TMP/basic.db
     make_v01_db "$db"
     "$MIG" --use "$MIN" "$db" >/dev/null 2>&1 || {
-        report "basic v0->v1 (canonical schema)" "exit code != 0"
+        report "basic v0.1 migration (canonical schema)" "exit code != 0"
         return
     }
     uv=$(sqlite3 "$db" 'PRAGMA user_version')
     aid=$(sqlite3 "$db" 'PRAGMA application_id')
-    if [ "$uv" != 1 ]; then
-        report "basic v0->v1 (canonical schema)" "user_version=$uv (want 1)"
+    if [ "$uv" != "$LATEST" ]; then
+        report "basic v0.1 migration (canonical schema)" "user_version=$uv (want $LATEST)"
         return
     fi
     [ "$aid" = 1836019305 ] || {
-        report "basic v0->v1 (canonical schema)" "application_id=$aid (want 1836019305)"
+        report "basic v0.1 migration (canonical schema)" "application_id=$aid (want 1836019305)"
         return
     }
-    report "basic v0->v1 (canonical schema)" ok
+    report "basic v0.1 migration (canonical schema)" ok
+}
+
+# What every v0.2 install runs on upgrade: its rows stay, the new columns start empty.
+t_v02_migrates() {
+    db=$TMP/v02.db
+    make_v02_db "$db"
+
+    "$MIG" --use "$MIN" "$db" >/dev/null 2>&1 && rc=0 || rc=$?
+    uv=$(sqlite3 "$db" 'PRAGMA user_version')
+    got=$(sqlite3 "$db" "SELECT count(*) || ':' || ifnull(swap_free_mb, 'NULL') FROM metrics")
+
+    if [ "$rc" = 0 ] && [ "$uv" = "$LATEST" ] && [ "$got" = "1:NULL" ]; then
+        report "a v0.2 database migrates" ok
+    else
+        report "a v0.2 database migrates" "exit=$rc user_version=$uv rows=$got"
+    fi
 }
 
 t_schema_after_migration() {
@@ -176,10 +216,10 @@ t_schema_after_migration() {
     make_v01_db "$db"
     "$MIG" --use "$MIN" "$db" >/dev/null 2>&1
     cols=$(sqlite3 "$db" "SELECT GROUP_CONCAT(name, ',') FROM pragma_table_info('metrics')")
-    # bucket_sec, net_rx_bps, net_tx_bps must be present;
+    # bucket_sec, net_rx_bps, net_tx_bps, and the swap columns must be present;
     # net_rx_bytes, net_tx_bytes must be absent.
     case "$cols" in
-        *bucket_sec*net_rx_bps*net_tx_bps*) ;;
+        *bucket_sec*net_rx_bps*net_tx_bps*swap_total_mb*swap_free_mb*) ;;
         *) report "post-migration columns present" "got: $cols"; return ;;
     esac
     case "$cols" in
@@ -188,6 +228,44 @@ t_schema_after_migration() {
             return ;;
     esac
     report "post-migration columns present" ok
+}
+
+# A database's structure as the migration fingerprints read it, then its user_version and
+# application_id.
+structure() {
+    sqlite3 "$1" "SELECT 'table:' || sm.name || ':' || (
+          SELECT group_concat(ti.name || ':' || ti.type || ':' || ti.\"notnull\", ','
+                              ORDER BY ti.name)
+          FROM pragma_table_info(sm.name) ti)
+        FROM sqlite_master sm WHERE sm.type = 'table' AND sm.name NOT LIKE 'sqlite_%'
+        UNION ALL
+        SELECT 'index:' || sm.name || ':' || sm.tbl_name || ':' || (
+          SELECT group_concat(ii.name, ',' ORDER BY ii.seqno) FROM pragma_index_info(sm.name) ii)
+        FROM sqlite_master sm WHERE sm.type = 'index' AND sm.name NOT LIKE 'sqlite_%'
+        ORDER BY 1;
+        PRAGMA user_version;
+        PRAGMA application_id"
+}
+
+# Whichever release a database comes from, migrating it ends at the structure minimoni creates.
+t_migrated_matches_a_new_database() {
+    printf '[collect]\ndb = "%s"\ndisk_path = "/"\n' "$TMP/new.db" >"$TMP/new.toml"
+    "$MIN" collect --config "$TMP/new.toml" >/dev/null 2>&1
+    want=$(structure "$TMP/new.db")
+
+    make_v01_db "$TMP/from-v01.db"
+    make_v02_db "$TMP/from-v02.db"
+    "$MIG" --use "$MIN" "$TMP/from-v01.db" >/dev/null 2>&1
+    "$MIG" --use "$MIN" "$TMP/from-v02.db" >/dev/null 2>&1
+    v01=$(structure "$TMP/from-v01.db")
+    v02=$(structure "$TMP/from-v02.db")
+
+    if [ -n "$want" ] && [ "$v01" = "$want" ] && [ "$v02" = "$want" ]; then
+        report "a migrated database has the structure of a new one" ok
+    else
+        report "a migrated database has the structure of a new one" \
+            "new: $want / from v0.1: $v01 / from v0.2: $v02"
+    fi
 }
 
 t_bps_computed_from_byte_deltas() {
@@ -228,8 +306,8 @@ t_migrates_alter_derived() {
     }
     uv=$(sqlite3 "$db" 'PRAGMA user_version')
     cols=$(sqlite3 "$db" "SELECT GROUP_CONCAT(name, ',') FROM pragma_table_info('metrics')")
-    if [ "$uv" != 1 ]; then
-        report "migrates ALTER-derived schema" "user_version=$uv (want 1)"
+    if [ "$uv" != "$LATEST" ]; then
+        report "migrates ALTER-derived schema" "user_version=$uv (want $LATEST)"
         return
     fi
     case "$cols" in
@@ -472,6 +550,20 @@ t_dry_run_pending_alter_derived() {
     fi
 }
 
+t_dry_run_pending_v02() {
+    db=$TMP/dry-v02.db
+    make_v02_db "$db"
+
+    out=$("$MIG" --use "$MIN" --dry-run "$db" 2>/dev/null) && rc=0 || rc=$?
+    uv=$(sqlite3 "$db" 'PRAGMA user_version')
+
+    if [ "$rc" = 0 ] && [ "$out" = "status: migration-pending" ] && [ "$uv" = 1 ]; then
+        report "dry-run reports migration-pending on v0.2" ok
+    else
+        report "dry-run reports migration-pending on v0.2" "exit=$rc stdout='$out' uv=$uv"
+    fi
+}
+
 t_dry_run_up_to_date() {
     # Migrate a DB for real, then dry-run it again: should report up-to-date,
     # exit 0.
@@ -542,10 +634,10 @@ t_force_migrates_past_fingerprint() {
         return
     }
     uv=$(sqlite3 "$db" 'PRAGMA user_version')
-    if [ "$uv" = 1 ]; then
+    if [ "$uv" = "$LATEST" ]; then
         report "--force migrates past fingerprint" ok
     else
-        report "--force migrates past fingerprint" "user_version=$uv (want 1)"
+        report "--force migrates past fingerprint" "user_version=$uv (want $LATEST)"
     fi
 }
 
@@ -595,7 +687,7 @@ t_failed_compaction_exits_2() {
     uv=$(sqlite3 "$db" 'PRAGMA user_version')
 
     name="a failed closing compaction exits 2, the database migrated"
-    if [ "$rc" = 2 ] && [ "$uv" = 1 ]; then
+    if [ "$rc" = 2 ] && [ "$uv" = "$LATEST" ]; then
         report "$name" ok
     else
         report "$name" "exit=$rc user_version=$uv"
@@ -659,7 +751,7 @@ t_auto_resolve_minimoni() {
         return
     }
     uv=$(sqlite3 "$db" 'PRAGMA user_version')
-    if [ "$uv" = 1 ]; then
+    if [ "$uv" = "$LATEST" ]; then
         report "default --use resolves colocated minimoni" ok
     else
         report "default --use resolves colocated minimoni" "user_version=$uv"
@@ -683,7 +775,7 @@ t_finds_minimoni_on_path() {
         return
     fi
     uv=$(sqlite3 "$db" 'PRAGMA user_version')
-    if [ "$uv" = 1 ]; then
+    if [ "$uv" = "$LATEST" ]; then
         report "found on \$PATH, run from elsewhere" ok
     else
         report "found on \$PATH, run from elsewhere" "user_version=$uv"
@@ -700,8 +792,8 @@ t_migration_consolidates_and_compacts() {
         return
     }
     uv=$(sqlite3 "$db" 'PRAGMA user_version')
-    if [ "$uv" != 1 ]; then
-        report "migration folds the backlog and compacts" "user_version=$uv (want 1)"
+    if [ "$uv" != "$LATEST" ]; then
+        report "migration folds the backlog and compacts" "user_version=$uv (want $LATEST)"
         return
     fi
     # Every aged row was folded into a tier: none left raw (bucket_sec NULL).
@@ -738,7 +830,9 @@ t_remigrate_is_noop() {
 # --- Runner --------------------------------------------------------------
 
 t_basic_v01_to_v1
+t_v02_migrates
 t_schema_after_migration
+t_migrated_matches_a_new_database
 t_bps_computed_from_byte_deltas
 t_migrates_alter_derived
 t_backup_created_by_default
@@ -755,6 +849,7 @@ t_fingerprint_refuses_extra_column
 t_fingerprint_refuses_wrong_type
 t_dry_run_pending_migration
 t_dry_run_pending_alter_derived
+t_dry_run_pending_v02
 t_dry_run_up_to_date
 t_dry_run_absent
 t_dry_run_blocked_corrupt

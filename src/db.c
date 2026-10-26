@@ -49,7 +49,8 @@ static const char SQL_CREATE[] =
     "  temp_celsius     REAL,"
     "  net_rx_bps       REAL, net_tx_bps REAL,"
     "  uptime_seconds   REAL,"
-    "  bucket_sec       INTEGER"
+    "  bucket_sec       INTEGER,"
+    "  swap_total_mb    REAL, swap_free_mb REAL"
     ");"
     "CREATE INDEX IF NOT EXISTS idx_metrics_ts ON metrics(timestamp);"
     "CREATE TABLE IF NOT EXISTS alert_log ("
@@ -64,8 +65,8 @@ static const char SQL_INSERT[] = "INSERT INTO metrics ("
                                  "  mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
                                  "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
                                  "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds,"
-                                 "  bucket_sec"
-                                 ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                                 "  bucket_sec, swap_total_mb, swap_free_mb"
+                                 ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
 static const char SQL_PRUNE_METRICS[] = "DELETE FROM metrics WHERE timestamp < ?";
 
@@ -344,11 +345,20 @@ int db_insert(db_t *db, const metrics_t *m)
     sqlite3_bind_double(s, 19, m->uptime_seconds);
     sqlite3_bind_int64(s, 20, db->interval_sec);
 
+    if (m->swap_valid) {
+        sqlite3_bind_double(s, 21, m->swap_total_mb);
+        sqlite3_bind_double(s, 22, m->swap_free_mb);
+    } else {
+        sqlite3_bind_null(s, 21);
+        sqlite3_bind_null(s, 22);
+    }
+
     int rc = step_with_retry(s);
     if (rc != SQLITE_DONE) {
         fprintf(stderr, "db: insert error: %s\n", sqlite3_errmsg(db->handle));
         return -1;
     }
+
     return 0;
 }
 
@@ -438,8 +448,8 @@ int db_alert_log_fire(db_t *db, const char *alert_name)
 
 /* --- Query helpers --- */
 
-/* Read one db_row_t from the current row of stmt (columns 0-19 as defined
- * by both SQL_CURRENT and the SELECT list in db_query_range). */
+/* Read one db_row_t from the current row of stmt: columns 0-21, in the order of the SELECT lists of
+ * db_current and db_query_range. */
 static void read_row(sqlite3_stmt *s, db_row_t *r)
 {
     memset(r, 0, sizeof(*r));
@@ -447,6 +457,7 @@ static void read_row(sqlite3_stmt *s, db_row_t *r)
     const char *ts = (const char *)sqlite3_column_text(s, 0);
     if (ts)
         snprintf(r->timestamp, sizeof(r->timestamp), "%s", ts);
+
     r->unix_time = (long)sqlite3_column_int64(s, 1);
 
     r->load_1m = sqlite3_column_double(s, 2);
@@ -481,22 +492,35 @@ static void read_row(sqlite3_stmt *s, db_row_t *r)
     }
 
     r->uptime_seconds = sqlite3_column_double(s, 19);
+
+    r->swap_valid = (sqlite3_column_type(s, 20) != SQLITE_NULL);
+    if (r->swap_valid) {
+        r->swap_total_mb = sqlite3_column_double(s, 20);
+        r->swap_free_mb = sqlite3_column_double(s, 21);
+
+        double swap_used = r->swap_total_mb - r->swap_free_mb;
+        r->swap_used_mb = swap_used > 0.0 ? swap_used : 0.0;
+        r->swap_used_percent =
+            r->swap_total_mb > 0.0 ? r->swap_used_mb * 100.0 / r->swap_total_mb : 0.0;
+        r->swap_free_percent = 100.0 - r->swap_used_percent;
+    }
 }
 
 /* --- db_current --- */
 
 int db_current(db_t *db, db_row_t *row)
 {
-    /* Single-row read; columns mirror the SELECT list used by db_query_range
-     * so the same read_row() helper applies. Net rates are stored directly
-     * (computed at collect time in metrics.c), so no LAG/delta is needed. */
+    /* Single-row read; columns mirror the SELECT list used by db_query_range so the same read_row()
+     * helper applies. Net rates are stored directly (computed at collect time in metrics.c), so no
+     * LAG/delta is needed. */
     static const char SQL[] = "SELECT timestamp,"
                               "  CAST(strftime('%s',timestamp) AS INTEGER),"
                               "  load_1m, load_5m, load_15m,"
                               "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
                               "  mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
                               "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
-                              "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds"
+                              "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds,"
+                              "  swap_total_mb, swap_free_mb"
                               " FROM metrics ORDER BY timestamp DESC LIMIT 1";
 
     sqlite3_stmt *s;
@@ -512,6 +536,7 @@ int db_current(db_t *db, db_row_t *row)
 
     read_row(s, row);
     sqlite3_finalize(s);
+
     return 0;
 }
 
@@ -547,7 +572,8 @@ int db_count_range(db_t *db, long range_seconds)
  * 16  temp_celsius (nullable)
  * 17  net_rx_bps   (nullable, bytes/s)
  * 18  net_tx_bps   (nullable, bytes/s)
- * 19  uptime_seconds */
+ * 19  uptime_seconds
+ * 20  swap_total_mb (nullable) 21 swap_free_mb */
 
 static const char SQL_RAW[] = "SELECT timestamp,"
                               "  CAST(strftime('%s',timestamp) AS INTEGER) AS ts,"
@@ -555,7 +581,8 @@ static const char SQL_RAW[] = "SELECT timestamp,"
                               "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
                               "  mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
                               "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
-                              "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds"
+                              "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds,"
+                              "  swap_total_mb, swap_free_mb"
                               " FROM metrics WHERE timestamp >= ? ORDER BY ts";
 
 void db_release_memory(db_t *db) { sqlite3_db_release_memory(db->handle); }
@@ -572,10 +599,11 @@ int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_
             fprintf(stderr, "db: range prepare: %s\n", sqlite3_errmsg(db->handle));
             return -1;
         }
+
         sqlite3_bind_text(s, 1, cutoff, -1, SQLITE_TRANSIENT);
     } else {
-        /* Build bucketed SQL with the bucket size embedded as a literal so
-         * integer division in SQLite uses the correct type. */
+        /* Build bucketed SQL with the bucket size embedded as a literal so integer division in
+         * SQLite uses the correct type. */
         char sql[2048];
         snprintf(sql, sizeof(sql),
                  "SELECT strftime('%%Y-%%m-%%dT%%H:%%M:%%SZ',bkt,'unixepoch'), bkt,"
@@ -583,21 +611,25 @@ int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_
                  "  AVG(cpu_user_percent), AVG(cpu_system_percent), AVG(cpu_idle_percent),"
                  "  AVG(mem_total_mb), AVG(mem_used_mb), AVG(mem_available_mb), AVG(mem_percent),"
                  "  AVG(disk_total_gb), AVG(disk_used_gb), AVG(disk_free_gb), AVG(disk_percent),"
-                 "  AVG(temp_celsius), AVG(net_rx_bps), AVG(net_tx_bps), AVG(uptime_seconds)"
+                 "  AVG(temp_celsius), AVG(net_rx_bps), AVG(net_tx_bps), AVG(uptime_seconds),"
+                 "  AVG(swap_total_mb), AVG(swap_free_mb)"
                  " FROM ("
                  "  SELECT (CAST(strftime('%%s',timestamp) AS INTEGER)/%d)*%d AS bkt,"
                  "    load_1m, load_5m, load_15m,"
                  "    cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
                  "    mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
                  "    disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
-                 "    temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds"
+                 "    temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds,"
+                 "    swap_total_mb, swap_free_mb"
                  "  FROM metrics WHERE timestamp >= ?"
                  ") GROUP BY bkt ORDER BY bkt",
                  bucket_sec, bucket_sec);
+
         if (sqlite3_prepare_v2(db->handle, sql, -1, &s, NULL) != SQLITE_OK) {
             fprintf(stderr, "db: range bucket prepare: %s\n", sqlite3_errmsg(db->handle));
             return -1;
         }
+
         sqlite3_bind_text(s, 1, cutoff, -1, SQLITE_TRANSIENT);
     }
 
@@ -618,10 +650,13 @@ int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_
             if (!tmp) {
                 free(rows);
                 sqlite3_finalize(s);
+
                 return -1;
             }
+
             rows = tmp;
         }
+
         read_row(s, &rows[cnt++]);
     }
 
@@ -630,10 +665,12 @@ int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_
     if (rc != SQLITE_DONE) {
         fprintf(stderr, "db: range query error: %s\n", sqlite3_errmsg(db->handle));
         free(rows);
+
         return -1;
     }
 
     *out_rows = rows;
+
     return (int)cnt;
 }
 
@@ -693,6 +730,7 @@ static int build_consolidate_sql(char *sql, size_t cap, long now)
     n = snprintf(p, remaining, "BEGIN IMMEDIATE;");
     if (n < 0 || n >= remaining)
         return -1;
+
     p += n;
     remaining -= n;
 
@@ -707,7 +745,8 @@ static int build_consolidate_sql(char *sql, size_t cap, long now)
             "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
             "  mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
             "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
-            "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds, bucket_sec"
+            "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds, bucket_sec,"
+            "  swap_total_mb, swap_free_mb"
             ") SELECT"
             "  strftime('%%Y-%%m-%%dT%%H:%%M:%%SZ',"
             "           (CAST(strftime('%%s',timestamp) AS INTEGER)/%d)*%d, 'unixepoch'),"
@@ -716,7 +755,8 @@ static int build_consolidate_sql(char *sql, size_t cap, long now)
             "  AVG(mem_total_mb), AVG(mem_used_mb), AVG(mem_available_mb), AVG(mem_percent),"
             "  AVG(disk_total_gb), AVG(disk_used_gb), AVG(disk_free_gb), AVG(disk_percent),"
             "  AVG(temp_celsius), AVG(net_rx_bps), AVG(net_tx_bps), AVG(uptime_seconds),"
-            "  %d"
+            "  %d,"
+            "  AVG(swap_total_mb), AVG(swap_free_mb)"
             " FROM metrics"
             " WHERE (CAST(strftime('%%s',timestamp) AS INTEGER)/%d)*%d + %d <= %ld"
             "   AND (bucket_sec IS NULL OR bucket_sec < %d)"
@@ -731,6 +771,7 @@ static int build_consolidate_sql(char *sql, size_t cap, long now)
             bs, bs, bs, cut, bs); /* DELETE WHERE */
         if (n < 0 || n >= remaining)
             return -1;
+
         p += n;
         remaining -= n;
     }

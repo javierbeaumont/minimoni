@@ -25,14 +25,13 @@
 #include "metrics.h"
 #include "sqlite3.h"
 
-/* SQLite database format. application_id is the ASCII magic "moni", stamped
- * into every database so tooling (minimoni db info, minimoni-migrate) can
- * recognise the file via PRAGMA application_id. user_version carries the schema
- * version: 1 is the tiered write-time consolidation schema (net rates +
- * bucket_sec). db_open refuses to run against a database at a different
- * user_version; minimoni-migrate upgrades older databases. */
+/* SQLite database format. application_id is the ASCII magic "moni", stamped into every database so
+ * tooling (minimoni db info, minimoni-migrate) can recognise the file via PRAGMA application_id.
+ * user_version carries the schema version: 1 is the tiered write-time consolidation schema (net
+ * rates + bucket_sec), 2 adds the swap columns. db_open refuses to run against a database at a
+ * different user_version; minimoni-migrate upgrades older databases. */
 #define MINIMONI_APPLICATION_ID 0x6D6F6E69
-#define MINIMONI_SCHEMA_VERSION 1
+#define MINIMONI_SCHEMA_VERSION 2
 
 typedef struct {
     sqlite3      *handle;
@@ -59,11 +58,10 @@ typedef struct {
 /* Finalize prepared statements and close the database handle. */
 void db_close(db_t *db);
 
-/* Insert one metrics row timestamped at the current UTC second.
- * Fields gated by cpu_valid and temp_valid are stored as NULL when
- * invalid so they do not distort averages in downsampled queries.
- * Retries up to 3 times on SQLITE_BUSY with 100ms backoff.
- * Returns 0 on success, -1 on error. */
+/* Insert one metrics row timestamped at the current UTC second. Fields gated by a valid flag (cpu,
+ * temp, net, swap) are stored as NULL when it is 0, so they do not distort averages in downsampled
+ * queries. Retries up to 3 times on SQLITE_BUSY with 100ms backoff. Returns 0 on success, -1 on
+ * error. */
 [[nodiscard]] int db_insert(db_t *db, const metrics_t *m);
 
 /* Delete rows older than retention_days from metrics and alert_log.
@@ -108,6 +106,10 @@ typedef struct {
     double net_tx_bps;
     /* uptime */
     double uptime_seconds;
+    /* swap (swap_valid=0 when the host has none): total and free as stored, the rest worked out
+     * from them as the row is read */
+    int    swap_valid;
+    double swap_total_mb, swap_free_mb, swap_used_mb, swap_used_percent, swap_free_percent;
 } db_row_t;
 
 /* Fetch the most recent metrics row into *row.  Net throughput is read

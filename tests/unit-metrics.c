@@ -19,10 +19,9 @@
  * along with minimoni. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Unit tests for src/metrics.c net_rate() - the pure rx/tx throughput
- * computation extracted from collect_net. Zero-dependency, no framework; build
- * with `make test`. metrics.c is #included directly so the static helper is
- * exercisable without reading /proc; each test feeds two synthetic snapshots. */
+/* Unit tests for src/metrics.c: the pure rx/tx throughput computation, and the /proc/meminfo reader
+ * fed synthetic text. Zero-dependency, no framework; build with `make test`. metrics.c is #included
+ * directly so the static helpers are exercisable without reading /proc. */
 
 #define _POSIX_C_SOURCE 200809L
 
@@ -117,6 +116,63 @@ static int test_net_rate_counter_reset_tx(void)
     return net_rate(&prev, &cur, &rx, &tx) == 0 ? 0 : 1;
 }
 
+/* --- Reading /proc/meminfo --- */
+
+/* A FILE reading `text`, in place of the /proc file a reader opens. */
+static FILE *reading(char *text) { return fmemopen(text, strlen(text), "r"); }
+
+static int test_meminfo_reads_memory(void)
+{
+    char      text[] = "MemTotal: 4096 kB\nMemFree: 512 kB\nMemAvailable: 1024 kB\n";
+    FILE     *f = reading(text);
+    metrics_t m = {.swap_valid = 1};
+    int       ok = f && read_meminfo(f, &m) == 0 && approx(m.mem_total_mb, 4.0) &&
+                   approx(m.mem_available_mb, 1.0) && approx(m.mem_used_mb, 3.0) &&
+                   approx(m.mem_percent, 75.0) && !m.swap_valid;
+    if (f)
+        fclose(f);
+
+    return ok ? 0 : 1;
+}
+
+static int test_meminfo_without_memtotal_fails(void)
+{
+    char      text[] = "MemAvailable: 1024 kB\nSwapTotal: 2048 kB\nSwapFree: 512 kB\n";
+    FILE     *f = reading(text);
+    metrics_t m = {0};
+    int       ok = f && read_meminfo(f, &m) == -1;
+    if (f)
+        fclose(f);
+
+    return ok ? 0 : 1;
+}
+
+static int test_meminfo_reads_swap(void)
+{
+    char text[] =
+        "MemTotal: 4096 kB\nMemAvailable: 1024 kB\nSwapTotal: 2048 kB\nSwapFree: 512 kB\n";
+    FILE     *f = reading(text);
+    metrics_t m = {0};
+    int       ok = f && read_meminfo(f, &m) == 0 && m.swap_valid && approx(m.swap_total_mb, 2.0) &&
+                   approx(m.swap_free_mb, 0.5);
+    if (f)
+        fclose(f);
+
+    return ok ? 0 : 1;
+}
+
+static int test_meminfo_without_swap(void)
+{
+    char  text[] = "MemTotal: 4096 kB\nMemAvailable: 1024 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n";
+    FILE *f = reading(text);
+    metrics_t m = {.swap_valid = 1};
+    int       ok = f && read_meminfo(f, &m) == 0 && !m.swap_valid;
+    if (f)
+        fclose(f);
+
+    return ok ? 0 : 1;
+}
+
 /* --- Link speed (sysfs `speed` parsing) --- */
 
 static int test_link_speed_parse(void)
@@ -150,12 +206,20 @@ static int test_collect_fills_plausible_values(void)
     /* Ranges, not exact values: this reads the live host. */
     if (m.load_1m < 0 || m.load_5m < 0 || m.load_15m < 0)
         return 1;
+
     if (!(m.mem_total_mb > 0) || m.mem_used_mb < 0 || m.mem_used_mb > m.mem_total_mb)
         return 1;
+
     if (m.mem_percent < 0 || m.mem_percent > 100)
         return 1;
+
     if (!(m.disk_total_gb > 0) || m.disk_percent < 0 || m.disk_percent > 100)
         return 1;
+
+    if (m.swap_valid &&
+        (!(m.swap_total_mb > 0) || m.swap_free_mb < 0 || m.swap_free_mb > m.swap_total_mb))
+        return 1;
+
     return m.uptime_seconds > 0 ? 0 : 1;
 }
 
@@ -273,6 +337,10 @@ static const test_t ALL_TESTS[] = {
     T(net_rate_negative_dt),
     T(net_rate_counter_reset_rx),
     T(net_rate_counter_reset_tx),
+    T(meminfo_reads_memory),
+    T(meminfo_without_memtotal_fails),
+    T(meminfo_reads_swap),
+    T(meminfo_without_swap),
     T(link_speed_parse),
     T(link_speed_sum_is_sane),
     T(collect_fills_plausible_values),

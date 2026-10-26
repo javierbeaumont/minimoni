@@ -22,10 +22,9 @@
 #ifndef MIGRATE_CONSOLIDATE_H
 #define MIGRATE_CONSOLIDATE_H
 
-/* Fold the whole tier backlog to convergence and VACUUM, crossing every
- * statement through `minimoni db exec` (migrate carries no SQLite). Closing
- * step of a v0.1 -> v0.2 migration. Returns 0 on success, nonzero on failure
- * (reason already printed to stderr). */
+/* Fold the whole tier backlog to convergence and VACUUM, crossing every statement through
+ * `minimoni db exec` (migrate carries no SQLite). Closing step of every migration. Returns 0 on
+ * success, nonzero on failure (reason already printed to stderr). */
 int migrate_consolidate_and_vacuum(const char *minimoni_exec, const char *db_path);
 
 #endif /* MIGRATE_CONSOLIDATE_H */

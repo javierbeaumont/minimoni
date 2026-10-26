@@ -135,15 +135,12 @@ static void collect_cpu(metrics_t *m)
     m->cpu_valid = 1;
 }
 
-/* --- Memory --- */
+/* --- Memory and swap --- */
 
-static int collect_mem(metrics_t *m)
+/* Fill the memory and swap fields from /proc/meminfo. Returns 0, or -1 without MemTotal. */
+static int read_meminfo(FILE *f, metrics_t *m)
 {
-    FILE *f = fopen("/proc/meminfo", "r");
-    if (!f)
-        return -1;
-
-    unsigned long long total_kb = 0, available_kb = 0;
+    unsigned long long mem_total_kb = 0, mem_available_kb = 0, swap_total_kb = 0, swap_free_kb = 0;
     char               line[128];
     char               key[64];
     unsigned long long val;
@@ -152,9 +149,11 @@ static int collect_mem(metrics_t *m)
         char *sep = line;
         while (*sep != '\0' && *sep != ' ' && *sep != '\t')
             sep++;
+
         size_t klen = (size_t)(sep - line);
         if (klen == 0 || klen >= sizeof(key))
             continue;
+
         memcpy(key, line, klen);
         key[klen] = '\0';
 
@@ -165,20 +164,42 @@ static int collect_mem(metrics_t *m)
             continue;
 
         if (strcmp(key, "MemTotal:") == 0)
-            total_kb = val;
-        if (strcmp(key, "MemAvailable:") == 0)
-            available_kb = val;
+            mem_total_kb = val;
+        else if (strcmp(key, "MemAvailable:") == 0)
+            mem_available_kb = val;
+        else if (strcmp(key, "SwapTotal:") == 0)
+            swap_total_kb = val;
+        else if (strcmp(key, "SwapFree:") == 0)
+            swap_free_kb = val;
     }
-    fclose(f);
 
-    if (total_kb == 0)
+    if (mem_total_kb == 0)
         return -1;
 
-    m->mem_total_mb = (double)total_kb / 1024.0;
-    m->mem_available_mb = (double)available_kb / 1024.0;
+    m->mem_total_mb = (double)mem_total_kb / 1024.0;
+    m->mem_available_mb = (double)mem_available_kb / 1024.0;
     m->mem_used_mb = m->mem_total_mb - m->mem_available_mb;
     m->mem_percent = m->mem_used_mb / m->mem_total_mb * 100.0;
+
+    m->swap_valid = swap_total_kb > 0;
+    if (m->swap_valid) {
+        m->swap_total_mb = (double)swap_total_kb / 1024.0;
+        m->swap_free_mb = (double)swap_free_kb / 1024.0;
+    }
+
     return 0;
+}
+
+static int collect_meminfo(metrics_t *m)
+{
+    FILE *f = fopen("/proc/meminfo", "r");
+    if (!f)
+        return -1;
+
+    int rc = read_meminfo(f, m);
+    fclose(f);
+
+    return rc;
 }
 
 /* --- Disk --- */
@@ -440,10 +461,13 @@ int metrics_collect(metrics_t *m, const char *disk_path)
 {
     if (collect_load(m) != 0)
         return -1;
-    if (collect_mem(m) != 0)
+
+    if (collect_meminfo(m) != 0)
         return -1;
+
     if (collect_disk(m, disk_path) != 0)
         return -1;
+
     if (collect_uptime(m) != 0)
         return -1;
 

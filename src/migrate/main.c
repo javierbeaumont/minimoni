@@ -158,6 +158,7 @@ static int do_migrate(const char *minimoni_exec, const char *db_path, int do_bac
     if (migrate_preflight(minimoni_exec, db_path, &current) != 0) {
         if (dry_run)
             printf("status: blocked\n");
+
         return 1; /* preflight already printed the reason */
     }
 
@@ -168,8 +169,10 @@ static int do_migrate(const char *minimoni_exec, const char *db_path, int do_bac
         fprintf(stderr, "migrate: already at the latest version, nothing to do\n");
         if (dry_run)
             printf("status: up-to-date\n");
+
         return 0;
     }
+
     if (current > latest) {
         fprintf(stderr,
                 "migrate: database is at user_version=%d, but this build only "
@@ -177,16 +180,16 @@ static int do_migrate(const char *minimoni_exec, const char *db_path, int do_bac
                 current, latest);
         if (dry_run)
             printf("status: blocked\n");
+
         return 1;
     }
 
-    /* Verify the source schema fingerprint of the FIRST migration in the
-     * chain BEFORE snapshotting. If the canonical schema doesn't match, we
-     * have no business writing to (or even copying) this database. Subsequent
-     * migrations are not pre-verified: their source schema is whatever the
-     * previous migration's script produced; hand-audited C we trust by
-     * construction. This light check runs in both modes, unless --force tells
-     * us the operator has reviewed a non-canonical schema and accepts it. */
+    /* Verify the source schema fingerprint of the FIRST migration in the chain BEFORE snapshotting.
+     * If the canonical schema doesn't match, we have no business writing to (or even copying) this
+     * database. Subsequent migrations are not pre-verified: their source schema is whatever the
+     * previous migration's script produced; hand-audited C we trust by construction. This light
+     * check runs in both modes, unless --force tells us the operator has reviewed a non-canonical
+     * schema and accepts it. */
     if (force) {
         fprintf(stderr, "migrate: --force given, skipping the schema fingerprint check\n");
     } else {
@@ -194,6 +197,7 @@ static int do_migrate(const char *minimoni_exec, const char *db_path, int do_bac
         if (first && first->verify_source && first->verify_source(minimoni_exec, db_path) != 0) {
             if (dry_run)
                 printf("status: blocked\n");
+
             return 1; /* verify_source already printed the reason */
         }
     }
@@ -250,6 +254,7 @@ static int do_migrate(const char *minimoni_exec, const char *db_path, int do_bac
                     "migrate: no migration registered for user_version=%d; "
                     "this build cannot continue\n",
                     current);
+
             rc_apply = 2;
             break;
         }
@@ -260,6 +265,7 @@ static int do_migrate(const char *minimoni_exec, const char *db_path, int do_bac
         char out[256], err[1024];
         int  rc = migrate_exec(minimoni_exec, target, m->script, NULL, out, sizeof(out), err,
                                sizeof(err));
+
         if (rc != 0) {
             fprintf(stderr, "migrate: v%d -> v%d failed (db exec rc=%d)\n", m->from_version,
                     m->to_version, rc);
@@ -272,36 +278,43 @@ static int do_migrate(const char *minimoni_exec, const char *db_path, int do_bac
                         "restore manually.\n",
                         db_path, m->from_version);
             }
+
             rc_apply = 2;
             break;
         }
+
         current = m->to_version;
     }
 
     if (dry_run) {
         remove_db_with_sidecars(dry_path);
+
         if (rc_apply == 0) {
             fprintf(stderr, "migrate: dry-run OK, no changes written to %s\n", db_path);
             printf("status: migration-pending\n");
+
             return 0;
         }
+
         fprintf(stderr, "migrate: dry-run found the migration would fail\n");
         printf("status: blocked\n");
+
         return 1;
     }
 
     if (rc_apply != 0)
         return rc_apply;
 
-    /* Close the upgrade with a consolidation + VACUUM: v0.1 stored only raw rows,
-     * so the daemon's first consolidation would DELETE the backlog and leave the
-     * freed pages bloating the file. Doing it here hands the daemon a compacted DB.
-     * Reached only after a real migration, so it runs once, never on a re-run. */
+    /* Close every upgrade with a consolidation + VACUUM, so the daemon starts on a compacted DB: a
+     * v0.1 database holds only raw rows, which the daemon's first consolidation would DELETE,
+     * leaving the freed pages bloating the file. Reached only after a real migration, so it runs
+     * once, never on a re-run. */
     int rc_compact = migrate_consolidate_and_vacuum(minimoni_exec, db_path);
     if (rc_compact != 0)
         return rc_compact;
 
     fprintf(stderr, "migrate: success, database at user_version=%d\n", current);
+
     return 0;
 }
 
