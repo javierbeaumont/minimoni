@@ -22,10 +22,6 @@
 #ifndef MINIMONI_UNITS_H
 #define MINIMONI_UNITS_H
 
-/* Convert a raw collected value (in its stored base unit) to the configured
- * display unit. `unit` is the matching *_unit string from config. Memory, disk
- * and net magnitudes are NOT here: under "auto" the dashboard picks them from
- * what is on screen, so the server ships the base unit untouched. */
 /* bps -> % of `ref_bps` (see net_ref_bps), or bytes/s unchanged. */
 double net_convert(double bps, const char *unit, double ref_bps);
 double load_convert(double load, int cores, const char *unit); /* load -> abs/% */

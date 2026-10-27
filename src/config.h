@@ -39,7 +39,7 @@
 typedef struct {
     char   name[64];
     char   metric[32];
-    char   op[4]; /* ">", "<", ">=", "<=", "==" */
+    char   op[4];
     double threshold;
     char   webhook[512];
     char   command[256];
