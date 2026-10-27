@@ -519,6 +519,13 @@ static void read_row(sqlite3_stmt *s, db_row_t *r)
     if (r->swap_io_valid) {
         r->swap_in_bps = sqlite3_column_double(s, 22);
         r->swap_out_bps = sqlite3_column_double(s, 23);
+
+        /* % of the RAM per minute: a minute's bytes over the RAM's */
+        double ram_bytes = r->mem_total_mb * 1024.0 * 1024.0;
+        if (ram_bytes > 0.0) {
+            r->swap_in_ram = r->swap_in_bps * 60.0 * 100.0 / ram_bytes;
+            r->swap_out_ram = r->swap_out_bps * 60.0 * 100.0 / ram_bytes;
+        }
     }
 }
 

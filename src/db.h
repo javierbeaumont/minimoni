@@ -110,9 +110,10 @@ typedef struct {
      * from them as the row is read */
     int    swap_valid;
     double swap_total_mb, swap_free_mb, swap_used_mb, swap_used_percent, swap_free_percent;
-    /* swap I/O in bytes/s (swap_io_valid=0 like net_valid, and without swap) */
+    /* swap I/O (swap_io_valid=0 like net_valid, and without swap): in bytes/s as stored, and in %
+     * of the RAM per minute, worked out from them as the row is read */
     int    swap_io_valid;
-    double swap_in_bps, swap_out_bps;
+    double swap_in_bps, swap_out_bps, swap_in_ram, swap_out_ram;
 } db_row_t;
 
 /* Fetch the most recent metrics row into *row.  Net throughput is read

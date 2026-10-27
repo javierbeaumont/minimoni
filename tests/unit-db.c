@@ -312,6 +312,31 @@ static int test_db_insert_swap_without_rates(void)
     return ok ? 0 : 1;
 }
 
+/* Swap I/O also reads in % of the RAM per minute: 104857.6 B/s is 1 % of 600 MB per minute. */
+static int test_db_swap_io_reads_in_ram_per_minute(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    metrics_t m = sample_metrics(1, 1, 1);
+    m.mem_total_mb = 600.0;
+    m.swap_valid = m.swap_io_valid = 1;
+    m.swap_total_mb = 512.0;
+    m.swap_free_mb = 384.0;
+    m.swap_in_bps = 104857.6;
+    m.swap_out_bps = 5 * 104857.6;
+    int ok = (db_insert(&db, &m) == 0);
+
+    db_row_t row;
+    ok = ok && (db_current(&db, &row) == 0);
+    ok = ok && row.swap_io_valid && approx(row.swap_in_ram, 1.0) && approx(row.swap_out_ram, 5.0);
+
+    close_test_db(&db);
+
+    return ok ? 0 : 1;
+}
+
 /* Should the kernel ever report more free swap than the total, none reads as used. */
 static int test_db_swap_free_above_total_reads_as_unused(void)
 {
@@ -1383,6 +1408,7 @@ static const test_t ALL_TESTS[] = {
     T(db_insert_null_gating),
     T(db_query_range_bucketed_avg),
     T(db_insert_swap_without_rates),
+    T(db_swap_io_reads_in_ram_per_minute),
     T(db_swap_free_above_total_reads_as_unused),
     T(db_query_range_raw_reads_swap),
     T(db_query_range_bucketed_swap_skips_rows_without_it),

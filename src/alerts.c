@@ -111,6 +111,22 @@ static double get_metric_value(const db_row_t *row, const char *m, int *valid)
         *valid = row->swap_valid;
         return row->swap_used_percent;
     }
+    if (!strcmp(m, "swap_in_bps")) {
+        *valid = row->swap_io_valid;
+        return row->swap_in_bps;
+    }
+    if (!strcmp(m, "swap_out_bps")) {
+        *valid = row->swap_io_valid;
+        return row->swap_out_bps;
+    }
+    if (!strcmp(m, "swap_in_ram")) {
+        *valid = row->swap_io_valid;
+        return row->swap_in_ram;
+    }
+    if (!strcmp(m, "swap_out_ram")) {
+        *valid = row->swap_io_valid;
+        return row->swap_out_ram;
+    }
 
     /* Unreachable from a loaded config: config_load refuses any other name. */
     *valid = 0;

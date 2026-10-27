@@ -531,36 +531,42 @@ cooldown  = "1h"           # minimum time between repeated firings
 
 **Available metrics** (any other name fails the load):
 
-| Metric               | Unit     | Description                                       |
-|----------------------|----------|---------------------------------------------------|
-| `load_1m`            | load avg | 1-minute load average                             |
-| `load_5m`            | load avg | 5-minute load average                             |
-| `load_15m`           | load avg | 15-minute load average                            |
-| `cpu_user_percent`   | %        | User-space CPU usage                              |
-| `cpu_system_percent` | %        | Kernel CPU usage                                  |
-| `cpu_idle_percent`   | %        | Idle CPU                                          |
-| `mem_total_mb`       | MB       | Total memory                                      |
-| `mem_used_mb`        | MB       | Used memory                                       |
-| `mem_available_mb`   | MB       | Available memory                                  |
-| `mem_percent`        | %        | Used memory as percent of total                   |
-| `disk_total_gb`      | GB       | Total disk space                                  |
-| `disk_used_gb`       | GB       | Used disk space                                   |
-| `disk_free_gb`       | GB       | Free disk space                                   |
-| `disk_percent`       | %        | Used disk as percent of total                     |
-| `temp_celsius`       | C        | CPU temperature (skipped if no sensor is present) |
-| `net_rx_bps`         | bytes/s  | Receive throughput                                |
-| `net_tx_bps`         | bytes/s  | Transmit throughput                               |
-| `uptime_seconds`     | s        | Seconds since boot                                |
-| `swap_free_mb`       | MB       | Free swap                                         |
-| `swap_used_mb`       | MB       | Used swap                                         |
-| `swap_free_percent`  | %        | Free swap as percent of total                     |
-| `swap_used_percent`  | %        | Used swap as percent of total                     |
+| Metric               | Unit      | Description                                       |
+|----------------------|-----------|---------------------------------------------------|
+| `load_1m`            | load avg  | 1-minute load average                             |
+| `load_5m`            | load avg  | 5-minute load average                             |
+| `load_15m`           | load avg  | 15-minute load average                            |
+| `cpu_user_percent`   | %         | User-space CPU usage                              |
+| `cpu_system_percent` | %         | Kernel CPU usage                                  |
+| `cpu_idle_percent`   | %         | Idle CPU                                          |
+| `mem_total_mb`       | MB        | Total memory                                      |
+| `mem_used_mb`        | MB        | Used memory                                       |
+| `mem_available_mb`   | MB        | Available memory                                  |
+| `mem_percent`        | %         | Used memory as percent of total                   |
+| `disk_total_gb`      | GB        | Total disk space                                  |
+| `disk_used_gb`       | GB        | Used disk space                                   |
+| `disk_free_gb`       | GB        | Free disk space                                   |
+| `disk_percent`       | %         | Used disk as percent of total                     |
+| `temp_celsius`       | C         | CPU temperature (skipped if no sensor is present) |
+| `net_rx_bps`         | bytes/s   | Receive throughput                                |
+| `net_tx_bps`         | bytes/s   | Transmit throughput                               |
+| `uptime_seconds`     | s         | Seconds since boot                                |
+| `swap_free_mb`       | MB        | Free swap                                         |
+| `swap_used_mb`       | MB        | Used swap                                         |
+| `swap_free_percent`  | %         | Free swap as percent of total                     |
+| `swap_used_percent`  | %         | Used swap as percent of total                     |
+| `swap_in_bps`        | bytes/s   | Swap I/O in, read back from swap                  |
+| `swap_out_bps`       | bytes/s   | Swap I/O out, written to swap                     |
+| `swap_in_ram`        | % RAM/min | Swap I/O in, in % of the RAM per minute           |
+| `swap_out_ram`       | % RAM/min | Swap I/O out, in % of the RAM per minute          |
 
 Thresholds are compared against the raw metric value, in the unit named by its suffix: `_mb` is
 megabytes, `_gb` is gigabytes, `_percent` is a percentage, `_celsius` is degrees Celsius, `_bps` is
-bytes per second. `load_*` are raw load averages; `uptime_seconds` is in seconds. Dashboard unit
-settings do not affect alert thresholds: alerts work from the database, never in the dashboard's
-units. The `swap_*` metrics are skipped on a host without swap.
+bytes per second, `_ram` is swap I/O as a percent of the RAM per minute (past 100 when the same
+pages go back and forth). `_bps` and `_ram` are averages over the collect interval: a longer
+interval smooths out short bursts. `load_*` are raw load averages; `uptime_seconds` is in seconds.
+Dashboard unit settings do not affect alert thresholds: alerts work from the database, never in the
+dashboard's units. The `swap_*` metrics are skipped on a host without swap.
 
 When `webhook` is set, minimoni sends a POST request (`Content-Type: application/json`).
 **Requires outbound HTTP connectivity from the server.** A delivery that takes over 10 s, DNS and

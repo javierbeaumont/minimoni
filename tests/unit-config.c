@@ -1384,8 +1384,9 @@ static int test_unknown_alert_metric_fails(void)
 
 static int test_swap_alert_metrics_accepted(void)
 {
-    static const char *const names[] = {"swap_free_mb", "swap_used_mb", "swap_free_percent",
-                                        "swap_used_percent"};
+    static const char *const names[] = {"swap_free_mb",      "swap_used_mb", "swap_free_percent",
+                                        "swap_used_percent", "swap_in_bps",  "swap_out_bps",
+                                        "swap_in_ram",       "swap_out_ram"};
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
         char toml[256];
         snprintf(toml, sizeof(toml),

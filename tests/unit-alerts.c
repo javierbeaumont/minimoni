@@ -231,7 +231,7 @@ static int test_every_config_metric_has_a_value(void)
     static const char *const names[] = {ALERT_METRICS, NULL};
     db_row_t                 row;
     memset(&row, 0, sizeof(row));
-    row.cpu_valid = row.temp_valid = row.net_valid = row.swap_valid = 1;
+    row.cpu_valid = row.temp_valid = row.net_valid = row.swap_valid = row.swap_io_valid = 1;
 
     for (int i = 0; names[i]; i++) {
         int valid = 0;
@@ -243,19 +243,24 @@ static int test_every_config_metric_has_a_value(void)
     return 0;
 }
 
-static const char *const SWAP_METRICS[] = {"swap_free_mb", "swap_used_mb", "swap_free_percent",
-                                           "swap_used_percent"};
+static const char *const SWAP_METRICS[] = {"swap_free_mb",      "swap_used_mb", "swap_free_percent",
+                                           "swap_used_percent", "swap_in_bps",  "swap_out_bps",
+                                           "swap_in_ram",       "swap_out_ram"};
 
 /* Each swap metric reads its own field. */
 static int test_swap_metrics_read_their_fields(void)
 {
     db_row_t row;
     memset(&row, 0, sizeof(row));
-    row.swap_valid = 1;
+    row.swap_valid = row.swap_io_valid = 1;
     row.swap_free_mb = 1.0;
     row.swap_used_mb = 2.0;
     row.swap_free_percent = 3.0;
     row.swap_used_percent = 4.0;
+    row.swap_in_bps = 5.0;
+    row.swap_out_bps = 6.0;
+    row.swap_in_ram = 7.0;
+    row.swap_out_ram = 8.0;
 
     for (size_t i = 0; i < sizeof(SWAP_METRICS) / sizeof(SWAP_METRICS[0]); i++) {
         int valid = 0;
@@ -280,6 +285,23 @@ static int test_swap_metrics_without_swap_have_no_value(void)
     }
 
     return 0;
+}
+
+/* Before the first swap I/O sample, the swap I/O alerts have nothing to compare; the others do. */
+static int test_swap_io_metrics_without_a_sample_have_no_value(void)
+{
+    db_row_t row;
+    memset(&row, 0, sizeof(row));
+    row.swap_valid = 1;
+
+    int in = 1, out = 1, in_ram = 1, out_ram = 1, used = 0;
+    get_metric_value(&row, "swap_in_bps", &in);
+    get_metric_value(&row, "swap_out_bps", &out);
+    get_metric_value(&row, "swap_in_ram", &in_ram);
+    get_metric_value(&row, "swap_out_ram", &out_ram);
+    get_metric_value(&row, "swap_used_percent", &used);
+
+    return !in && !out && !in_ram && !out_ram && used ? 0 : 1;
 }
 
 /* --- The request: what does not fit is not sent --- */
@@ -387,6 +409,7 @@ static const test_t ALL_TESTS[] = {
     T(every_config_metric_has_a_value),
     T(swap_metrics_read_their_fields),
     T(swap_metrics_without_swap_have_no_value),
+    T(swap_io_metrics_without_a_sample_have_no_value),
     T(fit_printf_exact_fit),
     T(fit_printf_one_byte_short),
     T(parse_url_host_at_max),
