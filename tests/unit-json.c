@@ -19,14 +19,12 @@
  * along with minimoni. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/*
- * Unit tests for src/json.c. Zero-dependency, no framework. Build with:
+/* Unit tests for src/json.c. Zero-dependency, no framework. Build with:
  *   make test
  *
  * json.c is `#include`d directly, together with units.c (the *_convert helpers
  * it calls) and config.c (config_has). Each test returns 0 on pass / 1 on fail;
- * the shared harness lives in runner.h.
- */
+ * the shared harness lives in runner.h. */
 
 #define _POSIX_C_SOURCE 200809L
 
@@ -71,7 +69,8 @@ static db_row_t sample_row(void)
     return r;
 }
 
-/* sample_row with swap: 256 of 1024 MB in use, as db.c's read_row works it out. */
+/* sample_row with swap: 256 of 1024 MB in use, 4096 B/s in and 8192 B/s out, as db.c's read_row
+ * works them out. */
 static db_row_t swap_row(void)
 {
     db_row_t r = sample_row();
@@ -81,6 +80,11 @@ static db_row_t swap_row(void)
     r.swap_used_mb = 256.0;
     r.swap_used_percent = 25.0;
     r.swap_free_percent = 75.0;
+    r.swap_io_valid = 1;
+    r.swap_in_bps = 4096.0;
+    r.swap_out_bps = 8192.0;
+    r.swap_in_ram = 4096.0 * 60.0 * 100.0 / (r.mem_total_mb * 1024.0 * 1024.0);
+    r.swap_out_ram = 2.0 * r.swap_in_ram;
 
     return r;
 }
@@ -277,11 +281,12 @@ static int test_show_all_emits_every_group(void)
     config_t c = base_cfg();
     emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
 
-    return (has(b, "\"load_1m\"") && has(b, "\"cpu_user_percent\"") && has(b, "\"mem_percent\"") &&
-            has(b, "\"swap_free\"") && has(b, "\"disk_percent\"") && has(b, "\"temp\"") &&
-            has(b, "\"net_rx\"") && has(b, "\"uptime_seconds\""))
-               ? 0
-               : 1;
+    int cpu = has(b, "\"load_1m\"") && has(b, "\"cpu_user_percent\"");
+    int memory = has(b, "\"mem_percent\"") && has(b, "\"swap_free\"") && has(b, "\"swap_in\"");
+    int others = has(b, "\"disk_percent\"") && has(b, "\"temp\"") && has(b, "\"net_rx\"") &&
+                 has(b, "\"uptime_seconds\"");
+
+    return cpu && memory && others ? 0 : 1;
 }
 
 static int test_gating_single_card(void)
@@ -364,6 +369,22 @@ static int test_thresh_swap_fixed(void)
     emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
 
     return has(b, "\"thresh_swap\":[80,95]") ? 0 : 1;
+}
+
+/* 1 and 5 % of the RAM per minute: on sample_row's 1000 MB, 174763 and 873813 B/s. */
+static int test_thresh_swap_io_in_ram_or_bytes(void)
+{
+    char     ram[2048], bytes[2048];
+    db_row_t r = swap_row();
+    config_t c = base_cfg(); /* swap_io_card_unit defaults to "bytes" */
+    emit(bytes, sizeof(bytes), &r, &c, 4, 1, 100.0);
+    strcpy(c.swap_io_card_unit, "ram");
+    emit(ram, sizeof(ram), &r, &c, 4, 1, 100.0);
+
+    int in_ram = has(ram, "\"thresh_swap_io\":[1,5]");
+    int in_bytes = has(bytes, "\"thresh_swap_io\":[174763,873813]");
+
+    return in_ram && in_bytes ? 0 : 1;
 }
 
 static int test_thresh_temp_from_critical(void)
@@ -723,13 +744,43 @@ static int test_units_swap_skipped_in_percent(void)
     return !has(b, "\"swap\"") ? 0 : 1;
 }
 
+/* Only the rows with a swap I/O sample set its magnitude, in bytes/s. */
+static int test_units_swap_io_from_rows_with_a_sample(void)
+{
+    char     b[512];
+    db_row_t rows[2];
+    memset(rows, 0, sizeof(rows));
+    rows[0].swap_in_bps = 9.0e12; /* not read: swap_io_valid is 0 */
+    rows[1].swap_io_valid = 1;
+    rows[1].swap_in_bps = 2.0e6; /* 1953 KB/s */
+    config_t c = base_cfg();
+    emit_units(b, sizeof(b), rows, 2, &c);
+
+    return has(b, "\"swap_io\":{\"sym\":\"KB/s\",\"mul\":1,\"div\":1024}") ? 0 : 1;
+}
+
+static int test_units_swap_io_skipped_in_ram(void)
+{
+    char     b[512];
+    db_row_t rows[1];
+    memset(rows, 0, sizeof(rows));
+    rows[0].swap_io_valid = 1;
+    rows[0].swap_in_bps = 2.0e6;
+    config_t c = base_cfg();
+    strcpy(c.swap_io_chart_unit, "ram");
+    emit_units(b, sizeof(b), rows, 1, &c);
+
+    return !has(b, "\"swap_io\"") ? 0 : 1;
+}
+
 static int test_largest_units_fit_their_buffer(void)
 {
     db_row_t rows[1];
     memset(rows, 0, sizeof(rows));
     rows[0].mem_used_mb = rows[0].disk_used_gb = 1.0e18;
-    rows[0].swap_valid = rows[0].net_valid = 1;
+    rows[0].swap_valid = rows[0].swap_io_valid = rows[0].net_valid = 1;
     rows[0].swap_used_mb = rows[0].swap_free_mb = rows[0].net_rx_bps = 1.0e18;
+    rows[0].swap_in_bps = 1.0e18;
     config_t c = base_cfg(); /* net in bytes: the longer divisor */
 
     char   buf[JSON_UNITS_CAP];
@@ -739,7 +790,7 @@ static int test_largest_units_fit_their_buffer(void)
     json_serialize_units(&j, rows, 1, &c);
 
     int widest = has(buf, "\"swap\":{\"sym\":\"TB\"") && has(buf, "\"sym\":\"PB\"") &&
-                 has(buf, "\"sym\":\"GB/s\"");
+                 has(buf, "\"swap_io\":{\"sym\":\"GB/s\"");
 
     return !j.overflow && widest ? 0 : 1;
 }
@@ -888,6 +939,65 @@ static int test_swap_units_echoed(void)
     return (has(b, "\"swap_card_unit\":\"%\"") && has(b, "\"swap_chart_unit\":\"auto\"")) ? 0 : 1;
 }
 
+static int test_swap_io_card_in_bytes(void)
+{
+    char     b[2048];
+    db_row_t r = swap_row();
+    config_t c = base_cfg(); /* swap_io_card_unit defaults to "bytes" */
+    emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    return has(b, "\"swap_in\":4096") && has(b, "\"swap_out\":8192") ? 0 : 1;
+}
+
+/* In "ram", % of the RAM per minute: 4096 B/s on 1000 MB is 0.0234 %. */
+static int test_swap_io_card_in_ram(void)
+{
+    char     b[2048];
+    db_row_t r = swap_row();
+    config_t c = base_cfg();
+    strcpy(c.swap_io_card_unit, "ram");
+    emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    return has(b, "\"swap_in\":0.02344") && has(b, "\"swap_out\":0.04688") ? 0 : 1;
+}
+
+/* No sample yet, or no swap: the card stays on screen with a dash. */
+static int test_swap_io_null_without_a_sample(void)
+{
+    char     b[2048];
+    db_row_t r = sample_row(); /* swap_io_valid 0 */
+    config_t c = base_cfg();
+    emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    return has(b, "\"swap_in\":null") && has(b, "\"swap_out\":null") ? 0 : 1;
+}
+
+static int test_swap_io_gated_out_by_cards(void)
+{
+    char     b[2048];
+    db_row_t r = swap_row();
+    config_t c = base_cfg();
+    only_card(&c, "memory");
+    emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    int no_swap_io = !has(b, "\"swap_in\"") && !has(b, "\"thresh_swap_io\"");
+
+    return no_swap_io && has(b, "\"mem_percent\"") ? 0 : 1;
+}
+
+static int test_swap_io_units_echoed(void)
+{
+    char     b[2048];
+    db_row_t r = swap_row();
+    config_t c = base_cfg();
+    emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    int card = has(b, "\"swap_io_card_unit\":\"bytes\"");
+    int chart = has(b, "\"swap_io_chart_unit\":\"bytes\"");
+
+    return card && chart ? 0 : 1;
+}
+
 /* --- Serializer: history point (/api/metrics, short keys, chart units) --- */
 
 static int test_point_emits_short_keys(void)
@@ -942,11 +1052,11 @@ static int test_point_hides_all_charts(void)
     c.chart_count = -1; /* explicit empty charts list -> every chart group gated out */
     emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
 
-    return (!has(b, "\"l1\"") && !has(b, "\"cu\"") && !has(b, "\"mp\"") && !has(b, "\"sf\"") &&
-            !has(b, "\"dp\"") && !has(b, "\"tp\"") && !has(b, "\"nr\"") && has(b, "\"t\":") &&
-            has(b, "\"up\":"))
-               ? 0
-               : 1;
+    int no_chart = !has(b, "\"l1\"") && !has(b, "\"cu\"") && !has(b, "\"mp\"") &&
+                   !has(b, "\"sf\"") && !has(b, "\"si\"") && !has(b, "\"dp\"") &&
+                   !has(b, "\"tp\"") && !has(b, "\"nr\"");
+
+    return no_chart && has(b, "\"t\":") && has(b, "\"up\":") ? 0 : 1;
 }
 
 static int test_point_gates_net_only(void)
@@ -1056,6 +1166,50 @@ static int test_point_swap_gated_out_by_charts(void)
     return (has(b, "\"mp\":") && !has(b, "\"st\"") && !has(b, "\"sf\"")) ? 0 : 1;
 }
 
+static int test_point_swap_io_in_bytes(void)
+{
+    char     b[1024];
+    db_row_t r = swap_row();
+    config_t c = base_cfg(); /* swap_io_chart_unit defaults to "bytes" */
+    emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    return has(b, "\"si\":4096") && has(b, "\"so\":8192") ? 0 : 1;
+}
+
+static int test_point_swap_io_in_ram(void)
+{
+    char     b[1024];
+    db_row_t r = swap_row();
+    config_t c = base_cfg();
+    strcpy(c.swap_io_chart_unit, "ram");
+    emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    return has(b, "\"si\":0.02344") && has(b, "\"so\":0.04688") ? 0 : 1;
+}
+
+/* No sample yet, or no swap: the chart stays on screen and empty. */
+static int test_point_swap_io_null_without_a_sample(void)
+{
+    char     b[1024];
+    db_row_t r = sample_row(); /* swap_io_valid 0 */
+    config_t c = base_cfg();
+    emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    return has(b, "\"si\":null") && has(b, "\"so\":null") ? 0 : 1;
+}
+
+static int test_point_swap_io_gated_out_by_charts(void)
+{
+    char     b[1024];
+    db_row_t r = swap_row();
+    config_t c = base_cfg();
+    strcpy(c.charts[0], "memory");
+    c.chart_count = 1;
+    emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    return has(b, "\"mp\":") && !has(b, "\"si\"") ? 0 : 1;
+}
+
 /* Every chart in the units that send the most fields, each value at its widest. */
 static int test_largest_point_fits_its_buffer(void)
 {
@@ -1064,8 +1218,8 @@ static int test_largest_point_fits_its_buffer(void)
     r.load_1m = r.load_5m = r.load_15m = w;
     r.cpu_user_percent = r.cpu_system_percent = r.cpu_idle_percent = w;
     r.mem_total_mb = r.mem_used_mb = r.mem_available_mb = r.mem_percent = w;
-    r.swap_valid = 1;
-    r.swap_total_mb = r.swap_free_mb = w;
+    r.swap_valid = r.swap_io_valid = 1;
+    r.swap_total_mb = r.swap_free_mb = r.swap_in_bps = r.swap_out_bps = w;
     r.disk_total_gb = r.disk_used_gb = r.disk_free_gb = r.disk_percent = w;
     r.temp_celsius = r.net_rx_bps = r.net_tx_bps = r.uptime_seconds = w;
     config_t c = base_cfg();
@@ -1141,8 +1295,9 @@ static int current_overflows(const char *toml)
     r.load_1m = r.load_5m = r.load_15m = w;
     r.cpu_user_percent = r.cpu_system_percent = r.cpu_idle_percent = w;
     r.mem_total_mb = r.mem_used_mb = r.mem_available_mb = r.mem_percent = w;
-    r.swap_valid = 1;
+    r.swap_valid = r.swap_io_valid = 1;
     r.swap_total_mb = r.swap_free_mb = r.swap_free_percent = w;
+    r.swap_in_bps = r.swap_out_bps = w;
     r.disk_total_gb = r.disk_used_gb = r.disk_free_gb = r.disk_percent = w;
     r.temp_celsius = r.net_rx_bps = r.net_tx_bps = r.uptime_seconds = w;
 
@@ -1192,6 +1347,7 @@ static const test_t ALL_TESTS[] = {
     T(thresh_load_percent_fixed),
     T(thresh_cpu_mem_disk_fixed),
     T(thresh_swap_fixed),
+    T(thresh_swap_io_in_ram_or_bytes),
     T(thresh_temp_from_critical),
     T(thresh_temp_fallback_no_critical),
     T(temp_null_when_sensor_invalid),
@@ -1221,6 +1377,8 @@ static const test_t ALL_TESTS[] = {
     T(units_swap_free_sets_the_magnitude),
     T(units_swap_absent_without_swap),
     T(units_swap_skipped_in_percent),
+    T(units_swap_io_from_rows_with_a_sample),
+    T(units_swap_io_skipped_in_ram),
     T(charts_echo_null_by_default),
     T(charts_echo_empty_when_hidden),
     T(charts_echo_list),
@@ -1233,6 +1391,11 @@ static const test_t ALL_TESTS[] = {
     T(swap_null_without_swap),
     T(swap_gated_out_by_cards),
     T(swap_units_echoed),
+    T(swap_io_card_in_bytes),
+    T(swap_io_card_in_ram),
+    T(swap_io_null_without_a_sample),
+    T(swap_io_gated_out_by_cards),
+    T(swap_io_units_echoed),
     T(point_emits_short_keys),
     T(point_temp_shown_when_chart_enabled),
     T(point_temp_gated_out_by_charts),
@@ -1248,6 +1411,10 @@ static const test_t ALL_TESTS[] = {
     T(point_swap_pct_sends_the_free_share_alone),
     T(point_swap_null_without_swap),
     T(point_swap_gated_out_by_charts),
+    T(point_swap_io_in_bytes),
+    T(point_swap_io_in_ram),
+    T(point_swap_io_null_without_a_sample),
+    T(point_swap_io_gated_out_by_charts),
 };
 
 int main(void) { return run_tests(ALL_TESTS, sizeof(ALL_TESTS) / sizeof(ALL_TESTS[0])); }

@@ -129,6 +129,16 @@ test('the swap chart draws used and free', () => {
   assert.ok(read('chart.js').includes("k: 'swap-free'"), 'chart.js draws no free swap line');
 });
 
+/* Like the network: in and out, each with its legend entry. */
+test('the swap I/O chart draws in and out', () => {
+  const legend = html.match(/<div class="legend" id="leg-g-swap-io"[^>]*>([\s\S]*?)<\/div>/);
+
+  assert.ok(legend, 'the swap I/O chart has no legend');
+  assert.deepStrictEqual([...legend[1].matchAll(/<\/span>(\w+)<\/span>/g)].map((m) => m[1]),
+    ['in', 'out']);
+  assert.ok(read('chart.js').includes("k: 'swap-out'"), 'chart.js draws no swap out line');
+});
+
 test('every chart legend has one hidden flag per series', () => {
   const hidden = vm.runInContext('seriesHidden', ctx);
   const legends = [...html.matchAll(

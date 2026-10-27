@@ -39,8 +39,12 @@ const THRESH = {
 };
 
 /* Units read from server config; sensible defaults until first /current */
-const cfgCardUnits  = { mem: '%',  swap: '%',    disk: '%',  temp: 'c', net: 'kb', load: 'abs' };
-const cfgChartUnits = { mem: 'mb', swap: 'auto', disk: 'gb', temp: 'c', net: 'kb', load: 'abs' };
+const cfgCardUnits = {
+  mem: '%', swap: '%', swap_io: 'bytes', disk: '%', temp: 'c', net: 'kb', load: 'abs',
+};
+const cfgChartUnits = {
+  mem: 'mb', swap: 'auto', swap_io: 'bytes', disk: 'gb', temp: 'c', net: 'kb', load: 'abs',
+};
 let cfgUptimeUnit = 'auto';
 let cfgRanges     = ['1d', '7d', '30d', '90d'];
 /* Three-state visibility: null = show all, [] = hide all, [...] = listed only */
@@ -50,7 +54,7 @@ let cfgVisCards   = null;
 /* Which sub-metric is shown as the primary value in each card, as a 0-based
  * index into that card's series (load has three, the others two); toggled by
  * clicking a sub-value. */
-const cardPrimary  = { load: 0, cpu: 0, mem: 0, swap: 0, disk: 0, net: 0 };
+const cardPrimary  = { load: 0, cpu: 0, mem: 0, swap: 0, swap_io: 0, disk: 0, net: 0 };
 let lastCurrent  = null;    /* last /current snapshot; replayed on swapCard */
 
 /* --- Card helpers --- */
@@ -127,26 +131,29 @@ function updateCards(d) {
 
   lastCurrent = d;
 
-  if (d.mem_card_unit)       cfgCardUnits.mem   = d.mem_card_unit;
-  if (d.mem_chart_unit)      cfgChartUnits.mem  = d.mem_chart_unit;
-  if (d.swap_card_unit)      cfgCardUnits.swap  = d.swap_card_unit;
-  if (d.swap_chart_unit)     cfgChartUnits.swap = d.swap_chart_unit;
-  if (d.disk_card_unit)      cfgCardUnits.disk  = d.disk_card_unit;
-  if (d.disk_chart_unit)     cfgChartUnits.disk = d.disk_chart_unit;
-  if (d.temp_card_unit)      cfgCardUnits.temp  = d.temp_card_unit;
-  if (d.temp_chart_unit)     cfgChartUnits.temp = d.temp_chart_unit;
-  if (d.net_card_unit)       cfgCardUnits.net   = d.net_card_unit;
-  if (d.net_chart_unit)      cfgChartUnits.net  = d.net_chart_unit;
-  if (d.cpu_load_card_unit)  cfgCardUnits.load  = d.cpu_load_card_unit;
-  if (d.cpu_load_chart_unit) cfgChartUnits.load = d.cpu_load_chart_unit;
+  if (d.mem_card_unit)       cfgCardUnits.mem      = d.mem_card_unit;
+  if (d.mem_chart_unit)      cfgChartUnits.mem     = d.mem_chart_unit;
+  if (d.swap_card_unit)      cfgCardUnits.swap     = d.swap_card_unit;
+  if (d.swap_chart_unit)     cfgChartUnits.swap    = d.swap_chart_unit;
+  if (d.swap_io_card_unit)   cfgCardUnits.swap_io  = d.swap_io_card_unit;
+  if (d.swap_io_chart_unit)  cfgChartUnits.swap_io = d.swap_io_chart_unit;
+  if (d.disk_card_unit)      cfgCardUnits.disk     = d.disk_card_unit;
+  if (d.disk_chart_unit)     cfgChartUnits.disk    = d.disk_chart_unit;
+  if (d.temp_card_unit)      cfgCardUnits.temp     = d.temp_card_unit;
+  if (d.temp_chart_unit)     cfgChartUnits.temp    = d.temp_chart_unit;
+  if (d.net_card_unit)       cfgCardUnits.net      = d.net_card_unit;
+  if (d.net_chart_unit)      cfgChartUnits.net     = d.net_chart_unit;
+  if (d.cpu_load_card_unit)  cfgCardUnits.load     = d.cpu_load_card_unit;
+  if (d.cpu_load_chart_unit) cfgChartUnits.load    = d.cpu_load_chart_unit;
 
-  if (d.thresh_load) THRESH.load = d.thresh_load;
-  if (d.thresh_cpu)  THRESH.cpu  = d.thresh_cpu;
-  if (d.thresh_mem)  THRESH.mem  = d.thresh_mem;
-  if (d.thresh_swap) THRESH.swap = d.thresh_swap;
-  if (d.thresh_disk) THRESH.disk = d.thresh_disk;
-  if (d.thresh_temp) THRESH.temp = d.thresh_temp;
-  if (d.thresh_net)  THRESH.net  = d.thresh_net;
+  if (d.thresh_load)    THRESH.load    = d.thresh_load;
+  if (d.thresh_cpu)     THRESH.cpu     = d.thresh_cpu;
+  if (d.thresh_mem)     THRESH.mem     = d.thresh_mem;
+  if (d.thresh_swap)    THRESH.swap    = d.thresh_swap;
+  if (d.thresh_swap_io) THRESH.swap_io = d.thresh_swap_io;
+  if (d.thresh_disk)    THRESH.disk    = d.thresh_disk;
+  if (d.thresh_temp)    THRESH.temp    = d.thresh_temp;
+  if (d.thresh_net)     THRESH.net     = d.thresh_net;
 
   /* Title, footer, theme */
   if (d.title) {
@@ -182,6 +189,7 @@ function updateCards(d) {
       cpu_usage: 'b-cpu',
       memory:    'b-mem',
       swap:      'b-swap',
+      swap_io:   'b-swap-io',
       disk:      'b-disk',
       temp:      'b-temp',
       net:       'b-net',
@@ -209,6 +217,7 @@ function updateCards(d) {
       cpu_usage: 'c-cpu',
       memory:    'c-mem',
       swap:      'c-swap',
+      swap_io:   'c-swap-io',
       disk:      'c-disk',
       temp:      'c-temp',
       net:       'c-net',
@@ -230,13 +239,14 @@ function updateCards(d) {
    * as present). Cards start display:none in the HTML, so first paint shows
    * nothing until the first payload confirms which cards have data. */
   [
-    ['c-load', 'cpu_load',  'load_1m'],
-    ['c-cpu',  'cpu_usage', 'cpu_user_percent'],
-    ['c-mem',  'memory',    'mem_percent'],
-    ['c-swap', 'swap',      'swap_free'],
-    ['c-disk', 'disk',      'disk_percent'],
-    ['c-temp', 'temp',      'temp'],
-    ['c-net',  'net',       'net_rx'],
+    ['c-load',    'cpu_load',  'load_1m'],
+    ['c-cpu',     'cpu_usage', 'cpu_user_percent'],
+    ['c-mem',     'memory',    'mem_percent'],
+    ['c-swap',    'swap',      'swap_free'],
+    ['c-swap-io', 'swap_io',   'swap_in'],
+    ['c-disk',    'disk',      'disk_percent'],
+    ['c-temp',    'temp',      'temp'],
+    ['c-net',     'net',       'net_rx'],
   ].forEach((c) => {
     const el = document.getElementById(c[0]);
     if (!el) return;
@@ -298,6 +308,17 @@ function updateCards(d) {
     const swapLvl = cardLevel(swapUsedPct, THRESH.swap);
 
     updateNumericCard('c-swap', 'swap', [swapUsed, d.swap_free], swapFmt, swapLvl, swapLvl);
+  }
+
+  /* Swap I/O: in and out like the network, the busier one sets the level. Values stay in base
+   * bytes/s, or % of the RAM per minute; only the formatter scales. */
+  if ('swap_in' in d) {
+    const swapIoFmt = cfgCardUnits.swap_io === 'ram'
+      ? (v) => (v == null ? '—' : v.toFixed(1) + '%')
+      : (v) => fmtUnit(v, srvUnits.swap_io);
+
+    updateNumericCard('c-swap-io', 'swap_io', [d.swap_in, d.swap_out], swapIoFmt,
+      pairLevel(d.swap_in, d.swap_out, THRESH.swap_io), (v) => cardLevel(v, THRESH.swap_io));
   }
 
   /* Disk: same shape as memory */

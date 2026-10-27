@@ -201,8 +201,8 @@ check_rc "serve shuts down cleanly on SIGTERM" 0 "$rc"
 # Every accepted value of every *_unit key, against one seeded row, through the
 # real binary. Unit tests cover each converter; this covers the wiring from the
 # database to the response, which is where a mismatched key or a dropped call
-# would hide. The row: 1748/2048 MB memory, 512/2048 MB swap, 20/100 GB disk,
-# 50 C, 5 MiB/s down and 1 MiB/s up, load 2.
+# would hide. The row: 1748/2048 MB memory, 512/2048 MB swap, 1 MiB/s swapped in
+# and 2 MiB/s out, 20/100 GB disk, 50 C, 5 MiB/s down and 1 MiB/s up, load 2.
 #
 # Its own database, seeded and nothing else: the magnitude comes from the
 # largest value in the window, so rows collected from the host would hand the
@@ -226,10 +226,10 @@ sqlite3 "$udb" "INSERT INTO metrics (timestamp, load_1m, load_5m, \
   load_15m, cpu_user_percent, cpu_system_percent, cpu_idle_percent, mem_total_mb, \
   mem_used_mb, mem_available_mb, mem_percent, disk_total_gb, disk_used_gb, disk_free_gb, \
   disk_percent, temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds, bucket_sec, \
-  swap_total_mb, swap_free_mb) VALUES \
+  swap_total_mb, swap_free_mb, swap_in_bps, swap_out_bps) VALUES \
   (strftime('%Y-%m-%dT%H:%M:%SZ','now'), 2.0, 2.0, 2.0, 30.0, 10.0, 60.0, 2048.0, 1748.0, \
    300.0, 85.35, 100.0, 20.0, 80.0, 20.0, 50.0, 5242880.0, 1048576.0, 90061.0, 0, \
-   2048.0, 1536.0)" >/dev/null 2>&1
+   2048.0, 1536.0, 1048576.0, 2097152.0)" >/dev/null 2>&1
 check_rc "units: seed row inserted" 0 $?
 
 units_serve() { # CFG_BODY -> sets $current and $metrics
@@ -255,8 +255,10 @@ EOF
 
 # Everything in "%": the absolute fields are omitted and each value is a share of
 # its own ceiling. Net: 5242880 B/s over a 100 Mbit link (12500000 B/s) = 41.9%.
+# Swap I/O in "ram": 1 MiB/s is 2.93% of the 2048 MB of RAM per minute.
 units_serve 'memory_card_unit = "%"
 swap_card_unit = "%"
+swap_io_card_unit = "ram"
 disk_card_unit = "%"
 temp_card_unit = "%"
 cpu_load_card_unit = "%"
@@ -267,6 +269,8 @@ check_lacks "units %: disk omits the absolute fields" "$current" '"disk_used"'
 check_has "units %: memory is a percentage" "$current" '"mem_percent":85.35'
 check_has "units %: swap is the free share alone" "$current" '"swap_free":75'
 check_has "units %: net is a share of the link" "$current" '"net_rx":41.9'
+check_has "units ram: swap I/O in % of the RAM per minute" "$current" '"swap_in":2.93'
+check_has "units ram: thresholds in % of the RAM per minute" "$current" '"thresh_swap_io":[1,5]'
 check_has "units %: load is normalised by cores" "$current" '"thresh_load":[70,90]'
 
 # Everything absolute: values travel in their base unit, untouched, and the
@@ -275,6 +279,8 @@ units_serve 'memory_card_unit = "auto"
 memory_chart_unit = "auto"
 swap_card_unit = "auto"
 swap_chart_unit = "auto"
+swap_io_card_unit = "bytes"
+swap_io_chart_unit = "bytes"
 disk_card_unit = "auto"
 disk_chart_unit = "auto"
 temp_card_unit = "c"
@@ -292,6 +298,11 @@ check_has "units auto: disk magnitude is GB" "$metrics" '"disk":{"sym":"GB","mul
 check_has "units auto: swap magnitude is MB" "$metrics" '"swap":{"sym":"MB","mul":1,"div":1}'
 check_has "units auto: the chart gets the swap total" "$metrics" '"st":2048'
 check_has "units auto: the chart gets the free swap" "$metrics" '"sf":1536'
+check_has "units bytes: swap I/O in base bytes/s" "$current" '"swap_in":1.049e+06'
+check_has "units bytes: swap I/O thresholds from the RAM" "$current" \
+    '"thresh_swap_io":[357914,1.78957e+06]'
+check_has "units bytes: 2 MiB/s of swap I/O reads as KB/s" "$metrics" \
+    '"swap_io":{"sym":"KB/s","mul":1,"div":1024}'
 check_has "units bytes: 5 MiB/s reads as KB/s" "$metrics" '"net":{"sym":"KB/s","mul":1,"div":1024}'
 
 # Fahrenheit, and the case that separates the two net ladders: the same traffic

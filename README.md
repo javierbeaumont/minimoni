@@ -16,7 +16,7 @@ Designed for resource-constrained Linux systems (small VPS, single-board compute
 and homelab servers) where every MB counts.
 
 - Single static binary (~1.2 MB), zero runtime dependencies, no package manager
-- CPU load and usage, memory, swap, disk, temperature, network throughput, and uptime
+- CPU load and usage, memory, swap use and I/O, disk, temperature, network throughput, and uptime
 - Interactive canvas dashboard, responsive, accessible, dark/light theme, live updates via SSE
 - SQLite storage with configurable retention
 - Webhook and command alerts with per-alert cooldown
@@ -414,8 +414,8 @@ refresh      = 30          # SSE push interval in seconds (default: 30)
 
 ranges = ["1d", "7d", "30d", "90d"] # time range tabs; largest sets retention
 
-charts = ["cpu_load", "cpu_usage", "memory", "swap", "disk", "temp", "net"]
-cards  = ["cpu_load", "cpu_usage", "memory", "swap", "disk", "temp", "net", "uptime"]
+charts = ["cpu_load", "cpu_usage", "memory", "swap", "swap_io", "disk", "temp", "net"]
+cards  = ["cpu_load", "cpu_usage", "memory", "swap", "swap_io", "disk", "temp", "net", "uptime"]
 
 cpu_load_card_unit     = "abs"  # status card: "%" | "abs" (% = normalized by core count)
 cpu_load_chart_unit    = "abs"  # chart Y-axis: "%" | "abs"
@@ -423,6 +423,8 @@ memory_card_unit       = "%"    # status card: "%" | "auto"
 memory_chart_unit      = "auto" # chart Y-axis: "%" | "auto"
 swap_card_unit         = "%"    # status card: "%" | "auto"
 swap_chart_unit        = "auto" # chart Y-axis: "%" | "auto"
+swap_io_card_unit      = "bytes" # status card: "bytes" | "ram"
+swap_io_chart_unit     = "bytes" # chart Y-axis: "bytes" | "ram"
 disk_card_unit         = "%"    # status card: "%" | "auto"
 disk_chart_unit        = "auto" # chart Y-axis: "%" | "auto"
 temp_card_unit         = "c"    # status card: "%" | "c" | "f"
@@ -485,6 +487,12 @@ magnitudes** below.
 `net_max_speed`); `"bytes"` counts in KB/s, MB/s and GB/s, and `"bits"` in Kbps, Mbps and Gbps, the
 form link speeds are usually quoted in. Bytes climb in steps of 1024, bits in steps of 1000, as each
 convention has it. As with memory, swap and disk, the magnitude itself is automatic.
+
+**`swap_io_card_unit`** / **`swap_io_chart_unit`**: `"bytes"` counts what goes in and out of swap in
+KB/s, MB/s and GB/s, with the magnitude picked automatically; `"ram"` shows it as % of the RAM per
+minute, which reads the same on any host. It is not a share of a total: it passes 100 when the same
+pages go back and forth. Both units draw the same line, the RAM being fixed. The semaphore turns
+yellow at 1 % of the RAM per minute and red at 5 %, in either unit.
 
 **`temp_card_unit`** / **`temp_chart_unit`**: `"c"` for Celsius, `"f"` for Fahrenheit, or `"%"` of
 the critical trip point the kernel reports for the sensor, falling back to

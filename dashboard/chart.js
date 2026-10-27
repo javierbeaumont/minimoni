@@ -57,6 +57,8 @@ const CLR = {
   memAvail: cssv('--clr-mem-avail'),
   swap:     cssv('--clr-swap-used'),
   swapFree: cssv('--clr-swap-free'),
+  swapIn:   cssv('--clr-swap-in'),
+  swapOut:  cssv('--clr-swap-out'),
   disk:     cssv('--clr-disk-used'),
   diskFree: cssv('--clr-disk-free'),
   temp:     cssv('--clr-temp'),
@@ -70,12 +72,13 @@ const chartCache = {};
 
 /* Per-chart, per-series hidden state; toggled by clicking a legend item */
 const seriesHidden = {
-  'g-load': [false, false, false],
-  'g-cpu':  [false, false],
-  'g-mem':  [false, false],
-  'g-swap': [false, false],
-  'g-disk': [false, false],
-  'g-net':  [false, false],
+  'g-load':    [false, false, false],
+  'g-cpu':     [false, false],
+  'g-mem':     [false, false],
+  'g-swap':    [false, false],
+  'g-swap-io': [false, false],
+  'g-disk':    [false, false],
+  'g-net':     [false, false],
 };
 
 /* --- Canvas chart --- */
@@ -269,12 +272,14 @@ function renderAll() {
 
   /* A metric with nothing to scale gets no unit, hence the guards below. */
   const memU = srvUnits.mem, swapU = srvUnits.swap, diskU = srvUnits.disk, netU = srvUnits.net;
-  const memUL  = cfgChartUnits.mem === '%' ? '%' : memU && memU.sym;
-  const swpUL  = cfgChartUnits.swap === '%' ? '%' : swapU && swapU.sym;
-  const dskUL  = cfgChartUnits.disk === '%' ? '%' : diskU && diskU.sym;
-  const tmpSym = cfgChartUnits.temp[0] === 'f' ? '°F'
-             : cfgChartUnits.temp[0] === '%' ? '%' : '°C';
-  const netUL  = cfgChartUnits.net === '%' ? '%' : netU && netU.sym;
+  const swapIoU = srvUnits.swap_io;
+  const memUL   = cfgChartUnits.mem === '%' ? '%' : memU && memU.sym;
+  const swpUL   = cfgChartUnits.swap === '%' ? '%' : swapU && swapU.sym;
+  const swpIoUL = cfgChartUnits.swap_io === 'ram' ? '% RAM/min' : swapIoU && swapIoU.sym;
+  const dskUL   = cfgChartUnits.disk === '%' ? '%' : diskU && diskU.sym;
+  const tmpSym  = cfgChartUnits.temp[0] === 'f' ? '°F'
+              : cfgChartUnits.temp[0] === '%' ? '%' : '°C';
+  const netUL   = cfgChartUnits.net === '%' ? '%' : netU && netU.sym;
 
   const loadOpts = cfgChartUnits.load === '%'
     ? { yMin: 0, unit: '%', ts: ts }
@@ -349,6 +354,28 @@ function renderAll() {
         v: pts.map((p) => scaleTo(p.sf, swapScale)),
       },
     ].filter((_, i) => !seriesHidden['g-swap'][i]), swapOpts);
+  }
+
+  if (chartVisible('swap_io', 'si', 'b-swap-io')) {
+    document.getElementById('b-swap-io').querySelector('.ctitle').textContent =
+      swpIoUL ? 'Swap I/O (' + swpIoUL + ')' : 'Swap I/O';
+
+    /* Thresholds arrive in CARD units: they only apply if the chart shares it. */
+    const ioIsRam = cfgChartUnits.swap_io === 'ram';
+    const ioOpts = {
+      yMin: 0,
+      ts:   ts,
+      fmtFn: (v) => (ioIsRam ? fmtTip(v, null) + '%' : fmtScaled(v, swpIoUL)),
+    };
+    if (cfgChartUnits.swap_io === cfgCardUnits.swap_io && THRESH.swap_io) {
+      ioOpts.thresh = ioIsRam ? THRESH.swap_io : THRESH.swap_io.map((t) => scaleTo(t, swapIoU));
+    }
+
+    const ioV = (v) => (ioIsRam ? v : scaleTo(v, swapIoU));
+    drawChart('g-swap-io', [
+      { c: CLR.swapIn,  k: 'swap-in',  v: pts.map((p) => ioV(p.si)), label: 'in' },
+      { c: CLR.swapOut, k: 'swap-out', v: pts.map((p) => ioV(p.so)), label: 'out' },
+    ].filter((_, i) => !seriesHidden['g-swap-io'][i]), ioOpts);
   }
 
   if (chartVisible('disk', 'dp', 'b-disk')) {

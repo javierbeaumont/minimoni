@@ -205,9 +205,8 @@ test('toCurrent: percent unit omits the raw mem/disk fields', () => {
   assert.ok('mem_used' in raw && 'mem_total' in raw && 'disk_free' in raw);
 });
 
-/* The swap fields of an /api/current response, without the unit echoes. */
-const swapFields = (out) =>
-  Object.keys(out).filter((k) => k.startsWith('swap_') && !k.endsWith('_unit'));
+/* The swap use fields of an /api/current response: not swap I/O's, nor the unit echoes. */
+const swapFields = (out) => Object.keys(out).filter((k) => /^swap_(total|free)/.test(k));
 
 test('toCurrent: swap_free in the card unit, and swap_total only in "auto"', () => {
   const raw = { ...currentSnapshot('normal'), swap_total_mb: 1024, swap_free_mb: 768 };
@@ -443,6 +442,69 @@ test('toPoint: without swap the fields are null; with its chart not listed, abse
   assert.ok(!('st' in mem) && !('sf' in mem));
 });
 
+/* Swap I/O on 1000 MB of RAM: 174762.67 B/s moves 1 % of it in a minute. */
+const ioRaw = (raw) => ({ ...raw, mem_total_mb: 1000, swap_total_mb: 1024, swap_free_mb: 768,
+  swap_in_bps: 174762.67, swap_out_bps: 2 * 174762.67 });
+
+test('toCurrent: swap I/O in bytes/s, or in % of the RAM per minute', () => {
+  const raw = ioRaw(currentSnapshot('normal'));
+  const bytes = toCurrent(raw, configFields({}), 85.0); /* swap_io_card_unit defaults to 'bytes' */
+
+  assert.strictEqual(bytes.swap_in, 174762.67);
+  assert.strictEqual(bytes.swap_out, 349525.34);
+
+  const ram = toCurrent(raw, configFields({ swap_io_card_unit: 'ram' }), 85.0);
+
+  assert.strictEqual(ram.swap_in, 1);
+  assert.strictEqual(ram.swap_out, 2);
+});
+
+test('toCurrent: thresh_swap_io is 1 and 5 % of the RAM per minute, in the card unit', () => {
+  const raw = ioRaw(currentSnapshot('normal'));
+  const ram = toCurrent(raw, configFields({ swap_io_card_unit: 'ram' }), 85.0);
+  const bytes = toCurrent(raw, configFields({}), 85.0);
+
+  assert.deepStrictEqual(ram.thresh_swap_io, [1, 5]);
+  assert.deepStrictEqual(bytes.thresh_swap_io, [174762.6667, 873813.3333]);
+});
+
+test('toCurrent: swap I/O is null without swap, and absent with its card not listed', () => {
+  const none = toCurrent(swapless(currentSnapshot('normal')), configFields({}), 85.0);
+
+  assert.strictEqual(none.swap_in, null);
+  assert.strictEqual(none.swap_out, null);
+
+  const mem = toCurrent(ioRaw(currentSnapshot('normal')),
+    configFields({ cards: ['memory'] }), 85.0);
+
+  assert.ok(!('swap_in' in mem) && !('thresh_swap_io' in mem));
+});
+
+test('toPoint: swap I/O in bytes/s or in % of the RAM per minute, null without swap', () => {
+  const bytes = toPoint(ioRaw(point()), configFields({}), 85.0);
+
+  assert.strictEqual(bytes.si, 174762.67);
+  assert.strictEqual(bytes.so, 349525.34);
+
+  const ram = toPoint(ioRaw(point()), configFields({ swap_io_chart_unit: 'ram' }), 85.0);
+
+  assert.strictEqual(ram.si, 1);
+  assert.strictEqual(ram.so, 2);
+
+  const none = toPoint(swapless(point()), configFields({}), 85.0);
+
+  assert.strictEqual(none.si, null);
+  assert.strictEqual(none.so, null);
+});
+
+test('unitsFor: swap I/O in bytes takes the busier direction; in "ram" no unit', () => {
+  const io = [{ swap_total_mb: 1024, swap_in_bps: 2.0e6, swap_out_bps: 1.0e3 }];
+
+  assert.deepStrictEqual(unitsFor(io, configFields({})).swap_io,
+    { sym: 'KB/s', mul: 1, div: 1024 });
+  assert.ok(!('swap_io' in unitsFor(io, configFields({ swap_io_chart_unit: 'ram' }))));
+});
+
 test('dashboardTempCriticalFallback: valid, non-positive, absent', () => {
   assert.strictEqual(dashboardTempCriticalFallback({ temp_critical_fallback: 90 }), 90);
   assert.strictEqual(dashboardTempCriticalFallback({ temp_critical_fallback: 0 }), 85);
@@ -461,6 +523,8 @@ test('configFields: defaults, memory rename, overrides', () => {
 
   assert.strictEqual(def.swap_card_unit, '%');
   assert.strictEqual(def.swap_chart_unit, 'auto');
+  assert.strictEqual(def.swap_io_card_unit, 'bytes');
+  assert.strictEqual(def.swap_io_chart_unit, 'bytes');
 
   const over = configFields({ memory_card_unit: 'auto', swap_chart_unit: '%', title: 'X' });
 

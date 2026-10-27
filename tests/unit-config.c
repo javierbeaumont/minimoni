@@ -723,6 +723,50 @@ static int test_swap_unit_invalid_warns_and_keeps_default(void)
     return rc == 0 && kept && warned ? 0 : 1;
 }
 
+static int test_swap_io_units_default(void)
+{
+    config_t cfg;
+    if (load_cfg(&cfg, "[dashboard]\ntitle = \"x\"\n") != 0)
+        return 1;
+
+    int card = strcmp(cfg.swap_io_card_unit, "bytes") == 0;
+    int chart = strcmp(cfg.swap_io_chart_unit, "bytes") == 0;
+
+    return card && chart ? 0 : 1;
+}
+
+static int test_swap_io_units_applied(void)
+{
+    config_t    cfg;
+    const char *toml = "[dashboard]\nswap_io_card_unit = \"ram\"\nswap_io_chart_unit = \"ram\"\n";
+    if (load_cfg(&cfg, toml) != 0)
+        return 1;
+
+    int card = strcmp(cfg.swap_io_card_unit, "ram") == 0;
+    int chart = strcmp(cfg.swap_io_chart_unit, "ram") == 0;
+
+    return card && chart ? 0 : 1;
+}
+
+/* "%" is not a swap I/O unit: what it would mean is "ram". */
+static int test_swap_io_unit_invalid_warns_and_keeps_default(void)
+{
+    config_t    cfg;
+    char        err[512];
+    const char *toml = "[dashboard]\nswap_io_card_unit = \"%\"\nswap_io_chart_unit = \"mb\"\n";
+    int         rc = load_cfg_err(&cfg, toml, err, sizeof(err));
+
+    int kept =
+        strcmp(cfg.swap_io_card_unit, "bytes") == 0 && strcmp(cfg.swap_io_chart_unit, "bytes") == 0;
+    int warned =
+        strstr(err,
+               "config: swap_io_card_unit: invalid unit '%' (use bytes, ram); using default") &&
+        strstr(err,
+               "config: swap_io_chart_unit: invalid unit 'mb' (use bytes, ram); using default");
+
+    return rc == 0 && kept && warned ? 0 : 1;
+}
+
 /* --- [server] --- */
 
 static int test_server_listen_and_max_dashboards(void)
@@ -912,6 +956,19 @@ static int test_swap_is_a_chart_and_a_card(void)
 
     int chart = cfg.chart_count == 1 && strcmp(cfg.charts[0], "swap") == 0;
     int card = cfg.card_count == 1 && strcmp(cfg.cards[0], "swap") == 0;
+
+    return rc == 0 && err[0] == '\0' && chart && card ? 0 : 1;
+}
+
+static int test_swap_io_is_a_chart_and_a_card(void)
+{
+    config_t cfg;
+    char     err[512];
+    int rc = load_cfg_err(&cfg, "[dashboard]\ncharts = [\"swap_io\"]\ncards = [\"swap_io\"]\n", err,
+                          sizeof(err));
+
+    int chart = cfg.chart_count == 1 && strcmp(cfg.charts[0], "swap_io") == 0;
+    int card = cfg.card_count == 1 && strcmp(cfg.cards[0], "swap_io") == 0;
 
     return rc == 0 && err[0] == '\0' && chart && card ? 0 : 1;
 }
@@ -1126,6 +1183,13 @@ static int test_keys_all_known(void)
 static int test_keys_swap_units_known(void)
 {
     const char *toml = "[dashboard]\nswap_card_unit = \"%\"\nswap_chart_unit = \"auto\"\n";
+
+    return count_unknown(toml) == 0 ? 0 : 1;
+}
+
+static int test_keys_swap_io_units_known(void)
+{
+    const char *toml = "[dashboard]\nswap_io_card_unit = \"ram\"\nswap_io_chart_unit = \"bytes\"\n";
 
     return count_unknown(toml) == 0 ? 0 : 1;
 }
@@ -1494,6 +1558,9 @@ static const test_t ALL_TESTS[] = {
     T(swap_units_default),
     T(swap_units_applied),
     T(swap_unit_invalid_warns_and_keeps_default),
+    T(swap_io_units_default),
+    T(swap_io_units_applied),
+    T(swap_io_unit_invalid_warns_and_keeps_default),
     /* [server] */
     T(server_listen_and_max_dashboards),
     T(server_max_dashboards_below_min_aborts),
@@ -1516,6 +1583,7 @@ static const test_t ALL_TESTS[] = {
     T(unknown_card_name_warns_and_is_skipped),
     T(uptime_is_not_a_chart),
     T(swap_is_a_chart_and_a_card),
+    T(swap_io_is_a_chart_and_a_card),
     T(config_has_states),
     /* alerts */
     T(alert_full_entry),
@@ -1550,6 +1618,7 @@ static const test_t ALL_TESTS[] = {
     /* unknown keys */
     T(keys_all_known),
     T(keys_swap_units_known),
+    T(keys_swap_io_units_known),
     T(keys_typo_in_dashboard),
     T(keys_typo_in_collect),
     T(keys_typo_in_alert),

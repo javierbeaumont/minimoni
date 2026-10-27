@@ -97,6 +97,17 @@
         <span class="card-sub" data-card="swap" data-idx="1"><span class="card-sub-lbl s-swap-free">free</span> <span class="card-sub-val"></span></span>
       </div>
     </div>
+    <div class="card hide" id="c-swap-io">
+      <div class="clabel">Swap I/O
+        <span class="card-unit s-swap-in" data-series="0">in</span>
+        <span class="card-unit hide s-swap-out" data-series="1">out</span>
+      </div>
+      <div class="cval">&#8212;</div>
+      <div class="csub">
+        <span class="card-sub hide" data-card="swap_io" data-idx="0"><span class="card-sub-lbl s-swap-in">in</span> <span class="card-sub-val"></span></span>
+        <span class="card-sub" data-card="swap_io" data-idx="1"><span class="card-sub-lbl s-swap-out">out</span> <span class="card-sub-val"></span></span>
+      </div>
+    </div>
     <div class="card hide" id="c-disk">
       <div class="clabel">Disk
         <span class="card-unit s-disk-used" data-series="0">used</span>
@@ -171,6 +182,16 @@
         </div>
       </div>
       <canvas id="g-swap" role="img" aria-label="Swap history chart"></canvas>
+    </div>
+    <div class="cbox" id="b-swap-io">
+      <div class="chdr">
+        <span class="ctitle">Swap I/O</span>
+        <div class="legend" id="leg-g-swap-io" data-chart="g-swap-io">
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="in series" data-series="0"><span class="leg-dot s-swap-in"></span>in</span>
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="out series" data-series="1"><span class="leg-dot s-swap-out"></span>out</span>
+        </div>
+      </div>
+      <canvas id="g-swap-io" role="img" aria-label="Swap I/O history chart"></canvas>
     </div>
     <div class="cbox" id="b-disk">
       <div class="chdr">

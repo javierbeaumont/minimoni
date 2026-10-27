@@ -147,6 +147,8 @@ static const char *const SIZE_UNITS[] = {"%", "auto", NULL};
 static const char *const TEMP_UNITS[] = {"%", "c", "f", NULL};
 static const char *const LOAD_UNITS[] = {"%", "abs", NULL};
 static const char *const NET_UNITS[] = {"%", "bytes", "bits", NULL};
+/* "ram": swap I/O as a percent of the RAM per minute */
+static const char *const SWAP_IO_UNITS[] = {"bytes", "ram", NULL};
 static const char *const UPTIME_UNITS[] = {"auto", "h", "d", NULL};
 
 /* str_copy, but only when the value is in `allowed`; else warn and keep the
@@ -172,7 +174,7 @@ static void unit_copy(char *dst, size_t dsize, toml_datum_t v, const char *key,
 /* --- Chart and card names --- */
 
 /* The names the dashboard draws. */
-#define CHARTS "cpu_load", "cpu_usage", "memory", "swap", "disk", "temp", "net"
+#define CHARTS "cpu_load", "cpu_usage", "memory", "swap", "swap_io", "disk", "temp", "net"
 static const char *const CHART_NAMES[] = {CHARTS, NULL};
 static const char *const CARD_NAMES[] = {CHARTS, "uptime", NULL};
 #undef CHARTS
@@ -231,6 +233,8 @@ static const char *const DASHBOARD_KEYS[] = {"cards",
                                              "show_footer",
                                              "swap_card_unit",
                                              "swap_chart_unit",
+                                             "swap_io_card_unit",
+                                             "swap_io_chart_unit",
                                              "temp_card_unit",
                                              "temp_chart_unit",
                                              "temp_critical_fallback",
@@ -361,6 +365,8 @@ void config_defaults(config_t *cfg)
     snprintf(cfg->memory_chart_unit, sizeof(cfg->memory_chart_unit), "%s", "auto");
     snprintf(cfg->swap_card_unit, sizeof(cfg->swap_card_unit), "%s", "%");
     snprintf(cfg->swap_chart_unit, sizeof(cfg->swap_chart_unit), "%s", "auto");
+    snprintf(cfg->swap_io_card_unit, sizeof(cfg->swap_io_card_unit), "%s", "bytes");
+    snprintf(cfg->swap_io_chart_unit, sizeof(cfg->swap_io_chart_unit), "%s", "bytes");
     snprintf(cfg->disk_card_unit, sizeof(cfg->disk_card_unit), "%s", "%");
     snprintf(cfg->disk_chart_unit, sizeof(cfg->disk_chart_unit), "%s", "auto");
     snprintf(cfg->temp_card_unit, sizeof(cfg->temp_card_unit), "%s", "c");
@@ -529,6 +535,12 @@ int config_load(config_t *cfg, const char *path)
     unit_copy(cfg->swap_card_unit, sizeof(cfg->swap_card_unit), v, "swap_card_unit", SIZE_UNITS);
     v = toml_seek(root, "dashboard.swap_chart_unit");
     unit_copy(cfg->swap_chart_unit, sizeof(cfg->swap_chart_unit), v, "swap_chart_unit", SIZE_UNITS);
+    v = toml_seek(root, "dashboard.swap_io_card_unit");
+    unit_copy(cfg->swap_io_card_unit, sizeof(cfg->swap_io_card_unit), v, "swap_io_card_unit",
+              SWAP_IO_UNITS);
+    v = toml_seek(root, "dashboard.swap_io_chart_unit");
+    unit_copy(cfg->swap_io_chart_unit, sizeof(cfg->swap_io_chart_unit), v, "swap_io_chart_unit",
+              SWAP_IO_UNITS);
     v = toml_seek(root, "dashboard.disk_card_unit");
     unit_copy(cfg->disk_card_unit, sizeof(cfg->disk_card_unit), v, "disk_card_unit", SIZE_UNITS);
     v = toml_seek(root, "dashboard.disk_chart_unit");

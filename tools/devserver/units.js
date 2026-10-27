@@ -86,6 +86,16 @@ function swapFreePercent(m) {
   return m.swap_total_mb > 0 ? 100.0 - (swapUsed(m) * 100.0) / m.swap_total_mb : 100.0;
 }
 
+/* The bytes/s that move 1 % of the RAM in a minute. */
+function ramPctBps(m) {
+  return (m.mem_total_mb * 1024.0 * 1024.0) / 100.0 / 60.0;
+}
+
+/* Swap I/O in the unit asked: bytes/s, or % of the RAM per minute ("ram"). */
+function swapIo(bps, m, unit) {
+  return unit === 'ram' ? bps / ramPctBps(m) : bps;
+}
+
 /* Mirror config_has(): absent list => show-all, else must contain the name. */
 function configHas(list, name) {
   return list == null || (Array.isArray(list) && list.includes(name));
@@ -138,6 +148,14 @@ function toCurrent(raw, f, fallback, netMaxSpeed = 0) {
       out.swap_total = has ? round(m.swap_total_mb, 2) : null;
   }
 
+  if (configHas(cards, 'swap_io')) {
+    const has = m.swap_total_mb != null && m.swap_in_bps != null;
+    const iu = String(f.swap_io_card_unit);
+
+    out.swap_in = has ? round(swapIo(m.swap_in_bps, m, iu), 2) : null;
+    out.swap_out = has ? round(swapIo(m.swap_out_bps, m, iu), 2) : null;
+  }
+
   if (configHas(cards, 'disk')) {
     if (du[0] !== '%') {
       out.disk_used = round(m.disk_used_gb, 2);
@@ -180,6 +198,12 @@ function toCurrent(raw, f, fallback, netMaxSpeed = 0) {
   if (configHas(cards, 'swap'))
     out.thresh_swap = [80.0, 95.0];
 
+  if (configHas(cards, 'swap_io')) {
+    const scale = String(f.swap_io_card_unit) === 'ram' ? 1.0 : ramPctBps(m);
+
+    out.thresh_swap_io = [round(1.0 * scale, 4), round(5.0 * scale, 4)];
+  }
+
   if (configHas(cards, 'disk'))
     out.thresh_disk = [80.0, 90.0];
 
@@ -204,8 +228,8 @@ function toCurrent(raw, f, fallback, netMaxSpeed = 0) {
 
 /* Mirror of unit_step + json_serialize_units in the C server. */
 const LADDERS = {
-  mem:   { sym: ['MB', 'GB', 'TB'], mul: 1, factor: 1024, base: 0 },
-  disk:  { sym: ['GB', 'TB', 'PB'], mul: 1, factor: 1024, base: 0 },
+  mb:    { sym: ['MB', 'GB', 'TB'], mul: 1, factor: 1024, base: 0 },
+  gb:    { sym: ['GB', 'TB', 'PB'], mul: 1, factor: 1024, base: 0 },
   bytes: { sym: ['KB/s', 'MB/s', 'GB/s'], mul: 1, factor: 1024, base: 1 },
   bits:  { sym: ['Kbps', 'Mbps', 'Gbps'], mul: 8, factor: 1000, base: 1 },
 };
@@ -232,18 +256,24 @@ function unitsFor(raws, f) {
   const withNet = raws.filter((r) => r.net_valid !== 0);
 
   if (String(f.mem_chart_unit)[0] !== '%')
-    out.mem = unitFor(peak(raws, 'mem_used_mb', 'mem_avail_mb'), 'mem');
+    out.mem = unitFor(peak(raws, 'mem_used_mb', 'mem_avail_mb'), 'mb');
 
   if (String(f.swap_chart_unit)[0] !== '%') {
     const withUsed = raws.map((r) => ({
       ...r, swap_used_mb: r.swap_total_mb != null ? swapUsed(r) : null,
     }));
 
-    out.swap = unitFor(peak(withUsed, 'swap_used_mb', 'swap_free_mb'), 'mem');
+    out.swap = unitFor(peak(withUsed, 'swap_used_mb', 'swap_free_mb'), 'mb');
+  }
+
+  if (String(f.swap_io_chart_unit) === 'bytes') {
+    const withIo = raws.filter((r) => r.swap_total_mb != null && r.swap_in_bps != null);
+
+    out.swap_io = unitFor(peak(withIo, 'swap_in_bps', 'swap_out_bps'), 'bytes');
   }
 
   if (String(f.disk_chart_unit)[0] !== '%')
-    out.disk = unitFor(peak(raws, 'disk_used_gb', 'disk_free_gb'), 'disk');
+    out.disk = unitFor(peak(raws, 'disk_used_gb', 'disk_free_gb'), 'gb');
 
   if (String(f.net_chart_unit)[0] !== '%') {
     out.net = unitFor(peak(withNet, 'net_rx_bps', 'net_tx_bps'),
@@ -291,6 +321,14 @@ function toPoint(raw, f, fallback, netMaxSpeed = 0) {
 
     if (!pct)
       out.st = has ? round(m.swap_total_mb, 2) : null;
+  }
+
+  if (configHas(f.charts, 'swap_io')) {
+    const has = m.swap_total_mb != null && m.swap_in_bps != null;
+    const iu = String(f.swap_io_chart_unit);
+
+    out.si = has ? round(swapIo(m.swap_in_bps, m, iu), 2) : null;
+    out.so = has ? round(swapIo(m.swap_out_bps, m, iu), 2) : null;
   }
 
   if (du[0] !== '%') {

@@ -86,6 +86,8 @@ function band(s, ripple, lo, hi, amp = 0.0) {
 function metrics(s, ripple) {
   const memPercent = Math.min(99.0, band(s, ripple, 38.0, 95.0, 2.0));
   const swapUsedPercent = Math.min(99.0, band(s, ripple, 4.0, 99.0, 1.0));
+  /* Swap I/O in % of the RAM per minute: 0.2 healthy, past the 1 and 5 levels under stress */
+  const swapInRam = band(s, ripple, 0.2, 7.5, 0.1);
   const diskPercent = Math.min(99.0, band(s, ripple, 8.0, 95.0, 1.0));
   const load1m = band(s, ripple, 0.35, 4.6, 0.2);
   const cpuUser = Math.min(99.0, band(s, ripple, 12.0, 95.0, 4.0));
@@ -104,6 +106,8 @@ function metrics(s, ripple) {
     mem_percent: memPercent,
     swap_total_mb: SWAP_TOTAL_MB,
     swap_free_mb: (SWAP_TOTAL_MB * (100.0 - swapUsedPercent)) / 100.0,
+    swap_in_bps: (swapInRam * MEM_TOTAL_MB * 1024.0 * 1024.0) / 100.0 / 60.0,
+    swap_out_bps: (0.6 * swapInRam * MEM_TOTAL_MB * 1024.0 * 1024.0) / 100.0 / 60.0,
     disk_used_gb: (DISK_TOTAL_GB * diskPercent) / 100.0,
     disk_total_gb: DISK_TOTAL_GB,
     disk_free_gb: (DISK_TOTAL_GB * (100.0 - diskPercent)) / 100.0,

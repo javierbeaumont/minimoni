@@ -70,6 +70,8 @@ typedef struct {
     char  memory_chart_unit[16];  /* "%" | "auto", default: "auto" */
     char  swap_card_unit[16];     /* "%" | "auto", default: "%" */
     char  swap_chart_unit[16];    /* "%" | "auto", default: "auto" */
+    char  swap_io_card_unit[16];  /* "bytes" | "ram", default: "bytes" */
+    char  swap_io_chart_unit[16]; /* "bytes" | "ram", default: "bytes" */
     char  disk_card_unit[16];     /* "%" | "auto", default: "%" */
     char  disk_chart_unit[16];    /* "%" | "auto", default: "auto" */
     char  temp_card_unit[4];      /* "c" | "f" | "%", default: "c" */
@@ -82,7 +84,7 @@ typedef struct {
     int   net_max_speed;          /* net % 100% ref (Mbit/s); 0 = use the detected link */
     char  uptime_unit[8];         /* "h"|"d"|"auto", default: "auto" */
     /* charts/cards: count=0 means show all in default order */
-    char charts[MAX_CHARTS][16]; /* "cpu_load"|"cpu_usage"|"memory"|"swap"|"disk"|"temp"|"net" */
+    char charts[MAX_CHARTS][16]; /* cpu_load, cpu_usage, memory, swap, swap_io, disk, temp, net */
     int  chart_count;
     char cards[MAX_CARDS][16]; /* same as charts plus "uptime" */
     int  card_count;
