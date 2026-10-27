@@ -219,7 +219,7 @@ t_schema_after_migration() {
     # bucket_sec, net_rx_bps, net_tx_bps, and the swap columns must be present;
     # net_rx_bytes, net_tx_bytes must be absent.
     case "$cols" in
-        *bucket_sec*net_rx_bps*net_tx_bps*swap_total_mb*swap_free_mb*) ;;
+        *bucket_sec*net_rx_bps*net_tx_bps*swap_total_mb*swap_free_mb*swap_in_bps*swap_out_bps*) ;;
         *) report "post-migration columns present" "got: $cols"; return ;;
     esac
     case "$cols" in

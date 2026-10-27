@@ -29,6 +29,7 @@
 #include <string.h>
 #include <sys/statvfs.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "metrics.h"
 
@@ -137,6 +138,28 @@ static void collect_cpu(metrics_t *m)
 
 /* --- Memory and swap --- */
 
+/* Split a /proc line, "Key: value" or "key value", into its first word and the number after it.
+ * Returns 0, or -1 when the line has no such pair or the word does not fit `cap`. */
+static int split_key_value(const char *line, char *key, size_t cap, unsigned long long *val)
+{
+    const char *sep = line;
+    while (*sep != '\0' && *sep != ' ' && *sep != '\t')
+        sep++;
+
+    size_t klen = (size_t)(sep - line);
+    if (klen == 0 || klen >= cap)
+        return -1;
+
+    memcpy(key, line, klen);
+    key[klen] = '\0';
+
+    char *end;
+    errno = 0;
+    *val = strtoull(sep, &end, 10);
+
+    return end == sep || errno != 0 ? -1 : 0;
+}
+
 /* Fill the memory and swap fields from /proc/meminfo. Returns 0, or -1 without MemTotal. */
 static int read_meminfo(FILE *f, metrics_t *m)
 {
@@ -146,21 +169,7 @@ static int read_meminfo(FILE *f, metrics_t *m)
     unsigned long long val;
 
     while (fgets(line, sizeof(line), f)) {
-        char *sep = line;
-        while (*sep != '\0' && *sep != ' ' && *sep != '\t')
-            sep++;
-
-        size_t klen = (size_t)(sep - line);
-        if (klen == 0 || klen >= sizeof(key))
-            continue;
-
-        memcpy(key, line, klen);
-        key[klen] = '\0';
-
-        char *end;
-        errno = 0;
-        val = strtoull(sep, &end, 10);
-        if (end == sep || errno != 0)
+        if (split_key_value(line, key, sizeof(key), &val) != 0)
             continue;
 
         if (strcmp(key, "MemTotal:") == 0)
@@ -283,29 +292,47 @@ static void collect_temp(metrics_t *m)
     m->temp_valid = 1;
 }
 
+/* --- Rates from cumulative counters: network and swap I/O --- */
+
+/* Two cumulative byte counters, what came in and what went out, and the monotonic instant they were
+ * read. Unlike the ratio-based CPU percentage, a rate divides the delta by the real elapsed time,
+ * with sub-second resolution, so the short gap of a one-shot collect does not round to zero. */
+typedef struct {
+    int64_t         in, out;
+    struct timespec t;
+} counters_t;
+
+/* Bytes/s in and out from two consecutive snapshots. Returns 1 and fills *in_bps / *out_bps, or 0
+ * (a gap) when the elapsed time is not positive or a counter went backwards (a reset or a wrap). */
+static int counter_rates(const counters_t *prev, const counters_t *cur, double *in_bps,
+                         double *out_bps)
+{
+    double dt =
+        (double)(cur->t.tv_sec - prev->t.tv_sec) + (double)(cur->t.tv_nsec - prev->t.tv_nsec) / 1e9;
+    int64_t in_delta = cur->in - prev->in;
+    int64_t out_delta = cur->out - prev->out;
+
+    if (dt <= 0.0 || in_delta < 0 || out_delta < 0)
+        return 0;
+
+    *in_bps = (double)in_delta / dt;
+    *out_bps = (double)out_delta / dt;
+
+    return 1;
+}
+
 /* --- Network --- */
 
-/* Snapshot of cumulative byte counters plus the monotonic instant they were
- * sampled. The bps fields in metrics_t are computed from the delta between
- * consecutive snapshots (same pattern as the CPU delta). The clock is
- * monotonic with sub-second resolution: net throughput is a rate, so unlike
- * the ratio-based CPU percentage it must divide by the real elapsed time, and
- * the short inter-sample gap of one-shot collect mode must not round to zero. */
-typedef struct {
-    int64_t         rx, tx;
-    struct timespec t;
-} net_raw_t;
+/* in is what the interfaces received, out what they sent. */
+static int        s_prev_net_valid = 0;
+static counters_t s_prev_net;
 
-static int       s_prev_net_valid = 0;
-static net_raw_t s_prev_net;
-
-/* Sum rx/tx bytes across all non-loopback interfaces in /proc/net/dev into
- * *cur, stamping the sample with a monotonic timestamp. Returns 0 on success,
- * -1 if the file cannot be read. */
-static int read_net_raw(net_raw_t *cur)
+/* Sum the bytes received and sent by every non-loopback interface in /proc/net/dev into *cur,
+ * stamped with a monotonic timestamp. Returns 0, or -1 when the file cannot be read. */
+static int read_net_raw(counters_t *cur)
 {
-    cur->rx = 0;
-    cur->tx = 0;
+    cur->in = 0;
+    cur->out = 0;
     clock_gettime(CLOCK_MONOTONIC, &cur->t);
 
     FILE *f = fopen("/proc/net/dev", "r");
@@ -328,10 +355,12 @@ static int read_net_raw(net_raw_t *cur)
         char *name = line;
         while (*name == ' ')
             name++;
+
         char   iface[64];
         size_t nlen = (size_t)(colon - name);
         if (nlen == 0 || nlen >= sizeof(iface))
             continue;
+
         memcpy(iface, name, nlen);
         iface[nlen] = '\0';
         if (strcmp(iface, "lo") == 0)
@@ -351,36 +380,20 @@ static int read_net_raw(net_raw_t *cur)
                 ok = 0;
                 break;
             }
+
             p = end;
         }
+
         if (!ok)
             continue;
 
-        cur->rx += cols[0];
-        cur->tx += cols[8];
+        cur->in += cols[0];
+        cur->out += cols[8];
     }
 
     fclose(f);
+
     return 0;
-}
-
-/* Compute rx/tx throughput (bytes/s) from two consecutive snapshots. Returns 1
- * and fills *rx_bps / *tx_bps on success; returns 0 (a gap) when elapsed time is
- * not positive or a counter went backwards (interface reset or wrap). Pure: the
- * sub-second-dt and counter-reset logic is exercised by tests/unit-metrics.c. */
-static int net_rate(const net_raw_t *prev, const net_raw_t *cur, double *rx_bps, double *tx_bps)
-{
-    double dt =
-        (double)(cur->t.tv_sec - prev->t.tv_sec) + (double)(cur->t.tv_nsec - prev->t.tv_nsec) / 1e9;
-    int64_t drx = cur->rx - prev->rx;
-    int64_t dtx = cur->tx - prev->tx;
-
-    if (dt <= 0.0 || drx < 0 || dtx < 0)
-        return 0;
-
-    *rx_bps = (double)drx / dt;
-    *tx_bps = (double)dtx / dt;
-    return 1;
 }
 
 /* sysfs `speed` in Mbit/s, or 0 when the link has none to report: virtual
@@ -419,7 +432,7 @@ int metrics_link_speed_mbit(void)
 
 static void collect_net(metrics_t *m)
 {
-    net_raw_t cur;
+    counters_t cur;
     if (read_net_raw(&cur) != 0) {
         m->net_valid = 0;
         return;
@@ -432,8 +445,71 @@ static void collect_net(metrics_t *m)
         return;
     }
 
-    m->net_valid = net_rate(&s_prev_net, &cur, &m->net_rx_bps, &m->net_tx_bps);
+    m->net_valid = counter_rates(&s_prev_net, &cur, &m->net_rx_bps, &m->net_tx_bps);
     s_prev_net = cur;
+}
+
+/* --- Swap I/O --- */
+
+/* in is what was read back from swap, out what was written to it. */
+static int        s_prev_swap_io_valid = 0;
+static counters_t s_prev_swap_io;
+
+/* pswpin and pswpout from /proc/vmstat, in pages. Returns 0, or -1 when either is missing. */
+static int read_vmstat_swap(FILE *f, int64_t *in_pages, int64_t *out_pages)
+{
+    char               line[128];
+    char               key[64];
+    unsigned long long val;
+    int                found = 0;
+
+    while (fgets(line, sizeof(line), f)) {
+        if (split_key_value(line, key, sizeof(key), &val) != 0)
+            continue;
+
+        if (strcmp(key, "pswpin") == 0) {
+            *in_pages = (int64_t)val;
+            found |= 1;
+        } else if (strcmp(key, "pswpout") == 0) {
+            *out_pages = (int64_t)val;
+            found |= 2;
+        }
+    }
+
+    return found == 3 ? 0 : -1;
+}
+
+/* One swap I/O sample, taken at `now`: f is /proc/vmstat, or NULL when it did not open. */
+static void sample_swap_io(FILE *f, struct timespec now, metrics_t *m)
+{
+    m->swap_io_valid = 0;
+
+    int64_t in_pages = 0, out_pages = 0;
+    if (!f || read_vmstat_swap(f, &in_pages, &out_pages) != 0) {
+        s_prev_swap_io_valid = 0;
+        return;
+    }
+
+    long       page = sysconf(_SC_PAGESIZE);
+    counters_t cur = {.in = in_pages * page, .out = out_pages * page, .t = now};
+
+    if (s_prev_swap_io_valid && m->swap_valid)
+        m->swap_io_valid = counter_rates(&s_prev_swap_io, &cur, &m->swap_in_bps, &m->swap_out_bps);
+
+    s_prev_swap_io = cur;
+    s_prev_swap_io_valid = 1;
+}
+
+static void collect_swap_io(metrics_t *m)
+{
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    FILE *f = fopen("/proc/vmstat", "r");
+
+    sample_swap_io(f, now, m);
+
+    if (f)
+        fclose(f);
 }
 
 /* --- Uptime --- */
@@ -474,6 +550,7 @@ int metrics_collect(metrics_t *m, const char *disk_path)
     collect_cpu(m);
     collect_temp(m);
     collect_net(m);
+    collect_swap_io(m);
 
     return 0;
 }

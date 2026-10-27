@@ -172,6 +172,8 @@ static const char SCRIPT_V0_TO_V1[] =
 static const char SCRIPT_V1_TO_V2[] = "BEGIN;"
                                       "ALTER TABLE metrics ADD COLUMN swap_total_mb REAL;"
                                       "ALTER TABLE metrics ADD COLUMN swap_free_mb REAL;"
+                                      "ALTER TABLE metrics ADD COLUMN swap_in_bps REAL;"
+                                      "ALTER TABLE metrics ADD COLUMN swap_out_bps REAL;"
                                       "PRAGMA user_version = 2;"
                                       "COMMIT;";
 

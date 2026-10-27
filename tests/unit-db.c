@@ -88,7 +88,7 @@ static int insert_raw_row(sqlite3 *h, long unix_ts)
              "  mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,"
              "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
              "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds,"
-             "  swap_total_mb, swap_free_mb"
+             "  swap_total_mb, swap_free_mb, swap_in_bps, swap_out_bps"
              ") VALUES ("
              "  strftime('%%Y-%%m-%%dT%%H:%%M:%%SZ',%ld,'unixepoch'),"
              "  1.0,1.0,1.0,"
@@ -96,7 +96,7 @@ static int insert_raw_row(sqlite3 *h, long unix_ts)
              "  1000.0,500.0,500.0,50.0,"
              "  10.0,5.0,5.0,50.0,"
              "  42.0,100.0,200.0,1000.0,"
-             "  400.0,300.0"
+             "  400.0,300.0,300.0,600.0"
              ");",
              unix_ts);
 
@@ -216,6 +216,9 @@ static int test_db_insert_roundtrip(void)
     m.swap_valid = 1;
     m.swap_total_mb = 512.0;
     m.swap_free_mb = 384.0;
+    m.swap_io_valid = 1;
+    m.swap_in_bps = 4096.0;
+    m.swap_out_bps = 8192.0;
     int ok = (db_insert(&db, &m) == 0);
 
     db_row_t row;
@@ -229,6 +232,8 @@ static int test_db_insert_roundtrip(void)
     ok = ok && row.swap_valid && approx(row.swap_total_mb, 512.0) &&
          approx(row.swap_free_mb, 384.0) && approx(row.swap_used_mb, 128.0) &&
          approx(row.swap_used_percent, 25.0) && approx(row.swap_free_percent, 75.0);
+    ok = ok && row.swap_io_valid && approx(row.swap_in_bps, 4096.0) &&
+         approx(row.swap_out_bps, 8192.0);
     ok = ok && (count_rows(db.handle, "bucket_sec = 60") == 1);
 
     close_test_db(&db);
@@ -250,7 +255,7 @@ static int test_db_insert_null_gating(void)
     db_row_t row;
     ok = ok && (db_current(&db, &row) == 0);
     ok = ok && !row.cpu_valid && !row.temp_valid && !row.net_valid;
-    ok = ok && !row.swap_valid;
+    ok = ok && !row.swap_valid && !row.swap_io_valid;
     ok = ok && approx(row.load_1m, 1.5) && approx(row.mem_used_mb, 400.0);
 
     close_test_db(&db);
@@ -281,6 +286,29 @@ static int test_db_query_range_bucketed_avg(void)
     free(rows);
 
     close_test_db(&db);
+    return ok ? 0 : 1;
+}
+
+/* The first sample after a start has swap but no swap I/O yet: levels stored, rates NULL. */
+static int test_db_insert_swap_without_rates(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    metrics_t m = sample_metrics(1, 1, 1);
+    m.swap_valid = 1;
+    m.swap_total_mb = 512.0;
+    m.swap_free_mb = 384.0;
+    int ok = (db_insert(&db, &m) == 0);
+
+    db_row_t row;
+    ok = ok && (db_current(&db, &row) == 0);
+    ok = ok && row.swap_valid && approx(row.swap_used_percent, 25.0) && !row.swap_io_valid;
+    ok = ok && (count_rows(db.handle, "swap_in_bps IS NULL AND swap_out_bps IS NULL") == 1);
+
+    close_test_db(&db);
+
     return ok ? 0 : 1;
 }
 
@@ -318,13 +346,18 @@ static int test_db_query_range_raw_reads_swap(void)
     m.swap_valid = 1;
     m.swap_total_mb = 512.0;
     m.swap_free_mb = 384.0;
+    m.swap_io_valid = 1;
+    m.swap_in_bps = 4096.0;
+    m.swap_out_bps = 8192.0;
     int ok = (db_insert(&db, &m) == 0);
 
     db_row_t *rows = NULL;
     int       n = db_query_range(&db, 600, 0, &rows);
     ok = ok && n == 1 && rows != NULL && rows[0].swap_valid &&
          approx(rows[0].swap_total_mb, 512.0) && approx(rows[0].swap_free_mb, 384.0) &&
-         approx(rows[0].swap_used_mb, 128.0) && approx(rows[0].swap_used_percent, 25.0);
+         approx(rows[0].swap_used_mb, 128.0) && approx(rows[0].swap_used_percent, 25.0) &&
+         rows[0].swap_io_valid && approx(rows[0].swap_in_bps, 4096.0) &&
+         approx(rows[0].swap_out_bps, 8192.0);
     free(rows);
 
     close_test_db(&db);
@@ -351,7 +384,8 @@ static int test_db_query_range_bucketed_swap_skips_rows_without_it(void)
     db_row_t *rows = NULL;
     int       n = db_query_range(&db, 600, 300, &rows);
     ok = ok && n == 1 && rows != NULL && rows[0].swap_valid &&
-         approx(rows[0].swap_total_mb, 512.0) && approx(rows[0].swap_used_percent, 25.0);
+         approx(rows[0].swap_total_mb, 512.0) && approx(rows[0].swap_used_percent, 25.0) &&
+         !rows[0].swap_io_valid;
     free(rows);
 
     close_test_db(&db);
@@ -505,7 +539,8 @@ static int test_consolidate_rows_queryable(void)
     int       n = db_query_range(&db, 8L * 86400, 300, &rows);
     int       ok = (n == 1 && rows != NULL && rows[0].net_valid && rows[0].net_rx_bps > 99.0 &&
                     rows[0].net_rx_bps < 101.0);
-    ok = ok && rows[0].swap_valid && approx(rows[0].swap_used_percent, 25.0);
+    ok = ok && rows[0].swap_valid && approx(rows[0].swap_used_percent, 25.0) &&
+         rows[0].swap_io_valid && approx(rows[0].swap_out_bps, 600.0);
     free(rows);
     close_test_db(&db);
 
@@ -741,7 +776,7 @@ static int make_db_v01(const char *path)
 
 /* A database with v0.2's tables at user_version `version`, plus the `extra` columns (SWAP_COLUMNS
  * makes it the current schema). */
-#define SWAP_COLUMNS ", swap_total_mb REAL, swap_free_mb REAL"
+#define SWAP_COLUMNS ", swap_total_mb REAL, swap_free_mb REAL, swap_in_bps REAL, swap_out_bps REAL"
 
 static int make_db_at(const char *path, int version, const char *extra)
 {
@@ -1347,6 +1382,7 @@ static const test_t ALL_TESTS[] = {
     T(db_insert_roundtrip),
     T(db_insert_null_gating),
     T(db_query_range_bucketed_avg),
+    T(db_insert_swap_without_rates),
     T(db_swap_free_above_total_reads_as_unused),
     T(db_query_range_raw_reads_swap),
     T(db_query_range_bucketed_swap_skips_rows_without_it),

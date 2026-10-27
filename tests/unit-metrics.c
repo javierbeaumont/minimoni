@@ -19,9 +19,9 @@
  * along with minimoni. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Unit tests for src/metrics.c: the pure rx/tx throughput computation, and the /proc/meminfo reader
- * fed synthetic text. Zero-dependency, no framework; build with `make test`. metrics.c is #included
- * directly so the static helpers are exercisable without reading /proc. */
+/* Unit tests for src/metrics.c: the pure rate computation, and the /proc/meminfo and /proc/vmstat
+ * readers fed synthetic text. Zero-dependency, no framework; build with `make test`. metrics.c is
+ * #included directly so the static helpers are exercisable without reading /proc. */
 
 #define _POSIX_C_SOURCE 200809L
 
@@ -33,90 +33,99 @@
 
 #include "../src/metrics.c"
 
-/* --- net_rate --- */
+/* --- counter_rates --- */
 
-static net_raw_t snap(int64_t rx, int64_t tx, long sec, long nsec)
+static counters_t snap(int64_t in, int64_t out, long sec, long nsec)
 {
-    net_raw_t s;
-    s.rx = rx;
-    s.tx = tx;
+    counters_t s;
+    s.in = in;
+    s.out = out;
     s.t.tv_sec = sec;
     s.t.tv_nsec = nsec;
+
     return s;
 }
 
 static int approx(double a, double b)
 {
     double d = a - b;
+
     return (d < 0 ? -d : d) < 1e-6;
 }
 
-static int test_net_rate_basic(void)
+static int test_counter_rates_basic(void)
 {
-    net_raw_t prev = snap(0, 0, 0, 0);
-    net_raw_t cur = snap(1000, 2000, 1, 0);
-    double    rx = 0, tx = 0;
-    int       ok = net_rate(&prev, &cur, &rx, &tx);
-    return (ok && approx(rx, 1000.0) && approx(tx, 2000.0)) ? 0 : 1;
+    counters_t prev = snap(0, 0, 0, 0);
+    counters_t cur = snap(1000, 2000, 1, 0);
+    double     in = 0, out = 0;
+    int        ok = counter_rates(&prev, &cur, &in, &out);
+
+    return ok && approx(in, 1000.0) && approx(out, 2000.0) ? 0 : 1;
 }
 
-static int test_net_rate_subsecond(void)
+/* 250 ms gap (the one-shot collect interval): dt must use the nanoseconds and not round to 0.
+ * 250 B over 0.25 s = 1000 B/s. */
+static int test_counter_rates_subsecond(void)
 {
-    /* 250 ms gap (the one-shot collect-mode interval): dt must use the
-     * nanoseconds and not round to 0. 250 B over 0.25 s = 1000 B/s. */
-    net_raw_t prev = snap(0, 0, 0, 0);
-    net_raw_t cur = snap(250, 500, 0, 250000000L);
-    double    rx = 0, tx = 0;
-    int       ok = net_rate(&prev, &cur, &rx, &tx);
-    return (ok && approx(rx, 1000.0) && approx(tx, 2000.0)) ? 0 : 1;
+    counters_t prev = snap(0, 0, 0, 0);
+    counters_t cur = snap(250, 500, 0, 250000000L);
+    double     in = 0, out = 0;
+    int        ok = counter_rates(&prev, &cur, &in, &out);
+
+    return ok && approx(in, 1000.0) && approx(out, 2000.0) ? 0 : 1;
 }
 
-static int test_net_rate_subsecond_across_second(void)
+/* 10.8 s -> 11.05 s = 0.25 s, with nsec smaller in cur (crosses a second). */
+static int test_counter_rates_subsecond_across_second(void)
 {
-    /* 10.8 s -> 11.05 s = 0.25 s, with nsec smaller in cur (crosses a second). */
-    net_raw_t prev = snap(0, 0, 10, 800000000L);
-    net_raw_t cur = snap(250, 500, 11, 50000000L);
-    double    rx = 0, tx = 0;
-    int       ok = net_rate(&prev, &cur, &rx, &tx);
-    return (ok && approx(rx, 1000.0) && approx(tx, 2000.0)) ? 0 : 1;
+    counters_t prev = snap(0, 0, 10, 800000000L);
+    counters_t cur = snap(250, 500, 11, 50000000L);
+    double     in = 0, out = 0;
+    int        ok = counter_rates(&prev, &cur, &in, &out);
+
+    return ok && approx(in, 1000.0) && approx(out, 2000.0) ? 0 : 1;
 }
 
-static int test_net_rate_zero_dt(void)
+/* Same instant: no elapsed time, so a rate is undefined -> gap. */
+static int test_counter_rates_zero_dt(void)
 {
-    /* Same instant: no elapsed time, so a rate is undefined -> gap. */
-    net_raw_t prev = snap(0, 0, 5, 0);
-    net_raw_t cur = snap(1000, 1000, 5, 0);
-    double    rx = -1, tx = -1;
-    return net_rate(&prev, &cur, &rx, &tx) == 0 ? 0 : 1;
+    counters_t prev = snap(0, 0, 5, 0);
+    counters_t cur = snap(1000, 1000, 5, 0);
+    double     in = -1, out = -1;
+
+    return counter_rates(&prev, &cur, &in, &out) == 0 ? 0 : 1;
 }
 
-static int test_net_rate_negative_dt(void)
+/* Clock stepped backwards across the sample -> gap. */
+static int test_counter_rates_negative_dt(void)
 {
-    /* Clock stepped backwards across the sample -> gap. */
-    net_raw_t prev = snap(0, 0, 5, 0);
-    net_raw_t cur = snap(1000, 1000, 4, 0);
-    double    rx = -1, tx = -1;
-    return net_rate(&prev, &cur, &rx, &tx) == 0 ? 0 : 1;
+    counters_t prev = snap(0, 0, 5, 0);
+    counters_t cur = snap(1000, 1000, 4, 0);
+    double     in = -1, out = -1;
+
+    return counter_rates(&prev, &cur, &in, &out) == 0 ? 0 : 1;
 }
 
-static int test_net_rate_counter_reset_rx(void)
+/* The in counter went backwards (an interface or the kernel reset it): gap, not a negative rate. */
+static int test_counter_rates_in_reset_is_a_gap(void)
 {
-    /* rx counter went backwards (interface reset): gap, not a negative rate. */
-    net_raw_t prev = snap(1000, 1000, 0, 0);
-    net_raw_t cur = snap(500, 2000, 1, 0);
-    double    rx = -1, tx = -1;
-    return net_rate(&prev, &cur, &rx, &tx) == 0 ? 0 : 1;
+    counters_t prev = snap(1000, 1000, 0, 0);
+    counters_t cur = snap(500, 2000, 1, 0);
+    double     in = -1, out = -1;
+
+    return counter_rates(&prev, &cur, &in, &out) == 0 ? 0 : 1;
 }
 
-static int test_net_rate_counter_reset_tx(void)
+static int test_counter_rates_out_reset_is_a_gap(void)
 {
-    net_raw_t prev = snap(1000, 1000, 0, 0);
-    net_raw_t cur = snap(2000, 500, 1, 0);
-    double    rx = -1, tx = -1;
-    return net_rate(&prev, &cur, &rx, &tx) == 0 ? 0 : 1;
+    counters_t prev = snap(1000, 1000, 0, 0);
+    counters_t cur = snap(2000, 500, 1, 0);
+    double     in = -1, out = -1;
+
+    return counter_rates(&prev, &cur, &in, &out) == 0 ? 0 : 1;
 }
 
-/* --- Reading /proc/meminfo --- */
+/* --- Reading /proc/meminfo and /proc/vmstat --- */
 
 /* A FILE reading `text`, in place of the /proc file a reader opens. */
 static FILE *reading(char *text) { return fmemopen(text, strlen(text), "r"); }
@@ -171,6 +180,122 @@ static int test_meminfo_without_swap(void)
         fclose(f);
 
     return ok ? 0 : 1;
+}
+
+static int test_vmstat_swap_counters(void)
+{
+    char    text[] = "pgpgin 5\npswpin 12\npswpout 34\nnr_free_pages 9\n";
+    FILE   *f = reading(text);
+    int64_t in = 0, out = 0;
+    int     ok = f && read_vmstat_swap(f, &in, &out) == 0 && in == 12 && out == 34;
+    if (f)
+        fclose(f);
+
+    return ok ? 0 : 1;
+}
+
+static int test_vmstat_without_swap_counters(void)
+{
+    char    text[] = "pgpgin 5\npswpin 12\n";
+    FILE   *f = reading(text);
+    int64_t in = 0, out = 0;
+    int     ok = f && read_vmstat_swap(f, &in, &out) == -1;
+    if (f)
+        fclose(f);
+
+    return ok ? 0 : 1;
+}
+
+/* --- Swap I/O, one sample at a time --- */
+
+/* One sample_swap_io over `vmstat` (NULL: the file did not open) at second `sec`. */
+static void sample_vmstat(metrics_t *m, const char *vmstat, long sec)
+{
+    char text[128];
+    snprintf(text, sizeof(text), "%s", vmstat ? vmstat : "");
+    FILE           *f = vmstat ? reading(text) : NULL;
+    struct timespec now = {sec, 0};
+
+    sample_swap_io(f, now, m);
+
+    if (f)
+        fclose(f);
+}
+
+static int test_swap_io_need_a_previous_sample(void)
+{
+    metrics_t m = {.swap_valid = 1};
+    s_prev_swap_io_valid = 0;
+
+    sample_vmstat(&m, "pswpin 10\npswpout 20\n", 10);
+
+    return m.swap_io_valid ? 1 : 0;
+}
+
+static int test_swap_io_in_bytes_per_second(void)
+{
+    metrics_t m = {.swap_valid = 1};
+    double    page = (double)sysconf(_SC_PAGESIZE);
+    s_prev_swap_io_valid = 0;
+
+    sample_vmstat(&m, "pswpin 10\npswpout 20\n", 10);
+    sample_vmstat(&m, "pswpin 14\npswpout 20\n", 12);
+
+    /* 4 pages read back in 2 s, none written */
+    int in = approx(m.swap_in_bps, 2.0 * page);
+    int out = approx(m.swap_out_bps, 0.0);
+
+    return m.swap_io_valid && in && out ? 0 : 1;
+}
+
+static int test_swap_io_skipped_without_swap(void)
+{
+    metrics_t m = {.swap_valid = 0};
+    s_prev_swap_io_valid = 0;
+
+    sample_vmstat(&m, "pswpin 10\npswpout 20\n", 10);
+    sample_vmstat(&m, "pswpin 14\npswpout 22\n", 11);
+
+    return m.swap_io_valid ? 1 : 0;
+}
+
+static int test_swap_io_start_over_when_vmstat_cannot_be_opened(void)
+{
+    metrics_t m = {.swap_valid = 1};
+    s_prev_swap_io_valid = 0;
+
+    sample_vmstat(&m, "pswpin 10\npswpout 20\n", 10);
+    sample_vmstat(&m, NULL, 11);
+    sample_vmstat(&m, "pswpin 12\npswpout 20\n", 12);
+    int after_gap = m.swap_io_valid;
+    sample_vmstat(&m, "pswpin 14\npswpout 20\n", 13);
+
+    return !after_gap && m.swap_io_valid ? 0 : 1;
+}
+
+static int test_swap_io_start_over_after_a_missing_counter(void)
+{
+    metrics_t m = {.swap_valid = 1};
+    s_prev_swap_io_valid = 0;
+
+    sample_vmstat(&m, "pswpin 10\npswpout 20\n", 10);
+    sample_vmstat(&m, "pswpin 11\n", 11);
+    int missing = m.swap_io_valid;
+    sample_vmstat(&m, "pswpin 12\npswpout 20\n", 12);
+    int after_gap = m.swap_io_valid;
+
+    return !missing && !after_gap ? 0 : 1;
+}
+
+static int test_swap_io_counter_reset_is_a_gap(void)
+{
+    metrics_t m = {.swap_valid = 1};
+    s_prev_swap_io_valid = 0;
+
+    sample_vmstat(&m, "pswpin 10\npswpout 20\n", 10);
+    sample_vmstat(&m, "pswpin 5\npswpout 20\n", 11);
+
+    return m.swap_io_valid ? 1 : 0;
 }
 
 /* --- Link speed (sysfs `speed` parsing) --- */
@@ -229,8 +354,8 @@ static int test_collect_second_pass_yields_rates(void)
     memset(&a, 0, sizeof(a));
     memset(&b, 0, sizeof(b));
 
-    /* The CPU/net snapshots are static, so priming may already have happened in
-     * an earlier test: only the SECOND call of this pair is asserted. */
+    /* The CPU, network and swap snapshots are static, so priming may already have happened in an
+     * earlier test: only the SECOND call of this pair is asserted. */
     if (metrics_collect(&a, "/") != 0)
         return 1;
 
@@ -239,10 +364,16 @@ static int test_collect_second_pass_yields_rates(void)
 
     if (metrics_collect(&b, "/") != 0)
         return 1;
+
     if (!b.cpu_valid) /* /proc/stat always moves */
         return 1;
+
     if (b.cpu_user_percent < 0 || b.cpu_user_percent > 100)
         return 1;
+
+    if (b.swap_io_valid && (!b.swap_valid || b.swap_in_bps < 0 || b.swap_out_bps < 0))
+        return 1;
+
     /* net_valid can be 0 if the counters did not move; when set, rates are >= 0. */
     return (!b.net_valid || (b.net_rx_bps >= 0 && b.net_tx_bps >= 0)) ? 0 : 1;
 }
@@ -330,17 +461,25 @@ static int test_success_is_silent(void)
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
-    T(net_rate_basic),
-    T(net_rate_subsecond),
-    T(net_rate_subsecond_across_second),
-    T(net_rate_zero_dt),
-    T(net_rate_negative_dt),
-    T(net_rate_counter_reset_rx),
-    T(net_rate_counter_reset_tx),
+    T(counter_rates_basic),
+    T(counter_rates_subsecond),
+    T(counter_rates_subsecond_across_second),
+    T(counter_rates_zero_dt),
+    T(counter_rates_negative_dt),
+    T(counter_rates_in_reset_is_a_gap),
+    T(counter_rates_out_reset_is_a_gap),
     T(meminfo_reads_memory),
     T(meminfo_without_memtotal_fails),
     T(meminfo_reads_swap),
     T(meminfo_without_swap),
+    T(vmstat_swap_counters),
+    T(vmstat_without_swap_counters),
+    T(swap_io_need_a_previous_sample),
+    T(swap_io_in_bytes_per_second),
+    T(swap_io_skipped_without_swap),
+    T(swap_io_start_over_when_vmstat_cannot_be_opened),
+    T(swap_io_start_over_after_a_missing_counter),
+    T(swap_io_counter_reset_is_a_gap),
     T(link_speed_parse),
     T(link_speed_sum_is_sane),
     T(collect_fills_plausible_values),

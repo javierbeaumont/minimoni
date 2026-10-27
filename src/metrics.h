@@ -37,6 +37,11 @@ typedef struct {
     int    swap_valid;
     double swap_total_mb, swap_free_mb;
 
+    /* Swap I/O in bytes/s, computed like the network's from two samples: swap_io_valid=0 on
+     * the first sample, after a failed read or a counter reset, and without swap */
+    int    swap_io_valid;
+    double swap_in_bps, swap_out_bps;
+
     /* Disk */
     double disk_total_gb, disk_used_gb, disk_free_gb, disk_percent;
 
@@ -58,14 +63,13 @@ typedef struct {
 
 /* Collect all metrics into m. disk_path is the filesystem to measure (e.g. "/").
  *
- * CPU usage and network throughput: use a static snapshot for delta
- * computation. On the first call, cpu_valid / net_valid are set to 0 and the
- * snapshot is saved. On subsequent calls the delta is computed and the
- * corresponding valid flag is set to 1.
+ * CPU usage, network throughput and swap I/O use a static snapshot for delta computation. On
+ * the first call, their valid flags are set to 0 and the snapshot is saved. On subsequent calls the
+ * delta is computed and the corresponding valid flag is set to 1.
  *
- * Returns 0 on success. On non-fatal errors (missing temperature sensor,
- * unreadable network stats) the affected fields are zeroed and collection
- * continues. Returns -1 only if a required metric source is unavailable. */
+ * Returns 0 on success. On non-fatal errors (missing temperature sensor, unreadable network stats)
+ * the affected fields are zeroed and collection continues. Returns -1 only if a required metric
+ * source is unavailable. */
 int metrics_collect(metrics_t *m, const char *disk_path);
 
 /* A run of failed collections, reported once rather than every cycle. Zero-initialise it. */

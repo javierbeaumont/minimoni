@@ -59,9 +59,9 @@ typedef struct {
 void db_close(db_t *db);
 
 /* Insert one metrics row timestamped at the current UTC second. Fields gated by a valid flag (cpu,
- * temp, net, swap) are stored as NULL when it is 0, so they do not distort averages in downsampled
- * queries. Retries up to 3 times on SQLITE_BUSY with 100ms backoff. Returns 0 on success, -1 on
- * error. */
+ * temp, net, swap, swap I/O) are stored as NULL when it is 0, so they do not distort averages
+ * in downsampled queries. Retries up to 3 times on SQLITE_BUSY with 100ms backoff. Returns 0 on
+ * success, -1 on error. */
 [[nodiscard]] int db_insert(db_t *db, const metrics_t *m);
 
 /* Delete rows older than retention_days from metrics and alert_log.
@@ -110,6 +110,9 @@ typedef struct {
      * from them as the row is read */
     int    swap_valid;
     double swap_total_mb, swap_free_mb, swap_used_mb, swap_used_percent, swap_free_percent;
+    /* swap I/O in bytes/s (swap_io_valid=0 like net_valid, and without swap) */
+    int    swap_io_valid;
+    double swap_in_bps, swap_out_bps;
 } db_row_t;
 
 /* Fetch the most recent metrics row into *row.  Net throughput is read
