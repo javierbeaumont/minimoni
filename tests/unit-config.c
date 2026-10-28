@@ -1446,6 +1446,48 @@ static int test_unknown_alert_metric_fails(void)
     return rc == -1 && strstr(err, "config: alert 'cpu-high': unknown metric 'cpu_pct'") ? 0 : 1;
 }
 
+static int test_mem_alert_metrics_accepted(void)
+{
+    static const char *const names[] = {"mem_used_mb", "mem_available_mb", "mem_used_percent",
+                                        "mem_available_percent"};
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        char toml[256];
+        snprintf(toml, sizeof(toml),
+                 "[[alert]]\nname = \"mem\"\nmetric = \"%s\"\noperator = \">\"\n"
+                 "threshold = 1\nwebhook = \"w\"\n",
+                 names[i]);
+
+        config_t cfg;
+        if (load_cfg(&cfg, toml) != 0 || cfg.alert_count != 1 ||
+            strcmp(cfg.alerts[0].metric, names[i]))
+            return 1;
+    }
+
+    return 0;
+}
+
+/* The old names, mem_percent (now mem_used_percent) and mem_total_mb, fail the load. */
+static int test_old_mem_alert_metrics_fail(void)
+{
+    static const char *const names[] = {"mem_percent", "mem_total_mb"};
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        char toml[256];
+        snprintf(toml, sizeof(toml),
+                 "[[alert]]\nname = \"mem\"\nmetric = \"%s\"\noperator = \">\"\n"
+                 "threshold = 1\nwebhook = \"w\"\n",
+                 names[i]);
+
+        config_t cfg;
+        char     err[512];
+        char     want[96];
+        snprintf(want, sizeof(want), "config: alert 'mem': unknown metric '%s'", names[i]);
+        if (load_cfg_err(&cfg, toml, err, sizeof(err)) != -1 || !strstr(err, want))
+            return 1;
+    }
+
+    return 0;
+}
+
 static int test_swap_alert_metrics_accepted(void)
 {
     static const char *const names[] = {"swap_free_mb",      "swap_used_mb", "swap_free_percent",
@@ -1644,6 +1686,8 @@ static const test_t ALL_TESTS[] = {
     T(alerts_over_max_fail),
     T(ranges_over_max_fail),
     T(unknown_alert_metric_fails),
+    T(mem_alert_metrics_accepted),
+    T(old_mem_alert_metrics_fail),
     T(swap_alert_metrics_accepted),
     T(missing_disk_path_fails),
 };

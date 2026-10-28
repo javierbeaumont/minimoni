@@ -65,14 +65,14 @@ static double get_metric_value(const db_row_t *row, const char *m, int *valid)
         *valid = row->cpu_valid;
         return row->cpu_idle_percent;
     }
-    if (!strcmp(m, "mem_total_mb"))
-        return row->mem_total_mb;
     if (!strcmp(m, "mem_used_mb"))
         return row->mem_used_mb;
     if (!strcmp(m, "mem_available_mb"))
         return row->mem_available_mb;
-    if (!strcmp(m, "mem_percent"))
+    if (!strcmp(m, "mem_used_percent"))
         return row->mem_used_percent;
+    if (!strcmp(m, "mem_available_percent"))
+        return row->mem_available_percent;
     if (!strcmp(m, "disk_total_gb"))
         return row->disk_total_gb;
     if (!strcmp(m, "disk_used_gb"))

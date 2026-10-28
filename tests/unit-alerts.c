@@ -243,6 +243,27 @@ static int test_every_config_metric_has_a_value(void)
     return 0;
 }
 
+/* Each memory metric reads its own field. */
+static int test_mem_metrics_read_their_fields(void)
+{
+    static const char *const names[] = {"mem_used_mb", "mem_available_mb", "mem_used_percent",
+                                        "mem_available_percent"};
+    db_row_t                 row;
+    memset(&row, 0, sizeof(row));
+    row.mem_used_mb = 1.0;
+    row.mem_available_mb = 2.0;
+    row.mem_used_percent = 3.0;
+    row.mem_available_percent = 4.0;
+
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        int valid = 0;
+        if (get_metric_value(&row, names[i], &valid) != i + 1.0 || !valid)
+            return 1;
+    }
+
+    return 0;
+}
+
 static const char *const SWAP_METRICS[] = {"swap_free_mb",      "swap_used_mb", "swap_free_percent",
                                            "swap_used_percent", "swap_in_bps",  "swap_out_bps",
                                            "swap_in_ram",       "swap_out_ram"};
@@ -407,6 +428,7 @@ static const test_t ALL_TESTS[] = {
     T(propagates_empty_chain),
     T(drops_the_server_name),
     T(every_config_metric_has_a_value),
+    T(mem_metrics_read_their_fields),
     T(swap_metrics_read_their_fields),
     T(swap_metrics_without_swap_have_no_value),
     T(swap_io_metrics_without_a_sample_have_no_value),
