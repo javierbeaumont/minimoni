@@ -136,8 +136,7 @@ static int test_meminfo_reads_memory(void)
     FILE     *f = reading(text);
     metrics_t m = {.swap_valid = 1};
     int       ok = f && read_meminfo(f, &m) == 0 && approx(m.mem_total_mb, 4.0) &&
-                   approx(m.mem_available_mb, 1.0) && approx(m.mem_used_mb, 3.0) &&
-                   approx(m.mem_percent, 75.0) && !m.swap_valid;
+                   approx(m.mem_available_mb, 1.0) && !m.swap_valid;
     if (f)
         fclose(f);
 
@@ -332,10 +331,7 @@ static int test_collect_fills_plausible_values(void)
     if (m.load_1m < 0 || m.load_5m < 0 || m.load_15m < 0)
         return 1;
 
-    if (!(m.mem_total_mb > 0) || m.mem_used_mb < 0 || m.mem_used_mb > m.mem_total_mb)
-        return 1;
-
-    if (m.mem_percent < 0 || m.mem_percent > 100)
+    if (!(m.mem_total_mb > 0) || m.mem_available_mb < 0 || m.mem_available_mb > m.mem_total_mb)
         return 1;
 
     if (!(m.disk_total_gb > 0) || m.disk_percent < 0 || m.disk_percent > 100)

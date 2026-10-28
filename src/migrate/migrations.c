@@ -168,12 +168,15 @@ static const char SCRIPT_V0_TO_V1[] =
 
 /* --- v1 -> v2 migration ------------------------------------------------ */
 
-/* Swap columns; rows from before the migration keep them NULL. */
+/* Swap columns, NULL in the rows from before the migration. The used memory and its percent are
+ * dropped: minimoni works them out from the total and the available as it reads a row. */
 static const char SCRIPT_V1_TO_V2[] = "BEGIN;"
                                       "ALTER TABLE metrics ADD COLUMN swap_total_mb REAL;"
                                       "ALTER TABLE metrics ADD COLUMN swap_free_mb REAL;"
                                       "ALTER TABLE metrics ADD COLUMN swap_in_bps REAL;"
                                       "ALTER TABLE metrics ADD COLUMN swap_out_bps REAL;"
+                                      "ALTER TABLE metrics DROP COLUMN mem_used_mb;"
+                                      "ALTER TABLE metrics DROP COLUMN mem_percent;"
                                       "PRAGMA user_version = 2;"
                                       "COMMIT;";
 

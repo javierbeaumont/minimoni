@@ -55,7 +55,8 @@ static db_row_t sample_row(void)
     r.mem_total_mb = 1000.0;
     r.mem_used_mb = 500.0;
     r.mem_available_mb = 500.0;
-    r.mem_percent = 50.0;
+    r.mem_used_percent = 50.0;
+    r.mem_available_percent = 50.0;
     r.disk_total_gb = 100.0;
     r.disk_used_gb = 40.0;
     r.disk_free_gb = 60.0;
@@ -1217,7 +1218,8 @@ static int test_largest_point_fits_its_buffer(void)
     double   w = -1.797e308;
     r.load_1m = r.load_5m = r.load_15m = w;
     r.cpu_user_percent = r.cpu_system_percent = r.cpu_idle_percent = w;
-    r.mem_total_mb = r.mem_used_mb = r.mem_available_mb = r.mem_percent = w;
+    r.mem_total_mb = r.mem_used_mb = r.mem_available_mb = w;
+    r.mem_used_percent = r.mem_available_percent = w;
     r.swap_valid = r.swap_io_valid = 1;
     r.swap_total_mb = r.swap_free_mb = r.swap_in_bps = r.swap_out_bps = w;
     r.disk_total_gb = r.disk_used_gb = r.disk_free_gb = r.disk_percent = w;
@@ -1294,7 +1296,8 @@ static int current_overflows(const char *toml)
     double   w = -1.797e308;
     r.load_1m = r.load_5m = r.load_15m = w;
     r.cpu_user_percent = r.cpu_system_percent = r.cpu_idle_percent = w;
-    r.mem_total_mb = r.mem_used_mb = r.mem_available_mb = r.mem_percent = w;
+    r.mem_total_mb = r.mem_used_mb = r.mem_available_mb = w;
+    r.mem_used_percent = r.mem_available_percent = w;
     r.swap_valid = r.swap_io_valid = 1;
     r.swap_total_mb = r.swap_free_mb = r.swap_free_percent = w;
     r.swap_in_bps = r.swap_out_bps = w;

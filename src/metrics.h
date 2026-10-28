@@ -30,8 +30,8 @@ typedef struct {
     int    cpu_valid;
     double cpu_user_percent, cpu_system_percent, cpu_idle_percent;
 
-    /* Memory */
-    double mem_total_mb, mem_used_mb, mem_available_mb, mem_percent;
+    /* Memory, as the kernel reports it */
+    double mem_total_mb, mem_available_mb;
 
     /* Swap, as the kernel reports it: swap_valid=0 when the host has none */
     int    swap_valid;

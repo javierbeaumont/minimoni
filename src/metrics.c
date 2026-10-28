@@ -187,8 +187,6 @@ static int read_meminfo(FILE *f, metrics_t *m)
 
     m->mem_total_mb = (double)mem_total_kb / 1024.0;
     m->mem_available_mb = (double)mem_available_kb / 1024.0;
-    m->mem_used_mb = m->mem_total_mb - m->mem_available_mb;
-    m->mem_percent = m->mem_used_mb / m->mem_total_mb * 100.0;
 
     m->swap_valid = swap_total_kb > 0;
     if (m->swap_valid) {

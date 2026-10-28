@@ -256,7 +256,7 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
             jbuf_real(j, "mem_available", r->mem_available_mb);
             jbuf_real(j, "mem_total", r->mem_total_mb);
         }
-        jbuf_real(j, "mem_percent", r->mem_percent);
+        jbuf_real(j, "mem_percent", r->mem_used_percent);
     }
 
     /* Only what the unit needs: in "%" just the free share, so a public dashboard shows no size */
@@ -520,7 +520,7 @@ void json_serialize_point(jbuf_t *j, const db_row_t *r, const config_t *cfg, int
             jbuf_real(j, "ma", r->mem_available_mb);
             jbuf_real(j, "mt", r->mem_total_mb);
         }
-        jbuf_real(j, "mp", r->mem_percent);
+        jbuf_real(j, "mp", r->mem_used_percent);
     }
 
     if (config_has(cfg->charts, cfg->chart_count, "swap")) {

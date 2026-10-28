@@ -72,7 +72,7 @@ static double get_metric_value(const db_row_t *row, const char *m, int *valid)
     if (!strcmp(m, "mem_available_mb"))
         return row->mem_available_mb;
     if (!strcmp(m, "mem_percent"))
-        return row->mem_percent;
+        return row->mem_used_percent;
     if (!strcmp(m, "disk_total_gb"))
         return row->disk_total_gb;
     if (!strcmp(m, "disk_used_gb"))

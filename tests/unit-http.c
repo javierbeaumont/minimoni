@@ -197,8 +197,7 @@ static void insert_sample(void)
     memset(&m, 0, sizeof(m));
     m.load_1m = 1.0;
     m.mem_total_mb = 1000.0;
-    m.mem_used_mb = 500.0;
-    m.mem_percent = 50.0;
+    m.mem_available_mb = 500.0;
     m.disk_total_gb = 100.0;
     m.disk_percent = 40.0;
     m.uptime_seconds = 3600.0;
