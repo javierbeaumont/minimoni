@@ -48,22 +48,22 @@ let cssCache = {};
 /* Chart series colours: sourced from CSS custom properties so a customiser
  * only needs to edit style.css (or override the --clr-* vars). */
 const CLR = {
-  load1:    cssv('--clr-load1'),
-  load5:    cssv('--clr-load5'),
-  load15:   cssv('--clr-load15'),
-  user:     cssv('--clr-cpu-user'),
-  sys:      cssv('--clr-cpu-sys'),
-  mem:      cssv('--clr-mem-used'),
-  memAvail: cssv('--clr-mem-avail'),
-  swap:     cssv('--clr-swap-used'),
-  swapFree: cssv('--clr-swap-free'),
-  swapIn:   cssv('--clr-swap-in'),
-  swapOut:  cssv('--clr-swap-out'),
-  disk:     cssv('--clr-disk-used'),
-  diskFree: cssv('--clr-disk-free'),
-  temp:     cssv('--clr-temp'),
-  rx:       cssv('--clr-net-rx'),
-  tx:       cssv('--clr-net-tx'),
+  load1:     cssv('--clr-load1'),
+  load5:     cssv('--clr-load5'),
+  load15:    cssv('--clr-load15'),
+  user:      cssv('--clr-cpu-user'),
+  sys:       cssv('--clr-cpu-sys'),
+  mem:       cssv('--clr-mem-used'),
+  memAvail:  cssv('--clr-mem-avail'),
+  swap:      cssv('--clr-swap-used'),
+  swapFree:  cssv('--clr-swap-free'),
+  swapIn:    cssv('--clr-swap-in'),
+  swapOut:   cssv('--clr-swap-out'),
+  disk:      cssv('--clr-disk-used'),
+  diskAvail: cssv('--clr-disk-avail'),
+  temp:      cssv('--clr-temp'),
+  rx:        cssv('--clr-net-rx'),
+  tx:        cssv('--clr-net-tx'),
 };
 
 /* Cache of the clean args last passed to drawChart per canvas id, so a hover
@@ -381,7 +381,8 @@ function renderAll() {
     ].filter((_, i) => !seriesHidden['g-swap-io'][i]), ioOpts);
   }
 
-  if (chartVisible('disk', 'dp', 'b-disk')) {
+  /* Disk: like memory, from da and dt. */
+  if (chartVisible('disk', 'da', 'b-disk')) {
     document.getElementById('b-disk').querySelector('.ctitle').textContent =
       'Disk (' + dskUL + ')';
 
@@ -390,14 +391,15 @@ function renderAll() {
     if (diskIsPct) diskOpts.thresh = THRESH.disk;
     if (!diskIsPct) diskOpts.fmtFn = (v) => fmtTip(v, null) + ' ' + dskUL;
 
+    const diskScale = diskIsPct ? null : diskU; /* in "%" nothing to scale */
     drawChart('g-disk', [
       {
         c: CLR.disk, k: 'disk-used', label: 'used',
-        v: pts.map((p) => (diskIsPct ? p.dp : scaleTo(p.du, diskU))),
+        v: pts.map((p) => scaleTo(usedOf(diskIsPct ? 100 : p.dt, p.da), diskScale)),
       },
       {
-        c: CLR.diskFree, k: 'disk-free', label: 'free',
-        v: pts.map((p) => (diskIsPct ? 100 - p.dp : scaleTo(p.df, diskU))),
+        c: CLR.diskAvail, k: 'disk-avail', label: 'available',
+        v: pts.map((p) => scaleTo(p.da, diskScale)),
       },
     ].filter((_, i) => !seriesHidden['g-disk'][i]), diskOpts);
   }

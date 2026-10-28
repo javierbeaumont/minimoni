@@ -250,8 +250,8 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
         }
     }
 
-    /* Memory and swap send only what the unit needs: in "%" just the available or free share, so a
-     * public dashboard shows no size */
+    /* Memory, swap and disk send only what the unit needs: in "%" just the available or free share,
+     * so a public dashboard shows no size */
     if (config_has(cfg->cards, cfg->card_count, "memory")) {
         int pct = mu[0] == '%';
 
@@ -288,12 +288,12 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
     }
 
     if (config_has(cfg->cards, cfg->card_count, "disk")) {
-        if (du[0] != '%') {
-            jbuf_real(j, "disk_used", r->disk_used_gb);
+        int pct = du[0] == '%';
+
+        jbuf_real(j, "disk_available", pct ? r->disk_available_percent : r->disk_available_gb);
+
+        if (!pct)
             jbuf_real(j, "disk_total", r->disk_total_gb);
-            jbuf_real(j, "disk_free", r->disk_available_gb);
-        }
-        jbuf_real(j, "disk_percent", r->disk_used_percent);
     }
 
     if (config_has(cfg->cards, cfg->card_count, "temp")) {
@@ -382,7 +382,7 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
      *   mem  : [70, 90]   (compared against the used share)
      *   swap : [80, 95]   (compared against the used share)
      *   swap_io : [1, 5] % of the RAM per minute, in bytes/s under "bytes"
-     *   disk : [80, 90]   (compared against disk_percent)
+     *   disk : [80, 90]   (compared against the used share)
      *   temp : [trip-20, trip-10] converted to the card unit; [70, 80] fallback
      *   net  : [85%, 98%] of the link ceiling, converted to the card unit */
     if (config_has(cfg->cards, cfg->card_count, "cpu_load")) {
@@ -551,12 +551,12 @@ void json_serialize_point(jbuf_t *j, const db_row_t *r, const config_t *cfg, int
     }
 
     if (config_has(cfg->charts, cfg->chart_count, "disk")) {
-        if (du[0] != '%') {
-            jbuf_real(j, "du", r->disk_used_gb);
+        int pct = du[0] == '%';
+
+        jbuf_real(j, "da", pct ? r->disk_available_percent : r->disk_available_gb);
+
+        if (!pct)
             jbuf_real(j, "dt", r->disk_total_gb);
-            jbuf_real(j, "df", r->disk_available_gb);
-        }
-        jbuf_real(j, "dp", r->disk_used_percent);
     }
 
     if (config_has(cfg->charts, cfg->chart_count, "temp")) {

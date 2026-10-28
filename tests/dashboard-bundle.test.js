@@ -119,7 +119,17 @@ test('every chart and card the server knows has its element', () => {
     assert.ok(html.includes(`id="${id}"`), `index.html has no #${id}`);
 });
 
-/* Like memory and disk: used and free, each with its legend entry. */
+/* Like memory: used and available, each with its legend entry. */
+test('the disk chart draws used and available', () => {
+  const legend = html.match(/<div class="legend" id="leg-g-disk"[^>]*>([\s\S]*?)<\/div>/);
+
+  assert.ok(legend, 'the disk chart has no legend');
+  assert.deepStrictEqual([...legend[1].matchAll(/<\/span>(\w+)<\/span>/g)].map((m) => m[1]),
+    ['used', 'available']);
+  assert.ok(read('chart.js').includes("k: 'disk-avail'"), 'chart.js draws no available disk line');
+});
+
+/* Used and free, each with its legend entry. */
 test('the swap chart draws used and free', () => {
   const legend = html.match(/<div class="legend" id="leg-g-swap"[^>]*>([\s\S]*?)<\/div>/);
 

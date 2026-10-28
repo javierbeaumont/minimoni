@@ -96,6 +96,15 @@ function swapFreePercent(m) {
   return m.swap_total_mb > 0 ? 100.0 - (swapUsed(m) * 100.0) / m.swap_total_mb : 100.0;
 }
 
+/* The used disk and its available share, worked out as memory's. */
+function diskUsed(m) {
+  return Math.max(m.disk_total_gb - m.disk_avail_gb, 0.0);
+}
+
+function diskAvailablePercent(m) {
+  return m.disk_total_gb > 0 ? 100.0 - (diskUsed(m) * 100.0) / m.disk_total_gb : 100.0;
+}
+
 /* The bytes/s that move 1 % of the RAM in a minute. */
 function ramPctBps(m) {
   return (m.mem_total_mb * 1024.0 * 1024.0) / 100.0 / 60.0;
@@ -166,13 +175,12 @@ function toCurrent(raw, f, fallback, netMaxSpeed = 0) {
   }
 
   if (configHas(cards, 'disk')) {
-    if (du[0] !== '%') {
-      out.disk_used = round(m.disk_used_gb, 2);
-      out.disk_total = round(m.disk_total_gb, 2);
-      out.disk_free = round(m.disk_free_gb, 2);
-    }
+    const pct = du[0] === '%';
 
-    out.disk_percent = round(m.disk_percent, 1);
+    out.disk_available = pct ? round(diskAvailablePercent(m), 1) : round(m.disk_avail_gb, 2);
+
+    if (!pct)
+      out.disk_total = round(m.disk_total_gb, 2);
   }
 
   const tc = m.temp_c;
@@ -286,8 +294,13 @@ function unitsFor(raws, f) {
     out.swap_io = unitFor(peak(withIo, 'swap_in_bps', 'swap_out_bps'), 'bytes');
   }
 
-  if (String(f.disk_chart_unit)[0] !== '%')
-    out.disk = unitFor(peak(raws, 'disk_used_gb', 'disk_free_gb'), 'gb');
+  if (String(f.disk_chart_unit)[0] !== '%') {
+    const withUsed = raws.map((r) => ({
+      ...r, disk_used_gb: r.disk_total_gb != null ? diskUsed(r) : null,
+    }));
+
+    out.disk = unitFor(peak(withUsed, 'disk_used_gb', 'disk_avail_gb'), 'gb');
+  }
 
   if (String(f.net_chart_unit)[0] !== '%') {
     out.net = unitFor(peak(withNet, 'net_rx_bps', 'net_tx_bps'),
@@ -346,13 +359,14 @@ function toPoint(raw, f, fallback, netMaxSpeed = 0) {
     out.so = has ? round(swapIo(m.swap_out_bps, m, iu), 2) : null;
   }
 
-  if (du[0] !== '%') {
-    out.du = round(m.disk_used_gb, 2);
-    out.dt = round(m.disk_total_gb, 2);
-    out.df = round(m.disk_free_gb, 2);
-  }
+  if (configHas(f.charts, 'disk')) {
+    const pct = du[0] === '%';
 
-  out.dp = round(m.disk_percent, 1);
+    out.da = pct ? round(diskAvailablePercent(m), 1) : round(m.disk_avail_gb, 2);
+
+    if (!pct)
+      out.dt = round(m.disk_total_gb, 2);
+  }
 
   const tc = m.temp_c;
   const ref = tempRef(m.temp_critical_c, fallback);

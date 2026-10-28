@@ -59,7 +59,7 @@
   --clr-swap-in: var(--cyan-9);
   --clr-swap-out: var(--violet-9);
   --clr-disk-used: var(--cyan-9);
-  --clr-disk-free: var(--violet-9);
+  --clr-disk-avail: var(--violet-9);
   --clr-temp: var(--cyan-9);
   --clr-net-rx: var(--violet-9);
   --clr-net-tx: var(--cyan-9);
@@ -120,7 +120,7 @@
   --clr-swap-in: var(--cyan-11);
   --clr-swap-out: var(--violet-11);
   --clr-disk-used: var(--cyan-11);
-  --clr-disk-free: var(--violet-11);
+  --clr-disk-avail: var(--violet-11);
   --clr-temp: var(--cyan-11);
   --clr-net-rx: var(--violet-11);
   --clr-net-tx: var(--cyan-11);
@@ -164,7 +164,7 @@
     --clr-swap-in: var(--cyan-11);
     --clr-swap-out: var(--violet-11);
     --clr-disk-used: var(--cyan-11);
-    --clr-disk-free: var(--violet-11);
+    --clr-disk-avail: var(--violet-11);
     --clr-temp: var(--cyan-11);
     --clr-net-rx: var(--violet-11);
     --clr-net-tx: var(--cyan-11);
@@ -652,8 +652,8 @@ canvas {
   --c: var(--clr-disk-used);
 }
 
-.s-disk-free {
-  --c: var(--clr-disk-free);
+.s-disk-avail {
+  --c: var(--clr-disk-avail);
 }
 
 .s-net-tx {
@@ -832,8 +832,8 @@ canvas {
   background: var(--clr-disk-used);
 }
 
-.tt-dot--disk-free {
-  background: var(--clr-disk-free);
+.tt-dot--disk-avail {
+  background: var(--clr-disk-avail);
 }
 
 .tt-dot--temp {

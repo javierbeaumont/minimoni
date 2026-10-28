@@ -285,7 +285,7 @@ static int test_show_all_emits_every_group(void)
 
     int cpu = has(b, "\"load_1m\"") && has(b, "\"cpu_user_percent\"");
     int memory = has(b, "\"mem_available\"") && has(b, "\"swap_free\"") && has(b, "\"swap_in\"");
-    int others = has(b, "\"disk_percent\"") && has(b, "\"temp\"") && has(b, "\"net_rx\"") &&
+    int others = has(b, "\"disk_available\"") && has(b, "\"temp\"") && has(b, "\"net_rx\"") &&
                  has(b, "\"uptime_seconds\"");
 
     return cpu && memory && others ? 0 : 1;
@@ -873,14 +873,35 @@ static int test_mem_card_auto_sends_total_and_available(void)
     return sizes && no_used ? 0 : 1;
 }
 
-static int test_disk_absolute_emits_used(void)
+/* In "%" just the available share, so a public dashboard shows no size. */
+static int test_disk_card_pct_sends_the_available_share_alone(void)
+{
+    char     b[2048];
+    db_row_t r = sample_row();
+    config_t c = base_cfg(); /* disk_card_unit defaults to "%" */
+    emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    int share = has(b, "\"disk_available\":60,");
+    int no_size = !has(b, "\"disk_total\"") && !has(b, "\"disk_used\"") &&
+                  !has(b, "\"disk_percent\"") && !has(b, "\"disk_free\"");
+
+    return share && no_size ? 0 : 1;
+}
+
+/* In "auto" the total and available the kernel gives; the dashboard computes the rest. */
+static int test_disk_card_auto_sends_total_and_available(void)
 {
     char     b[2048];
     db_row_t r = sample_row();
     config_t c = base_cfg();
     strcpy(c.disk_card_unit, "auto");
     emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
-    return (has(b, "\"disk_used\"") && has(b, "\"disk_percent\"")) ? 0 : 1;
+
+    int sizes = has(b, "\"disk_total\":100") && has(b, "\"disk_available\":60");
+    int no_used =
+        !has(b, "\"disk_used\"") && !has(b, "\"disk_percent\"") && !has(b, "\"disk_free\"");
+
+    return sizes && no_used ? 0 : 1;
 }
 
 /* In "%" just the free share, so a public dashboard shows no size. */
@@ -1019,7 +1040,7 @@ static int test_point_emits_short_keys(void)
     config_t c = base_cfg();
     emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
     return (has(b, "\"t\":") && has(b, "\"l1\":") && has(b, "\"cu\":") && has(b, "\"ma\":") &&
-            has(b, "\"dp\":") && has(b, "\"nr\":") && has(b, "\"up\":"))
+            has(b, "\"da\":") && has(b, "\"nr\":") && has(b, "\"up\":"))
                ? 0
                : 1;
 }
@@ -1065,7 +1086,7 @@ static int test_point_hides_all_charts(void)
     emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
 
     int no_chart = !has(b, "\"l1\"") && !has(b, "\"cu\"") && !has(b, "\"ma\"") &&
-                   !has(b, "\"sf\"") && !has(b, "\"si\"") && !has(b, "\"dp\"") &&
+                   !has(b, "\"sf\"") && !has(b, "\"si\"") && !has(b, "\"da\"") &&
                    !has(b, "\"tp\"") && !has(b, "\"nr\"");
 
     return no_chart && has(b, "\"t\":") && has(b, "\"up\":") ? 0 : 1;
@@ -1138,6 +1159,33 @@ static int test_point_mem_auto_sends_total_and_available(void)
 
     int sizes = has(b, "\"mt\":1000") && has(b, "\"ma\":250");
     int no_used = !has(b, "\"mu\"") && !has(b, "\"mp\"");
+
+    return sizes && no_used ? 0 : 1;
+}
+
+static int test_point_disk_pct_sends_the_available_share_alone(void)
+{
+    char     b[1024];
+    db_row_t r = sample_row();
+    config_t c = base_cfg();
+    strcpy(c.disk_chart_unit, "%");
+    emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    int share = has(b, "\"da\":60,");
+    int no_size = !has(b, "\"dt\"") && !has(b, "\"du\"") && !has(b, "\"dp\"") && !has(b, "\"df\"");
+
+    return share && no_size ? 0 : 1;
+}
+
+static int test_point_disk_auto_sends_total_and_available(void)
+{
+    char     b[1024];
+    db_row_t r = sample_row();
+    config_t c = base_cfg(); /* disk_chart_unit defaults to "auto" */
+    emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    int sizes = has(b, "\"dt\":100") && has(b, "\"da\":60");
+    int no_used = !has(b, "\"du\"") && !has(b, "\"dp\"") && !has(b, "\"df\"");
 
     return sizes && no_used ? 0 : 1;
 }
@@ -1409,7 +1457,8 @@ static const test_t ALL_TESTS[] = {
     T(cpu_null_when_invalid),
     T(mem_card_pct_sends_the_available_share_alone),
     T(mem_card_auto_sends_total_and_available),
-    T(disk_absolute_emits_used),
+    T(disk_card_pct_sends_the_available_share_alone),
+    T(disk_card_auto_sends_total_and_available),
     T(swap_card_pct_sends_the_free_share_alone),
     T(swap_card_auto_sends_total_and_free),
     T(swap_null_without_swap),
@@ -1431,6 +1480,8 @@ static const test_t ALL_TESTS[] = {
     T(point_net_null_when_invalid),
     T(point_mem_pct_sends_the_available_share_alone),
     T(point_mem_auto_sends_total_and_available),
+    T(point_disk_pct_sends_the_available_share_alone),
+    T(point_disk_auto_sends_total_and_available),
     T(point_swap_auto_sends_total_and_free),
     T(point_swap_pct_sends_the_free_share_alone),
     T(point_swap_null_without_swap),

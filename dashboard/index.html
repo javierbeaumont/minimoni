@@ -111,12 +111,12 @@
     <div class="card hide" id="c-disk">
       <div class="clabel">Disk
         <span class="card-unit s-disk-used" data-series="0">used</span>
-        <span class="card-unit hide s-disk-free" data-series="1">free</span>
+        <span class="card-unit hide s-disk-avail" data-series="1">available</span>
       </div>
       <div class="cval">&#8212;</div>
       <div class="csub">
         <span class="card-sub hide" data-card="disk" data-idx="0"><span class="card-sub-lbl s-disk-used">used</span> <span class="card-sub-val"></span></span>
-        <span class="card-sub" data-card="disk" data-idx="1"><span class="card-sub-lbl s-disk-free">free</span> <span class="card-sub-val"></span></span>
+        <span class="card-sub" data-card="disk" data-idx="1"><span class="card-sub-lbl s-disk-avail">available</span> <span class="card-sub-val"></span></span>
       </div>
     </div>
     <!-- Temperature card: like the others, shown once the server includes its
@@ -198,7 +198,7 @@
         <span class="ctitle">Disk</span>
         <div class="legend" id="leg-g-disk" data-chart="g-disk">
           <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="used series" data-series="0"><span class="leg-dot s-disk-used"></span>used</span>
-          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="free series" data-series="1"><span class="leg-dot s-disk-free"></span>free</span>
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="available series" data-series="1"><span class="leg-dot s-disk-avail"></span>available</span>
         </div>
       </div>
       <canvas id="g-disk" role="img" aria-label="Disk history chart"></canvas>

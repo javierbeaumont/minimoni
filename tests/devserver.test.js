@@ -193,16 +193,6 @@ test('toCurrent: gates excluded cards', () => {
   assert.ok(!('net_rx' in out));
 });
 
-test('toCurrent: percent unit omits the raw disk fields', () => {
-  const pct = toCurrent(currentSnapshot('normal'), configFields({}), 85.0);
-
-  assert.ok(!('disk_used' in pct) && 'disk_percent' in pct); /* disk_card_unit defaults to '%' */
-
-  const raw = toCurrent(currentSnapshot('normal'), configFields({ disk_card_unit: 'auto' }), 85.0);
-
-  assert.ok('disk_free' in raw);
-});
-
 /* 750 of 1000 MB in use. */
 const memRaw = (p) => ({ ...p, mem_total_mb: 1000, mem_avail_mb: 250 });
 
@@ -222,6 +212,27 @@ test('toCurrent: mem_available in the card unit, and mem_total only in "auto"', 
   assert.deepStrictEqual(memFields(abs), ['mem_available', 'mem_total']);
   assert.strictEqual(abs.mem_total, 1000);
   assert.strictEqual(abs.mem_available, 250);
+});
+
+/* 60 of 100 GB in use. */
+const diskRaw = (p) => ({ ...p, disk_total_gb: 100, disk_avail_gb: 40 });
+
+/* The disk fields of an /api/current response, without the unit echoes. */
+const diskFields = (out) =>
+  Object.keys(out).filter((k) => /^disk_(used|available|total|percent|free)/.test(k));
+
+test('toCurrent: disk_available in the card unit, and disk_total only in "auto"', () => {
+  const raw = diskRaw(currentSnapshot('normal'));
+  const pct = toCurrent(raw, configFields({}), 85.0); /* disk_card_unit defaults to '%' */
+
+  assert.deepStrictEqual(diskFields(pct), ['disk_available']);
+  assert.strictEqual(pct.disk_available, 40);
+
+  const abs = toCurrent(raw, configFields({ disk_card_unit: 'auto' }), 85.0);
+
+  assert.deepStrictEqual(diskFields(abs), ['disk_available', 'disk_total']);
+  assert.strictEqual(abs.disk_total, 100);
+  assert.strictEqual(abs.disk_available, 40);
 });
 
 /* The swap use fields of an /api/current response: not swap I/O's, nor the unit echoes. */
@@ -281,7 +292,7 @@ test('toCurrent: thresh_net tracks the link ceiling', () => {
 
 test('unitsFor: mirrors the C choice for a window', () => {
   const raws = [
-    { mem_total_mb: 2048, mem_avail_mb: 1748, disk_used_gb: 20, disk_free_gb: 72,
+    { mem_total_mb: 2048, mem_avail_mb: 1748, disk_total_gb: 92, disk_avail_gb: 72,
       net_rx_bps: 5242880, net_tx_bps: 1000 },
   ];
   const u = unitsFor(raws, configFields({}));
@@ -297,6 +308,11 @@ test('unitsFor: mirrors the C choice for a window', () => {
   const big = unitsFor([{ mem_total_mb: 32768, mem_avail_mb: 100 }], configFields({}));
 
   assert.deepStrictEqual(big.mem, { sym: 'GB', mul: 1, div: 1024 });
+
+  /* The used disk too: 20470 of 20480 GB reads in TB. */
+  const full = unitsFor([{ disk_total_gb: 20480, disk_avail_gb: 10 }], configFields({}));
+
+  assert.deepStrictEqual(full.disk, { sym: 'TB', mul: 1, div: 1024 });
 
   /* A "%" metric has no magnitude. */
   assert.ok(!('mem' in unitsFor(raws, configFields({ memory_chart_unit: '%' }))));
@@ -338,7 +354,7 @@ test('unitsFor: swap takes the larger of used and free, from rows with swap', ()
 test('toPoint: emits short keys', () => {
   const out = toPoint(point(), configFields({}), 85.0);
 
-  for (const k of ['t', 'l1', 'cu', 'ma', 'dp', 'nr', 'up'])
+  for (const k of ['t', 'l1', 'cu', 'ma', 'da', 'nr', 'up'])
     assert.ok(k in out, `missing key ${k}`);
 });
 
@@ -347,19 +363,14 @@ test('toPoint: memory gated by charts', () => {
   assert.ok(!('ma' in toPoint(point(), configFields({ charts: ['cpu_load'] }), 85.0)));
 });
 
+test('toPoint: disk gated by charts', () => {
+  assert.ok('da' in toPoint(point(), configFields({}), 85.0));
+  assert.ok(!('da' in toPoint(point(), configFields({ charts: ['cpu_load'] }), 85.0)));
+});
+
 test('toPoint: temp gated by charts', () => {
   assert.ok('tp' in toPoint(point(), configFields({}), 85.0));
   assert.ok(!('tp' in toPoint(point(), configFields({ charts: ['cpu_load'] }), 85.0)));
-});
-
-test('toPoint: percent chart unit omits the raw disk keys', () => {
-  const pct = toPoint(point(), configFields({ disk_chart_unit: '%' }), 85.0);
-
-  assert.ok(!('du' in pct) && 'dp' in pct);
-
-  const raw = toPoint(point(), configFields({}), 85.0); /* disk_chart_unit defaults to 'auto' */
-
-  assert.ok('df' in raw);
 });
 
 test('toPoint: ma in the chart unit, and mt only in "auto"', () => {
@@ -374,6 +385,20 @@ test('toPoint: ma in the chart unit, and mt only in "auto"', () => {
   assert.strictEqual(abs.ma, 250);
   assert.strictEqual(abs.mt, 1000);
   assert.ok(!('mu' in abs) && !('mp' in abs));
+});
+
+test('toPoint: da in the chart unit, and dt only in "auto"', () => {
+  const raw = diskRaw(point());
+  const pct = toPoint(raw, configFields({ disk_chart_unit: '%' }), 85.0);
+
+  assert.strictEqual(pct.da, 40);
+  assert.ok(!('dt' in pct) && !('du' in pct) && !('dp' in pct) && !('df' in pct));
+
+  const abs = toPoint(raw, configFields({}), 85.0); /* disk_chart_unit defaults to 'auto' */
+
+  assert.strictEqual(abs.da, 40);
+  assert.strictEqual(abs.dt, 100);
+  assert.ok(!('du' in abs) && !('dp' in abs) && !('df' in abs));
 });
 
 test('cycle scenario: cards tick with time, charts sweep low-high-low', () => {

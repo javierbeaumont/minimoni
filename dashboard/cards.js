@@ -244,7 +244,7 @@ function updateCards(d) {
     ['c-mem',     'memory',    'mem_available'],
     ['c-swap',    'swap',      'swap_free'],
     ['c-swap-io', 'swap_io',   'swap_in'],
-    ['c-disk',    'disk',      'disk_percent'],
+    ['c-disk',    'disk',      'disk_available'],
     ['c-temp',    'temp',      'temp'],
     ['c-net',     'net',       'net_rx'],
   ].forEach((c) => {
@@ -322,19 +322,19 @@ function updateCards(d) {
       pairLevel(d.swap_in, d.swap_out, THRESH.swap_io), (v) => cardLevel(v, THRESH.swap_io));
   }
 
-  /* Disk: same shape as memory */
-  if ('disk_percent' in d) {
-    const diskFmt = cfgCardUnits.disk !== '%'
+  /* Disk: like memory, from disk_available and disk_total. */
+  if ('disk_available' in d) {
+    const diskAuto = cfgCardUnits.disk !== '%';
+    const diskFmt = diskAuto
       ? (v) => fmtUnit(v, srvUnits.disk)
       : (v) => v.toFixed(1) + '%';
 
-    const diskAuto = cfgCardUnits.disk !== '%';
-    const diskV = diskAuto
-      ? [d.disk_used, d.disk_free]
-      : [d.disk_percent, d.disk_percent != null ? 100 - d.disk_percent : null];
-    const diskLvl = cardLevel(d.disk_percent, THRESH.disk);
+    const diskTotal = diskAuto ? d.disk_total : 100;
+    const diskUsed = usedOf(diskTotal, d.disk_available);
+    const diskUsedPct = diskUsed != null && diskTotal > 0 ? (diskUsed * 100) / diskTotal : null;
+    const diskLvl = cardLevel(diskUsedPct, THRESH.disk);
 
-    updateNumericCard('c-disk', 'disk', diskV, diskFmt, diskLvl, diskLvl);
+    updateNumericCard('c-disk', 'disk', [diskUsed, d.disk_available], diskFmt, diskLvl, diskLvl);
   }
 
   /* Temperature: shown whenever the server includes the temp field (it emits
