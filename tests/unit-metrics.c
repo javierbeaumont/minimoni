@@ -334,7 +334,7 @@ static int test_collect_fills_plausible_values(void)
     if (!(m.mem_total_mb > 0) || m.mem_available_mb < 0 || m.mem_available_mb > m.mem_total_mb)
         return 1;
 
-    if (!(m.disk_total_gb > 0) || m.disk_percent < 0 || m.disk_percent > 100)
+    if (!(m.disk_total_gb > 0) || m.disk_available_gb < 0 || m.disk_available_gb > m.disk_total_gb)
         return 1;
 
     if (m.swap_valid &&

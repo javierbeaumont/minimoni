@@ -168,17 +168,22 @@ static const char SCRIPT_V0_TO_V1[] =
 
 /* --- v1 -> v2 migration ------------------------------------------------ */
 
-/* Swap columns, NULL in the rows from before the migration. The used memory and its percent are
- * dropped: minimoni works them out from the total and the available as it reads a row. */
-static const char SCRIPT_V1_TO_V2[] = "BEGIN;"
-                                      "ALTER TABLE metrics ADD COLUMN swap_total_mb REAL;"
-                                      "ALTER TABLE metrics ADD COLUMN swap_free_mb REAL;"
-                                      "ALTER TABLE metrics ADD COLUMN swap_in_bps REAL;"
-                                      "ALTER TABLE metrics ADD COLUMN swap_out_bps REAL;"
-                                      "ALTER TABLE metrics DROP COLUMN mem_used_mb;"
-                                      "ALTER TABLE metrics DROP COLUMN mem_percent;"
-                                      "PRAGMA user_version = 2;"
-                                      "COMMIT;";
+/* Swap columns, NULL in the rows from before the migration. The used memory, the used disk and
+ * their percents are dropped: minimoni works them out from the total and the available as it reads
+ * a row. disk_free_gb already held the available space, so it is only renamed. */
+static const char SCRIPT_V1_TO_V2[] =
+    "BEGIN;"
+    "ALTER TABLE metrics ADD COLUMN swap_total_mb REAL;"
+    "ALTER TABLE metrics ADD COLUMN swap_free_mb REAL;"
+    "ALTER TABLE metrics ADD COLUMN swap_in_bps REAL;"
+    "ALTER TABLE metrics ADD COLUMN swap_out_bps REAL;"
+    "ALTER TABLE metrics DROP COLUMN mem_used_mb;"
+    "ALTER TABLE metrics DROP COLUMN mem_percent;"
+    "ALTER TABLE metrics DROP COLUMN disk_used_gb;"
+    "ALTER TABLE metrics DROP COLUMN disk_percent;"
+    "ALTER TABLE metrics RENAME COLUMN disk_free_gb TO disk_available_gb;"
+    "PRAGMA user_version = 2;"
+    "COMMIT;";
 
 /* --- Public table ------------------------------------------------------ */
 

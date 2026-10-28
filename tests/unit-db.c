@@ -86,7 +86,7 @@ static int insert_raw_row(sqlite3 *h, long unix_ts)
              "  timestamp, load_1m, load_5m, load_15m,"
              "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
              "  mem_total_mb, mem_available_mb,"
-             "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
+             "  disk_total_gb, disk_available_gb,"
              "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds,"
              "  swap_total_mb, swap_free_mb, swap_in_bps, swap_out_bps"
              ") VALUES ("
@@ -94,7 +94,7 @@ static int insert_raw_row(sqlite3 *h, long unix_ts)
              "  1.0,1.0,1.0,"
              "  50.0,5.0,45.0,"
              "  1000.0,500.0,"
-             "  10.0,5.0,5.0,50.0,"
+             "  10.0,5.0,"
              "  42.0,100.0,200.0,1000.0,"
              "  400.0,300.0,300.0,600.0"
              ");",
@@ -114,14 +114,14 @@ static int insert_tier_row(sqlite3 *h, long unix_ts, int bucket_sec_value)
              "  timestamp, load_1m, load_5m, load_15m,"
              "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
              "  mem_total_mb, mem_available_mb,"
-             "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
+             "  disk_total_gb, disk_available_gb,"
              "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds, bucket_sec"
              ") VALUES ("
              "  strftime('%%Y-%%m-%%dT%%H:%%M:%%SZ',%ld,'unixepoch'),"
              "  1.0,1.0,1.0,"
              "  50.0,5.0,45.0,"
              "  1000.0,500.0,"
-             "  10.0,5.0,5.0,50.0,"
+             "  10.0,5.0,"
              "  42.0,100.0,200.0,1000.0,%d"
              ");",
              unix_ts, bucket_sec_value);
@@ -164,9 +164,7 @@ static metrics_t sample_metrics(int cpu_valid, int temp_valid, int net_valid)
     m.mem_total_mb = 1000.0;
     m.mem_available_mb = 600.0;
     m.disk_total_gb = 20.0;
-    m.disk_used_gb = 5.0;
-    m.disk_free_gb = 15.0;
-    m.disk_percent = 25.0;
+    m.disk_available_gb = 15.0;
     m.temp_valid = temp_valid;
     m.temp_celsius = 42.5;
     m.net_valid = net_valid;
@@ -186,14 +184,14 @@ static int insert_valued_row(sqlite3 *h, long unix_ts, double load_1m, int cpu_n
              "  timestamp, load_1m, load_5m, load_15m,"
              "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
              "  mem_total_mb, mem_available_mb,"
-             "  disk_total_gb, disk_used_gb, disk_free_gb, disk_percent,"
+             "  disk_total_gb, disk_available_gb,"
              "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds, bucket_sec"
              ") VALUES ("
              "  strftime('%%Y-%%m-%%dT%%H:%%M:%%SZ',%ld,'unixepoch'),"
              "  %f,1.0,1.0,"
              "  %s,"
              "  1000.0,500.0,"
-             "  10.0,5.0,5.0,50.0,"
+             "  10.0,5.0,"
              "  42.0,100.0,200.0,1000.0,60"
              ");",
              unix_ts, load_1m, cpu_null ? "NULL,NULL,NULL" : "50.0,5.0,45.0");
@@ -226,7 +224,9 @@ static int test_db_insert_roundtrip(void)
     ok = ok && approx(row.mem_total_mb, 1000.0) && approx(row.mem_available_mb, 600.0) &&
          approx(row.mem_used_mb, 400.0) && approx(row.mem_used_percent, 40.0) &&
          approx(row.mem_available_percent, 60.0);
-    ok = ok && approx(row.disk_free_gb, 15.0);
+    ok = ok && approx(row.disk_total_gb, 20.0) && approx(row.disk_available_gb, 15.0) &&
+         approx(row.disk_used_gb, 5.0) && approx(row.disk_used_percent, 25.0) &&
+         approx(row.disk_available_percent, 75.0);
     ok = ok && row.temp_valid && approx(row.temp_celsius, 42.5);
     ok = ok && row.net_valid && approx(row.net_rx_bps, 1000.0) && approx(row.net_tx_bps, 2000.0);
     ok = ok && approx(row.uptime_seconds, 123456.0);
@@ -290,6 +290,24 @@ static int test_db_query_range_bucketed_avg(void)
     return ok ? 0 : 1;
 }
 
+/* Whether the metrics columns whose name starts with `prefix` are `expected`, in table order. */
+static int columns_are(sqlite3 *h, const char *prefix, const char *expected)
+{
+    sqlite3_stmt *s;
+    int ok = sqlite3_prepare_v2(h,
+                                "SELECT group_concat(name, ',') FROM pragma_table_info('metrics')"
+                                " WHERE name LIKE ? || '%'",
+                                -1, &s, NULL) == SQLITE_OK;
+    ok = ok && sqlite3_bind_text(s, 1, prefix, -1, SQLITE_STATIC) == SQLITE_OK;
+    ok = ok && sqlite3_step(s) == SQLITE_ROW;
+
+    const char *cols = ok ? (const char *)sqlite3_column_text(s, 0) : NULL;
+    ok = ok && cols != NULL && strcmp(cols, expected) == 0;
+    sqlite3_finalize(s);
+
+    return ok;
+}
+
 /* Memory is stored as the kernel gives it, total and available; the rest is worked out on read. */
 static int test_db_stores_memory_as_the_kernel_gives_it(void)
 {
@@ -297,15 +315,7 @@ static int test_db_stores_memory_as_the_kernel_gives_it(void)
     if (open_test_db(&db) != 0)
         return 1;
 
-    sqlite3_stmt *s;
-    int ok = sqlite3_prepare_v2(db.handle,
-                                "SELECT group_concat(name, ',') FROM pragma_table_info('metrics')"
-                                " WHERE name LIKE 'mem%'",
-                                -1, &s, NULL) == SQLITE_OK;
-    ok = ok && sqlite3_step(s) == SQLITE_ROW;
-    const char *cols = ok ? (const char *)sqlite3_column_text(s, 0) : NULL;
-    ok = ok && cols != NULL && strcmp(cols, "mem_total_mb,mem_available_mb") == 0;
-    sqlite3_finalize(s);
+    int ok = columns_are(db.handle, "mem", "mem_total_mb,mem_available_mb");
 
     close_test_db(&db);
 
@@ -352,6 +362,67 @@ static int test_db_query_range_bucketed_memory(void)
     ok = ok && n == 1 && rows != NULL && approx(rows[0].mem_available_mb, 400.0) &&
          approx(rows[0].mem_used_mb, 600.0) && approx(rows[0].mem_used_percent, 60.0) &&
          approx(rows[0].mem_available_percent, 40.0);
+    free(rows);
+
+    close_test_db(&db);
+
+    return ok ? 0 : 1;
+}
+
+/* Disk is stored as the kernel gives it, total and available; the rest is worked out on read. */
+static int test_db_stores_disk_as_the_kernel_gives_it(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    int ok = columns_are(db.handle, "disk", "disk_total_gb,disk_available_gb");
+
+    close_test_db(&db);
+
+    return ok ? 0 : 1;
+}
+
+/* Should the kernel ever report more available disk than the total, none reads as used. */
+static int test_db_disk_available_above_total_reads_as_unused(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    metrics_t m = sample_metrics(1, 1, 1);
+    m.disk_available_gb = 25.0;
+    int ok = (db_insert(&db, &m) == 0);
+
+    db_row_t row;
+    ok = ok && (db_current(&db, &row) == 0);
+    ok = ok && approx(row.disk_used_gb, 0.0) && approx(row.disk_used_percent, 0.0) &&
+         approx(row.disk_available_percent, 100.0);
+
+    close_test_db(&db);
+
+    return ok ? 0 : 1;
+}
+
+/* A bucket works the used disk out from its average total and available. */
+static int test_db_query_range_bucketed_disk(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    long bucket = (time(NULL) / 300) * 300;
+    int  ok = 1;
+    ok = ok && insert_valued_row(db.handle, bucket + 0, 1.0, 0) == SQLITE_OK;
+    ok = ok && insert_valued_row(db.handle, bucket + 60, 1.0, 0) == SQLITE_OK;
+    ok = ok && sqlite3_exec(db.handle, "UPDATE metrics SET disk_available_gb = 3 WHERE rowid = 1",
+                            NULL, NULL, NULL) == SQLITE_OK;
+
+    db_row_t *rows = NULL;
+    int       n = db_query_range(&db, 600, 300, &rows);
+    ok = ok && n == 1 && rows != NULL && approx(rows[0].disk_available_gb, 4.0) &&
+         approx(rows[0].disk_used_gb, 6.0) && approx(rows[0].disk_used_percent, 60.0) &&
+         approx(rows[0].disk_available_percent, 40.0);
     free(rows);
 
     close_test_db(&db);
@@ -869,14 +940,16 @@ static int make_db_v01(const char *path)
     return sql_exec(path, sql);
 }
 
-/* A database with v0.2's tables at user_version `version`, its memory and swap columns given by
- * `mem_swap`: V02_COLUMNS for v0.2's, CURRENT_COLUMNS for the current schema's. */
-#define V02_COLUMNS "mem_total_mb REAL, mem_used_mb REAL, mem_available_mb REAL, mem_percent REAL"
+/* A database with v0.2's tables at user_version `version`, its memory, disk and swap columns given
+ * by `columns`: V02_COLUMNS for v0.2's, CURRENT_COLUMNS for the current schema's. */
+#define V02_COLUMNS                                                                                \
+    "mem_total_mb REAL, mem_used_mb REAL, mem_available_mb REAL, mem_percent REAL,"                \
+    " disk_total_gb REAL, disk_used_gb REAL, disk_free_gb REAL, disk_percent REAL"
 #define CURRENT_COLUMNS                                                                            \
-    "mem_total_mb REAL, mem_available_mb REAL,"                                                    \
+    "mem_total_mb REAL, mem_available_mb REAL, disk_total_gb REAL, disk_available_gb REAL,"        \
     " swap_total_mb REAL, swap_free_mb REAL, swap_in_bps REAL, swap_out_bps REAL"
 
-static int make_db_at(const char *path, int version, const char *mem_swap)
+static int make_db_at(const char *path, int version, const char *columns)
 {
     char sql[2048];
     snprintf(sql, sizeof(sql),
@@ -887,7 +960,6 @@ static int make_db_at(const char *path, int version, const char *mem_swap)
              "  load_1m REAL, load_5m REAL, load_15m REAL,"
              "  cpu_user_percent REAL, cpu_system_percent REAL, cpu_idle_percent REAL,"
              "  %s,"
-             "  disk_total_gb REAL, disk_used_gb REAL, disk_free_gb REAL, disk_percent REAL,"
              "  temp_celsius REAL,"
              "  net_rx_bps REAL, net_tx_bps REAL,"
              "  uptime_seconds REAL,"
@@ -896,7 +968,7 @@ static int make_db_at(const char *path, int version, const char *mem_swap)
              "CREATE INDEX idx_metrics_ts ON metrics(timestamp);"
              "CREATE TABLE alert_log (alert_name TEXT NOT NULL, fired_at TEXT NOT NULL);"
              "CREATE INDEX idx_alert_log_name ON alert_log(alert_name);",
-             MINIMONI_APPLICATION_ID, version, mem_swap);
+             MINIMONI_APPLICATION_ID, version, columns);
 
     return sql_exec(path, sql);
 }
@@ -1483,6 +1555,9 @@ static const test_t ALL_TESTS[] = {
     T(db_stores_memory_as_the_kernel_gives_it),
     T(db_mem_available_above_total_reads_as_unused),
     T(db_query_range_bucketed_memory),
+    T(db_stores_disk_as_the_kernel_gives_it),
+    T(db_disk_available_above_total_reads_as_unused),
+    T(db_query_range_bucketed_disk),
     T(db_insert_swap_without_rates),
     T(db_swap_io_reads_in_ram_per_minute),
     T(db_swap_free_above_total_reads_as_unused),

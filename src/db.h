@@ -28,9 +28,9 @@
 /* SQLite database format. application_id is the ASCII magic "moni", stamped into every database so
  * tooling (minimoni db info, minimoni-migrate) can recognise the file via PRAGMA application_id.
  * user_version carries the schema version: 1 is the tiered write-time consolidation schema (net
- * rates + bucket_sec), 2 adds the swap columns and drops the used memory and its percent. db_open
- * refuses to run against a database at a different user_version; minimoni-migrate upgrades older
- * databases. */
+ * rates + bucket_sec), 2 adds the swap columns and keeps only the total and the available of memory
+ * and disk. db_open refuses to run against a database at a different user_version; minimoni-migrate
+ * upgrades older databases. */
 #define MINIMONI_APPLICATION_ID 0x6D6F6E69
 #define MINIMONI_SCHEMA_VERSION 2
 
@@ -95,8 +95,9 @@ typedef struct {
     double cpu_user_percent, cpu_system_percent, cpu_idle_percent;
     /* memory: total and available as stored, the rest worked out from them as the row is read */
     double mem_total_mb, mem_available_mb, mem_used_mb, mem_used_percent, mem_available_percent;
-    /* disk */
-    double disk_total_gb, disk_used_gb, disk_free_gb, disk_percent;
+    /* disk: total and available as stored, the rest worked out from them as the row is read */
+    double disk_total_gb, disk_available_gb, disk_used_gb, disk_used_percent,
+        disk_available_percent;
     /* temperature (temp_valid=0 when sensor is absent) */
     int    temp_valid;
     double temp_celsius;

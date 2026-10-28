@@ -224,11 +224,11 @@ kill -TERM "$usv" 2>/dev/null
 wait "$usv" 2>/dev/null
 sqlite3 "$udb" "INSERT INTO metrics (timestamp, load_1m, load_5m, \
   load_15m, cpu_user_percent, cpu_system_percent, cpu_idle_percent, mem_total_mb, \
-  mem_available_mb, disk_total_gb, disk_used_gb, disk_free_gb, \
-  disk_percent, temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds, bucket_sec, \
+  mem_available_mb, disk_total_gb, disk_available_gb, \
+  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds, bucket_sec, \
   swap_total_mb, swap_free_mb, swap_in_bps, swap_out_bps) VALUES \
   (strftime('%Y-%m-%dT%H:%M:%SZ','now'), 2.0, 2.0, 2.0, 30.0, 10.0, 60.0, 2048.0, \
-   300.0, 100.0, 20.0, 80.0, 20.0, 50.0, 5242880.0, 1048576.0, 90061.0, 0, \
+   300.0, 100.0, 80.0, 50.0, 5242880.0, 1048576.0, 90061.0, 0, \
    2048.0, 1536.0, 1048576.0, 2097152.0)" >/dev/null 2>&1
 check_rc "units: seed row inserted" 0 $?
 

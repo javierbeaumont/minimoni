@@ -97,7 +97,8 @@ CREATE INDEX IF NOT EXISTS idx_metrics_ts ON metrics(timestamp);
 CREATE TABLE IF NOT EXISTS alert_log (alert_name TEXT NOT NULL, fired_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_alert_log_name ON alert_log(alert_name);
 INSERT INTO metrics (timestamp, load_1m, mem_total_mb, mem_used_mb, mem_available_mb, mem_percent,
-    bucket_sec) VALUES (strftime('%Y-%m-%dT%H:%M:%SZ','now'), 0.5, 1000, 400, 600, 40, 60);
+    disk_total_gb, disk_used_gb, disk_free_gb, disk_percent, bucket_sec)
+    VALUES (strftime('%Y-%m-%dT%H:%M:%SZ','now'), 0.5, 1000, 400, 600, 40, 100, 20, 75, 20, 60);
 PRAGMA application_id = 1836019305;
 PRAGMA user_version = 1;
 SQL
@@ -195,8 +196,8 @@ t_basic_v01_to_v1() {
     report "basic v0.1 migration (canonical schema)" ok
 }
 
-# What every v0.2 install runs on upgrade: its rows stay, with their memory total and available, and
-# the new columns start empty.
+# What every v0.2 install runs on upgrade: its rows stay, with the total and the available of memory
+# and disk, and the new columns start empty.
 t_v02_migrates() {
     db=$TMP/v02.db
     make_v02_db "$db"
@@ -204,9 +205,10 @@ t_v02_migrates() {
     "$MIG" --use "$MIN" "$db" >/dev/null 2>&1 && rc=0 || rc=$?
     uv=$(sqlite3 "$db" 'PRAGMA user_version')
     got=$(sqlite3 "$db" "SELECT count(*) || ':' || mem_total_mb || ':' || mem_available_mb || ':'
-        || ifnull(swap_free_mb, 'NULL') FROM metrics")
+        || disk_total_gb || ':' || disk_available_gb || ':' || ifnull(swap_free_mb, 'NULL')
+        FROM metrics")
 
-    if [ "$rc" = 0 ] && [ "$uv" = "$LATEST" ] && [ "$got" = "1:1000.0:600.0:NULL" ]; then
+    if [ "$rc" = 0 ] && [ "$uv" = "$LATEST" ] && [ "$got" = "1:1000.0:600.0:100.0:75.0:NULL" ]; then
         report "a v0.2 database migrates" ok
     else
         report "a v0.2 database migrates" "exit=$rc user_version=$uv rows=$got"
@@ -216,19 +218,31 @@ t_v02_migrates() {
 t_schema_after_migration() {
     db=$TMP/schema.db
     make_v01_db "$db"
+
     "$MIG" --use "$MIN" "$db" >/dev/null 2>&1
     cols=$(sqlite3 "$db" "SELECT GROUP_CONCAT(name, ',') FROM pragma_table_info('metrics')")
-    # bucket_sec, net_rx_bps, net_tx_bps, and the swap columns must be present;
-    # net_rx_bytes, net_tx_bytes, mem_used_mb and mem_percent must be absent.
-    case "$cols" in
-        *bucket_sec*net_rx_bps*net_tx_bps*swap_total_mb*swap_free_mb*swap_in_bps*swap_out_bps*) ;;
-        *) report "post-migration columns present" "got: $cols"; return ;;
-    esac
-    case "$cols" in
-        *net_rx_bytes*|*net_tx_bytes*|*mem_used_mb*|*mem_percent*)
-            report "post-migration columns present" "dropped columns still there: $cols"
-            return ;;
-    esac
+
+    # What the migrations add or rename is there.
+    for col in disk_available_gb bucket_sec net_rx_bps net_tx_bps swap_total_mb swap_free_mb \
+        swap_in_bps swap_out_bps; do
+        case ",$cols," in
+            *",$col,"*) ;;
+            *)
+                report "post-migration columns present" "$col missing: $cols"
+                return ;;
+        esac
+    done
+
+    # What the migrations drop is gone.
+    for col in net_rx_bytes net_tx_bytes mem_used_mb mem_percent disk_used_gb disk_free_gb \
+        disk_percent; do
+        case ",$cols," in
+            *",$col,"*)
+                report "post-migration columns present" "dropped $col still there: $cols"
+                return ;;
+        esac
+    done
+
     report "post-migration columns present" ok
 }
 

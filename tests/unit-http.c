@@ -199,7 +199,7 @@ static void insert_sample(void)
     m.mem_total_mb = 1000.0;
     m.mem_available_mb = 500.0;
     m.disk_total_gb = 100.0;
-    m.disk_percent = 40.0;
+    m.disk_available_gb = 60.0;
     m.uptime_seconds = 3600.0;
     (void)db_insert(&g_db, &m);
 }

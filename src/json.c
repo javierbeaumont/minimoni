@@ -291,9 +291,9 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
         if (du[0] != '%') {
             jbuf_real(j, "disk_used", r->disk_used_gb);
             jbuf_real(j, "disk_total", r->disk_total_gb);
-            jbuf_real(j, "disk_free", r->disk_free_gb);
+            jbuf_real(j, "disk_free", r->disk_available_gb);
         }
-        jbuf_real(j, "disk_percent", r->disk_percent);
+        jbuf_real(j, "disk_percent", r->disk_used_percent);
     }
 
     if (config_has(cfg->cards, cfg->card_count, "temp")) {
@@ -457,7 +457,7 @@ void json_serialize_units(jbuf_t *j, const db_row_t *rows, int cnt, const config
             swap = max2(swap, max2(rows[i].swap_used_mb, rows[i].swap_free_mb));
         if (rows[i].swap_io_valid)
             swap_io = max2(swap_io, max2(rows[i].swap_in_bps, rows[i].swap_out_bps));
-        disk = max2(disk, max2(rows[i].disk_used_gb, rows[i].disk_free_gb));
+        disk = max2(disk, max2(rows[i].disk_used_gb, rows[i].disk_available_gb));
         if (rows[i].net_valid)
             net = max2(net, max2(rows[i].net_rx_bps, rows[i].net_tx_bps));
     }
@@ -554,9 +554,9 @@ void json_serialize_point(jbuf_t *j, const db_row_t *r, const config_t *cfg, int
         if (du[0] != '%') {
             jbuf_real(j, "du", r->disk_used_gb);
             jbuf_real(j, "dt", r->disk_total_gb);
-            jbuf_real(j, "df", r->disk_free_gb);
+            jbuf_real(j, "df", r->disk_available_gb);
         }
-        jbuf_real(j, "dp", r->disk_percent);
+        jbuf_real(j, "dp", r->disk_used_percent);
     }
 
     if (config_has(cfg->charts, cfg->chart_count, "temp")) {

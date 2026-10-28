@@ -42,8 +42,8 @@ typedef struct {
     int    swap_io_valid;
     double swap_in_bps, swap_out_bps;
 
-    /* Disk */
-    double disk_total_gb, disk_used_gb, disk_free_gb, disk_percent;
+    /* Disk, as the kernel reports it: the available space leaves out what is reserved for root */
+    double disk_total_gb, disk_available_gb;
 
     /* Temperature: optional (temp_valid=0 if sensor absent) */
     /* NB: the network link speed is NOT here: it is a host property, not a

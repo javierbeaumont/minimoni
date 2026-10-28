@@ -237,18 +237,17 @@ static int collect_meminfo(metrics_t *m)
 static int collect_disk(metrics_t *m, const char *disk_path)
 {
     struct statvfs sv;
+
     if (statvfs(disk_path, &sv) != 0)
         return -1;
 
     unsigned long long block = sv.f_frsize;
     unsigned long long total = (unsigned long long)sv.f_blocks * block;
     unsigned long long avail = (unsigned long long)sv.f_bavail * block;
-    unsigned long long used = total - (unsigned long long)sv.f_bfree * block;
 
     m->disk_total_gb = (double)total / (1024.0 * 1024.0 * 1024.0);
-    m->disk_used_gb = (double)used / (1024.0 * 1024.0 * 1024.0);
-    m->disk_free_gb = (double)avail / (1024.0 * 1024.0 * 1024.0);
-    m->disk_percent = (total > 0) ? (double)used / (double)total * 100.0 : 0.0;
+    m->disk_available_gb = (double)avail / (1024.0 * 1024.0 * 1024.0);
+
     return 0;
 }
 

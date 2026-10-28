@@ -58,9 +58,10 @@ static db_row_t sample_row(void)
     r.mem_used_percent = 75.0;
     r.mem_available_percent = 25.0;
     r.disk_total_gb = 100.0;
+    r.disk_available_gb = 60.0;
     r.disk_used_gb = 40.0;
-    r.disk_free_gb = 60.0;
-    r.disk_percent = 40.0;
+    r.disk_used_percent = 40.0;
+    r.disk_available_percent = 60.0;
     r.temp_valid = 1;
     r.temp_celsius = 50.0;
     r.net_valid = 1;
@@ -1240,7 +1241,8 @@ static int test_largest_point_fits_its_buffer(void)
     r.mem_used_percent = r.mem_available_percent = w;
     r.swap_valid = r.swap_io_valid = 1;
     r.swap_total_mb = r.swap_free_mb = r.swap_in_bps = r.swap_out_bps = w;
-    r.disk_total_gb = r.disk_used_gb = r.disk_free_gb = r.disk_percent = w;
+    r.disk_total_gb = r.disk_available_gb = r.disk_used_gb = w;
+    r.disk_used_percent = r.disk_available_percent = w;
     r.temp_celsius = r.net_rx_bps = r.net_tx_bps = r.uptime_seconds = w;
     config_t c = base_cfg();
 
@@ -1319,7 +1321,8 @@ static int current_overflows(const char *toml)
     r.swap_valid = r.swap_io_valid = 1;
     r.swap_total_mb = r.swap_free_mb = r.swap_free_percent = w;
     r.swap_in_bps = r.swap_out_bps = w;
-    r.disk_total_gb = r.disk_used_gb = r.disk_free_gb = r.disk_percent = w;
+    r.disk_total_gb = r.disk_available_gb = r.disk_used_gb = w;
+    r.disk_used_percent = r.disk_available_percent = w;
     r.temp_celsius = r.net_rx_bps = r.net_tx_bps = r.uptime_seconds = w;
 
     char   buf[JSON_CURRENT_CAP];

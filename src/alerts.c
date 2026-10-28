@@ -78,9 +78,9 @@ static double get_metric_value(const db_row_t *row, const char *m, int *valid)
     if (!strcmp(m, "disk_used_gb"))
         return row->disk_used_gb;
     if (!strcmp(m, "disk_free_gb"))
-        return row->disk_free_gb;
+        return row->disk_available_gb;
     if (!strcmp(m, "disk_percent"))
-        return row->disk_percent;
+        return row->disk_used_percent;
     if (!strcmp(m, "temp_celsius")) {
         *valid = row->temp_valid;
         return row->temp_celsius;
