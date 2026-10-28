@@ -454,6 +454,77 @@ static int test_success_is_silent(void)
     return err[0] == '\0' ? 0 : 1;
 }
 
+/* --- MemFree in place of MemAvailable --- */
+
+/* Read each text in turn as a new process would; true when each gives the available memory
+ * expected. What the reader logged lands in `err`. */
+static int read_logged(const char *const *texts, const double *available_mb, int n, char *err,
+                       size_t cap)
+{
+    char path[64];
+    snprintf(path, sizeof(path), "/tmp/minimoni-meminfo-err-%d.txt", (int)getpid());
+
+    fflush(stderr);
+    if (!freopen(path, "w", stderr))
+        return 0;
+
+    s_memfree_noted = 0;
+    int ok = 1;
+    for (int i = 0; i < n; i++) {
+        char text[96];
+        snprintf(text, sizeof(text), "%s", texts[i]);
+        FILE     *f = reading(text);
+        metrics_t m = {0};
+        ok = ok && f && read_meminfo(f, &m) == 0 && approx(m.mem_available_mb, available_mb[i]);
+        if (f)
+            fclose(f);
+    }
+
+    fflush(stderr);
+    if (!freopen("/dev/null", "w", stderr))
+        return 0;
+
+    FILE  *f = fopen(path, "r");
+    size_t len = f ? fread(err, 1, cap - 1, f) : 0;
+    err[len] = '\0';
+    if (f)
+        fclose(f);
+    unlink(path);
+
+    return ok;
+}
+
+/* Kernels before 3.14 give no MemAvailable: MemFree stands in and is logged once; nothing is logged
+ * while MemAvailable is there. */
+static int test_meminfo_without_available_uses_free_and_logs_once(void)
+{
+    static const char *const texts[] = {
+        "MemTotal: 4096 kB\nMemFree: 512 kB\nMemAvailable: 1024 kB\n",
+        "MemTotal: 4096 kB\nMemFree: 512 kB\n",
+        "MemTotal: 4096 kB\nMemFree: 512 kB\n",
+    };
+    static const double available_mb[] = {1.0, 0.5, 0.5};
+    char                err[512];
+    int                 ok = read_logged(texts, available_mb, 3, err, sizeof(err));
+
+    return ok && count(err, "this kernel gives no MemAvailable") == 1 ? 0 : 1;
+}
+
+/* Some containers report more available memory than the total: MemFree stands in and is logged
+ * once. */
+static int test_meminfo_available_above_total_uses_free_and_logs_once(void)
+{
+    static const char *const texts[] = {
+        "MemTotal: 4096 kB\nMemFree: 512 kB\nMemAvailable: 8192 kB\n",
+        "MemTotal: 4096 kB\nMemFree: 512 kB\nMemAvailable: 8192 kB\n",
+    };
+    static const double available_mb[] = {0.5, 0.5};
+    char                err[512];
+    int                 ok = read_logged(texts, available_mb, 2, err, sizeof(err));
+
+    return ok && count(err, "MemAvailable is above MemTotal") == 1 ? 0 : 1;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
@@ -468,6 +539,8 @@ static const test_t ALL_TESTS[] = {
     T(meminfo_without_memtotal_fails),
     T(meminfo_reads_swap),
     T(meminfo_without_swap),
+    T(meminfo_without_available_uses_free_and_logs_once),
+    T(meminfo_available_above_total_uses_free_and_logs_once),
     T(vmstat_swap_counters),
     T(vmstat_without_swap_counters),
     T(swap_io_need_a_previous_sample),

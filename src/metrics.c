@@ -23,6 +23,7 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -160,10 +161,14 @@ static int split_key_value(const char *line, char *key, size_t cap, unsigned lon
     return end == sep || errno != 0 ? -1 : 0;
 }
 
+/* MemFree standing in is logged once per process, not every cycle. */
+static int s_memfree_noted = 0;
+
 /* Fill the memory and swap fields from /proc/meminfo. Returns 0, or -1 without MemTotal. */
 static int read_meminfo(FILE *f, metrics_t *m)
 {
-    unsigned long long mem_total_kb = 0, mem_available_kb = 0, swap_total_kb = 0, swap_free_kb = 0;
+    unsigned long long mem_total_kb = 0, mem_free_kb = 0, mem_available_kb = ULLONG_MAX;
+    unsigned long long swap_total_kb = 0, swap_free_kb = 0;
     char               line[128];
     char               key[64];
     unsigned long long val;
@@ -174,6 +179,8 @@ static int read_meminfo(FILE *f, metrics_t *m)
 
         if (strcmp(key, "MemTotal:") == 0)
             mem_total_kb = val;
+        else if (strcmp(key, "MemFree:") == 0)
+            mem_free_kb = val;
         else if (strcmp(key, "MemAvailable:") == 0)
             mem_available_kb = val;
         else if (strcmp(key, "SwapTotal:") == 0)
@@ -184,6 +191,22 @@ static int read_meminfo(FILE *f, metrics_t *m)
 
     if (mem_total_kb == 0)
         return -1;
+
+    /* MemFree stands in for a MemAvailable that is missing or above the total, as in free(1) */
+    const char *why =
+        mem_available_kb == ULLONG_MAX    ? "this kernel gives no MemAvailable (Linux before 3.14)"
+        : mem_available_kb > mem_total_kb ? "MemAvailable is above MemTotal, as in some containers"
+                                          : NULL;
+
+    if (why) {
+        mem_available_kb = mem_free_kb;
+
+        if (!s_memfree_noted) {
+            fprintf(stderr, "metrics: %s; MemFree stands in, so the cache counts as used memory\n",
+                    why);
+            s_memfree_noted = 1;
+        }
+    }
 
     m->mem_total_mb = (double)mem_total_kb / 1024.0;
     m->mem_available_mb = (double)mem_available_kb / 1024.0;
