@@ -528,45 +528,45 @@ fails the load, and the error says which alert.
 
 ```toml
 [[alert]]
-name      = "disk-full"    # identifier shown in logs
-metric    = "disk_percent" # see metric table below
-operator  = ">"            # supported: > < >= <=
-threshold = 90             # in the metric's own unit (see below)
+name      = "disk-full"         # identifier shown in logs
+metric    = "disk_used_percent" # see metric table below
+operator  = ">"                 # supported: > < >= <=
+threshold = 90                  # in the metric's own unit (see below)
 webhook   = "https://ntfy.sh/my-server" # POST JSON to this URL on fire
 command   = "/usr/local/bin/notify.sh"  # execute this command on fire
-cooldown  = "1h"           # minimum time between repeated firings
+cooldown  = "1h"                # minimum time between repeated firings
 ```
 
 **Available metrics** (any other name fails the load):
 
-| Metric                  | Unit      | Description                                       |
-|-------------------------|-----------|---------------------------------------------------|
-| `load_1m`               | load avg  | 1-minute load average                             |
-| `load_5m`               | load avg  | 5-minute load average                             |
-| `load_15m`              | load avg  | 15-minute load average                            |
-| `cpu_user_percent`      | %         | User-space CPU usage                              |
-| `cpu_system_percent`    | %         | Kernel CPU usage                                  |
-| `cpu_idle_percent`      | %         | Idle CPU                                          |
-| `mem_used_mb`           | MB        | Used memory (total minus available)               |
-| `mem_available_mb`      | MB        | Memory available without swapping                 |
-| `mem_used_percent`      | %         | Used memory as percent of total                   |
-| `mem_available_percent` | %         | Available memory as percent of total              |
-| `disk_total_gb`         | GB        | Total disk space                                  |
-| `disk_used_gb`          | GB        | Used disk space                                   |
-| `disk_free_gb`          | GB        | Free disk space                                   |
-| `disk_percent`          | %         | Used disk as percent of total                     |
-| `temp_celsius`          | C         | CPU temperature (skipped if no sensor is present) |
-| `net_rx_bps`            | bytes/s   | Receive throughput                                |
-| `net_tx_bps`            | bytes/s   | Transmit throughput                               |
-| `uptime_seconds`        | s         | Seconds since boot                                |
-| `swap_free_mb`          | MB        | Free swap                                         |
-| `swap_used_mb`          | MB        | Used swap                                         |
-| `swap_free_percent`     | %         | Free swap as percent of total                     |
-| `swap_used_percent`     | %         | Used swap as percent of total                     |
-| `swap_in_bps`           | bytes/s   | Swap I/O in, read back from swap                  |
-| `swap_out_bps`          | bytes/s   | Swap I/O out, written to swap                     |
-| `swap_in_ram`           | % RAM/min | Swap I/O in, in % of the RAM per minute           |
-| `swap_out_ram`          | % RAM/min | Swap I/O out, in % of the RAM per minute          |
+| Metric                   | Unit      | Description                                       |
+|--------------------------|-----------|---------------------------------------------------|
+| `load_1m`                | load avg  | 1-minute load average                             |
+| `load_5m`                | load avg  | 5-minute load average                             |
+| `load_15m`               | load avg  | 15-minute load average                            |
+| `cpu_user_percent`       | %         | User-space CPU usage                              |
+| `cpu_system_percent`     | %         | Kernel CPU usage                                  |
+| `cpu_idle_percent`       | %         | Idle CPU                                          |
+| `mem_used_mb`            | MB        | Used memory (total minus available)               |
+| `mem_available_mb`       | MB        | Memory available without swapping                 |
+| `mem_used_percent`       | %         | Used memory as percent of total                   |
+| `mem_available_percent`  | %         | Available memory as percent of total              |
+| `disk_used_gb`           | GB        | Used disk space (total minus available)           |
+| `disk_available_gb`      | GB        | Disk space available to users other than root     |
+| `disk_used_percent`      | %         | Used disk space as percent of total               |
+| `disk_available_percent` | %         | Available disk space as percent of total          |
+| `temp_celsius`           | C         | CPU temperature (skipped if no sensor is present) |
+| `net_rx_bps`             | bytes/s   | Receive throughput                                |
+| `net_tx_bps`             | bytes/s   | Transmit throughput                               |
+| `uptime_seconds`         | s         | Seconds since boot                                |
+| `swap_free_mb`           | MB        | Free swap                                         |
+| `swap_used_mb`           | MB        | Used swap                                         |
+| `swap_free_percent`      | %         | Free swap as percent of total                     |
+| `swap_used_percent`      | %         | Used swap as percent of total                     |
+| `swap_in_bps`            | bytes/s   | Swap I/O in, read back from swap                  |
+| `swap_out_bps`           | bytes/s   | Swap I/O out, written to swap                     |
+| `swap_in_ram`            | % RAM/min | Swap I/O in, in % of the RAM per minute           |
+| `swap_out_ram`           | % RAM/min | Swap I/O out, in % of the RAM per minute          |
 
 Thresholds are compared against the raw metric value, in the unit named by its suffix: `_mb` is
 megabytes, `_gb` is gigabytes, `_percent` is a percentage, `_celsius` is degrees Celsius, `_bps` is
@@ -583,7 +583,7 @@ connect included, is given up and reported.
 ```json
 {
     "alert":     "disk-full",
-    "metric":    "disk_percent",
+    "metric":    "disk_used_percent",
     "value":     91.3,
     "threshold": 90,
     "operator":  ">",
@@ -672,7 +672,7 @@ listen = "127.0.0.1:8080"
 ```toml
 [[alert]]
 name      = "disk-full"
-metric    = "disk_percent"
+metric    = "disk_used_percent"
 operator  = ">"
 threshold = 85
 webhook   = "https://ntfy.sh/my-server"

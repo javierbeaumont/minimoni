@@ -46,7 +46,7 @@ disk_path = "/"
 
 [[alert]]
 name = "disk-full"
-metric = "disk_percent"
+metric = "disk_used_percent"
 operator = ">"
 threshold = 90
 webhook = "https://ntfy.sh/my-server"
