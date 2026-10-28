@@ -241,7 +241,7 @@ function updateCards(d) {
   [
     ['c-load',    'cpu_load',  'load_1m'],
     ['c-cpu',     'cpu_usage', 'cpu_user_percent'],
-    ['c-mem',     'memory',    'mem_percent'],
+    ['c-mem',     'memory',    'mem_available'],
     ['c-swap',    'swap',      'swap_free'],
     ['c-swap-io', 'swap_io',   'swap_in'],
     ['c-disk',    'disk',      'disk_percent'],
@@ -279,23 +279,24 @@ function updateCards(d) {
       (v) => cardLevel(v, THRESH.cpu));
   }
 
-  /* Memory: sub-colour shared (every sub takes the overall mem level) */
-  if ('mem_percent' in d) {
-    const memFmt = cfgCardUnits.mem !== '%'
+  /* Memory: used and available, both coloured by the level of the used share. The server sends
+   * mem_available in the card unit, % or MB, plus mem_total in MB under "auto"; the used part is
+   * computed here. */
+  if ('mem_available' in d) {
+    const memAuto = cfgCardUnits.mem !== '%';
+    const memFmt = memAuto
       ? (v) => fmtUnit(v, srvUnits.mem)
       : (v) => v.toFixed(1) + '%';
 
-    const memAuto = cfgCardUnits.mem !== '%';
-    const memV = memAuto
-      ? [d.mem_used, d.mem_available]
-      : [d.mem_percent, d.mem_percent != null ? 100 - d.mem_percent : null];
-    const memLvl = cardLevel(d.mem_percent, THRESH.mem);
+    const memTotal = memAuto ? d.mem_total : 100;
+    const memUsed = usedOf(memTotal, d.mem_available);
+    const memUsedPct = memUsed != null && memTotal > 0 ? (memUsed * 100) / memTotal : null;
+    const memLvl = cardLevel(memUsedPct, THRESH.mem);
 
-    updateNumericCard('c-mem', 'mem', memV, memFmt, memLvl, memLvl);
+    updateNumericCard('c-mem', 'mem', [memUsed, d.mem_available], memFmt, memLvl, memLvl);
   }
 
-  /* Swap: used and free like memory, both coloured by the level of the used share. swap_free comes
-   * in the card unit, % or MB, with swap_total in MB; the used part is computed here. */
+  /* Swap: like memory, from swap_free and swap_total. */
   if ('swap_free' in d) {
     const swapAuto = cfgCardUnits.swap !== '%';
     const swapFmt = swapAuto

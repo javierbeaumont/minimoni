@@ -311,7 +311,9 @@ function renderAll() {
       { yMin: 0, unit: '%', ts: ts, thresh: THRESH.cpu });
   }
 
-  if (chartVisible('memory', 'mp', 'b-mem')) {
+  /* Memory: used and available. A point has the available memory (ma) in the chart unit, % or MB,
+   * plus the total (mt) in MB under "auto"; the used part is computed here. */
+  if (chartVisible('memory', 'ma', 'b-mem')) {
     document.getElementById('b-mem').querySelector('.ctitle').textContent =
       'Memory (' + memUL + ')';
 
@@ -321,19 +323,20 @@ function renderAll() {
     /* Tooltip suffix so a "512" reading does not strand the user on MB vs GB. */
     if (!memIsPct) memOpts.fmtFn = (v) => fmtTip(v, null) + ' ' + memUL;
 
+    const memScale = memIsPct ? null : memU; /* in "%" nothing to scale */
     drawChart('g-mem', [
       {
         c: CLR.mem, k: 'mem-used', label: 'used',
-        v: pts.map((p) => (memIsPct ? p.mp : scaleTo(p.mu, memU))),
+        v: pts.map((p) => scaleTo(usedOf(memIsPct ? 100 : p.mt, p.ma), memScale)),
       },
       {
         c: CLR.memAvail, k: 'mem-avail', label: 'available',
-        v: pts.map((p) => (memIsPct ? 100 - p.mp : scaleTo(p.ma, memU))),
+        v: pts.map((p) => scaleTo(p.ma, memScale)),
       },
     ].filter((_, i) => !seriesHidden['g-mem'][i]), memOpts);
   }
 
-  /* A swap point has the free swap (sf) in the chart unit, % or MB, plus the total (st) in MB. */
+  /* Swap: like memory, from sf and st. */
   if (chartVisible('swap', 'sf', 'b-swap')) {
     document.getElementById('b-swap').querySelector('.ctitle').textContent =
       swpUL ? 'Swap (' + swpUL + ')' : 'Swap';

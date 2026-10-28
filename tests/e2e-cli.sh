@@ -263,10 +263,10 @@ disk_card_unit = "%"
 temp_card_unit = "%"
 cpu_load_card_unit = "%"
 net_card_unit = "%"'
-check_lacks "units %: memory omits the absolute fields" "$current" '"mem_used"'
+check_lacks "units %: memory omits the total" "$current" '"mem_total"'
 check_lacks "units %: swap omits the total" "$current" '"swap_total"'
 check_lacks "units %: disk omits the absolute fields" "$current" '"disk_used"'
-check_has "units %: memory is a percentage" "$current" '"mem_percent":85.35'
+check_has "units %: memory is the available share alone" "$current" '"mem_available":14.65'
 check_has "units %: swap is the free share alone" "$current" '"swap_free":75'
 check_has "units %: net is a share of the link" "$current" '"net_rx":41.9'
 check_has "units ram: swap I/O in % of the RAM per minute" "$current" '"swap_in":2.93'
@@ -287,7 +287,8 @@ temp_card_unit = "c"
 cpu_load_card_unit = "abs"
 net_card_unit = "bytes"
 net_chart_unit = "bytes"'
-check_has "units auto: memory in base MB" "$current" '"mem_used":1748'
+check_has "units auto: memory total in base MB" "$current" '"mem_total":2048'
+check_has "units auto: available memory in base MB" "$current" '"mem_available":300'
 check_has "units auto: swap total in base MB" "$current" '"swap_total":2048'
 check_has "units auto: free swap in base MB" "$current" '"swap_free":1536'
 check_has "units auto: disk in base GB" "$current" '"disk_used":20'
@@ -296,6 +297,8 @@ check_has "units bytes: net in base bytes/s" "$current" '"net_rx":5.243e+06'
 check_has "units auto: memory magnitude is MB" "$metrics" '"mem":{"sym":"MB","mul":1,"div":1}'
 check_has "units auto: disk magnitude is GB" "$metrics" '"disk":{"sym":"GB","mul":1,"div":1}'
 check_has "units auto: swap magnitude is MB" "$metrics" '"swap":{"sym":"MB","mul":1,"div":1}'
+check_has "units auto: the chart gets the memory total" "$metrics" '"mt":2048'
+check_has "units auto: the chart gets the available memory" "$metrics" '"ma":300'
 check_has "units auto: the chart gets the swap total" "$metrics" '"st":2048'
 check_has "units auto: the chart gets the free swap" "$metrics" '"sf":1536'
 check_has "units bytes: swap I/O in base bytes/s" "$current" '"swap_in":1.049e+06'

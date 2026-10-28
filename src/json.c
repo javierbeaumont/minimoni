@@ -250,16 +250,17 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
         }
     }
 
+    /* Memory and swap send only what the unit needs: in "%" just the available or free share, so a
+     * public dashboard shows no size */
     if (config_has(cfg->cards, cfg->card_count, "memory")) {
-        if (mu[0] != '%') {
-            jbuf_real(j, "mem_used", r->mem_used_mb);
-            jbuf_real(j, "mem_available", r->mem_available_mb);
+        int pct = mu[0] == '%';
+
+        jbuf_real(j, "mem_available", pct ? r->mem_available_percent : r->mem_available_mb);
+
+        if (!pct)
             jbuf_real(j, "mem_total", r->mem_total_mb);
-        }
-        jbuf_real(j, "mem_percent", r->mem_used_percent);
     }
 
-    /* Only what the unit needs: in "%" just the free share, so a public dashboard shows no size */
     if (config_has(cfg->cards, cfg->card_count, "swap")) {
         int pct = su[0] == '%';
 
@@ -378,7 +379,7 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
      * and configured display units.
      *   load : [0.75*cores, 1.0*cores] for abs; [70, 90] for %
      *   cpu  : [70, 90]   (always %)
-     *   mem  : [70, 90]   (compared against mem_percent)
+     *   mem  : [70, 90]   (compared against the used share)
      *   swap : [80, 95]   (compared against the used share)
      *   swap_io : [1, 5] % of the RAM per minute, in bytes/s under "bytes"
      *   disk : [80, 90]   (compared against disk_percent)
@@ -515,12 +516,12 @@ void json_serialize_point(jbuf_t *j, const db_row_t *r, const config_t *cfg, int
     }
 
     if (config_has(cfg->charts, cfg->chart_count, "memory")) {
-        if (mu[0] != '%') {
-            jbuf_real(j, "mu", r->mem_used_mb);
-            jbuf_real(j, "ma", r->mem_available_mb);
+        int pct = mu[0] == '%';
+
+        jbuf_real(j, "ma", pct ? r->mem_available_percent : r->mem_available_mb);
+
+        if (!pct)
             jbuf_real(j, "mt", r->mem_total_mb);
-        }
-        jbuf_real(j, "mp", r->mem_used_percent);
     }
 
     if (config_has(cfg->charts, cfg->chart_count, "swap")) {

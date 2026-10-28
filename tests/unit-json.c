@@ -53,10 +53,10 @@ static db_row_t sample_row(void)
     r.cpu_system_percent = 5.0;
     r.cpu_idle_percent = 85.0;
     r.mem_total_mb = 1000.0;
-    r.mem_used_mb = 500.0;
-    r.mem_available_mb = 500.0;
-    r.mem_used_percent = 50.0;
-    r.mem_available_percent = 50.0;
+    r.mem_used_mb = 750.0;
+    r.mem_available_mb = 250.0;
+    r.mem_used_percent = 75.0;
+    r.mem_available_percent = 25.0;
     r.disk_total_gb = 100.0;
     r.disk_used_gb = 40.0;
     r.disk_free_gb = 60.0;
@@ -283,7 +283,7 @@ static int test_show_all_emits_every_group(void)
     emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
 
     int cpu = has(b, "\"load_1m\"") && has(b, "\"cpu_user_percent\"");
-    int memory = has(b, "\"mem_percent\"") && has(b, "\"swap_free\"") && has(b, "\"swap_in\"");
+    int memory = has(b, "\"mem_available\"") && has(b, "\"swap_free\"") && has(b, "\"swap_in\"");
     int others = has(b, "\"disk_percent\"") && has(b, "\"temp\"") && has(b, "\"net_rx\"") &&
                  has(b, "\"uptime_seconds\"");
 
@@ -298,7 +298,7 @@ static int test_gating_single_card(void)
     only_card(&c, "cpu_load");
     emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
     /* only the load group is emitted; the rest is gated out */
-    return (has(b, "\"load_1m\"") && !has(b, "\"mem_percent\"") &&
+    return (has(b, "\"load_1m\"") && !has(b, "\"mem_available\"") &&
             !has(b, "\"cpu_user_percent\"") && !has(b, "\"net_rx\""))
                ? 0
                : 1;
@@ -312,7 +312,7 @@ static int test_hide_all_emits_no_metrics(void)
     c.card_count = -1; /* explicit empty list -> hide all */
     emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
     /* no metric fields, but the config block (theme, units) still ships */
-    return (!has(b, "\"load_1m\"") && !has(b, "\"mem_percent\"") && !has(b, "\"temp\"") &&
+    return (!has(b, "\"load_1m\"") && !has(b, "\"mem_available\"") && !has(b, "\"temp\"") &&
             has(b, "\"theme\""))
                ? 0
                : 1;
@@ -843,23 +843,33 @@ static int test_cpu_null_when_invalid(void)
     return has(b, "\"cpu_user_percent\":null") ? 0 : 1;
 }
 
-static int test_mem_percent_only_when_pct_unit(void)
+/* In "%" just the available share, so a public dashboard shows no size. */
+static int test_mem_card_pct_sends_the_available_share_alone(void)
 {
     char     b[2048];
     db_row_t r = sample_row();
     config_t c = base_cfg(); /* memory_card_unit defaults to "%" */
     emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
-    return (has(b, "\"mem_percent\"") && !has(b, "\"mem_used\"")) ? 0 : 1;
+
+    int share = has(b, "\"mem_available\":25,");
+    int no_size = !has(b, "\"mem_total\"") && !has(b, "\"mem_used\"") && !has(b, "\"mem_percent\"");
+
+    return share && no_size ? 0 : 1;
 }
 
-static int test_mem_absolute_emits_used(void)
+/* In "auto" the total and available the kernel gives; the dashboard computes the rest. */
+static int test_mem_card_auto_sends_total_and_available(void)
 {
     char     b[2048];
     db_row_t r = sample_row();
     config_t c = base_cfg();
     strcpy(c.memory_card_unit, "auto");
     emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
-    return (has(b, "\"mem_used\"") && has(b, "\"mem_percent\"")) ? 0 : 1;
+
+    int sizes = has(b, "\"mem_total\":1000") && has(b, "\"mem_available\":250");
+    int no_used = !has(b, "\"mem_used\"") && !has(b, "\"mem_percent\"");
+
+    return sizes && no_used ? 0 : 1;
 }
 
 static int test_disk_absolute_emits_used(void)
@@ -927,7 +937,7 @@ static int test_swap_gated_out_by_cards(void)
 
     int no_swap = !has(b, "\"swap_free\"") && !has(b, "\"thresh_swap\"");
 
-    return no_swap && has(b, "\"mem_percent\"") ? 0 : 1;
+    return no_swap && has(b, "\"mem_available\"") ? 0 : 1;
 }
 
 static int test_swap_units_echoed(void)
@@ -983,7 +993,7 @@ static int test_swap_io_gated_out_by_cards(void)
 
     int no_swap_io = !has(b, "\"swap_in\"") && !has(b, "\"thresh_swap_io\"");
 
-    return no_swap_io && has(b, "\"mem_percent\"") ? 0 : 1;
+    return no_swap_io && has(b, "\"mem_available\"") ? 0 : 1;
 }
 
 static int test_swap_io_units_echoed(void)
@@ -1007,7 +1017,7 @@ static int test_point_emits_short_keys(void)
     db_row_t r = sample_row();
     config_t c = base_cfg();
     emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
-    return (has(b, "\"t\":") && has(b, "\"l1\":") && has(b, "\"cu\":") && has(b, "\"mp\":") &&
+    return (has(b, "\"t\":") && has(b, "\"l1\":") && has(b, "\"cu\":") && has(b, "\"ma\":") &&
             has(b, "\"dp\":") && has(b, "\"nr\":") && has(b, "\"up\":"))
                ? 0
                : 1;
@@ -1041,7 +1051,7 @@ static int test_point_gates_excluded_charts(void)
     strcpy(c.charts[0], "cpu_load");
     c.chart_count = 1; /* only cpu_load charted -> the other groups gated out */
     emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
-    return (has(b, "\"l1\":") && !has(b, "\"mp\"") && !has(b, "\"cu\"") && !has(b, "\"nr\"")) ? 0
+    return (has(b, "\"l1\":") && !has(b, "\"ma\"") && !has(b, "\"cu\"") && !has(b, "\"nr\"")) ? 0
                                                                                               : 1;
 }
 
@@ -1053,7 +1063,7 @@ static int test_point_hides_all_charts(void)
     c.chart_count = -1; /* explicit empty charts list -> every chart group gated out */
     emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
 
-    int no_chart = !has(b, "\"l1\"") && !has(b, "\"cu\"") && !has(b, "\"mp\"") &&
+    int no_chart = !has(b, "\"l1\"") && !has(b, "\"cu\"") && !has(b, "\"ma\"") &&
                    !has(b, "\"sf\"") && !has(b, "\"si\"") && !has(b, "\"dp\"") &&
                    !has(b, "\"tp\"") && !has(b, "\"nr\"");
 
@@ -1069,7 +1079,7 @@ static int test_point_gates_net_only(void)
     c.chart_count = 1; /* only net charted -> gating is symmetric across groups */
     emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
     return (has(b, "\"nr\":") && has(b, "\"nt\":") && !has(b, "\"l1\"") && !has(b, "\"cu\"") &&
-            !has(b, "\"mp\""))
+            !has(b, "\"ma\""))
                ? 0
                : 1;
 }
@@ -1104,23 +1114,31 @@ static int test_point_net_null_when_invalid(void)
     return (has(b, "\"nr\":null") && has(b, "\"nt\":null")) ? 0 : 1;
 }
 
-static int test_point_mem_chart_pct_omits_abs(void)
+static int test_point_mem_pct_sends_the_available_share_alone(void)
 {
     char     b[1024];
     db_row_t r = sample_row();
     config_t c = base_cfg();
     strcpy(c.memory_chart_unit, "%");
     emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
-    return (has(b, "\"mp\":") && !has(b, "\"mu\":")) ? 0 : 1;
+
+    int share = has(b, "\"ma\":25,");
+    int no_size = !has(b, "\"mt\"") && !has(b, "\"mu\"") && !has(b, "\"mp\"");
+
+    return share && no_size ? 0 : 1;
 }
 
-static int test_point_mem_chart_abs_emits(void)
+static int test_point_mem_auto_sends_total_and_available(void)
 {
     char     b[1024];
     db_row_t r = sample_row();
     config_t c = base_cfg(); /* memory_chart_unit defaults to "auto" */
     emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
-    return has(b, "\"mu\":") ? 0 : 1;
+
+    int sizes = has(b, "\"mt\":1000") && has(b, "\"ma\":250");
+    int no_used = !has(b, "\"mu\"") && !has(b, "\"mp\"");
+
+    return sizes && no_used ? 0 : 1;
 }
 
 static int test_point_swap_auto_sends_total_and_free(void)
@@ -1164,7 +1182,7 @@ static int test_point_swap_gated_out_by_charts(void)
     c.chart_count = 1;
     emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
 
-    return (has(b, "\"mp\":") && !has(b, "\"st\"") && !has(b, "\"sf\"")) ? 0 : 1;
+    return (has(b, "\"ma\":") && !has(b, "\"st\"") && !has(b, "\"sf\"")) ? 0 : 1;
 }
 
 static int test_point_swap_io_in_bytes(void)
@@ -1208,7 +1226,7 @@ static int test_point_swap_io_gated_out_by_charts(void)
     c.chart_count = 1;
     emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
 
-    return has(b, "\"mp\":") && !has(b, "\"si\"") ? 0 : 1;
+    return has(b, "\"ma\":") && !has(b, "\"si\"") ? 0 : 1;
 }
 
 /* Every chart in the units that send the most fields, each value at its widest. */
@@ -1386,8 +1404,8 @@ static const test_t ALL_TESTS[] = {
     T(charts_echo_empty_when_hidden),
     T(charts_echo_list),
     T(cpu_null_when_invalid),
-    T(mem_percent_only_when_pct_unit),
-    T(mem_absolute_emits_used),
+    T(mem_card_pct_sends_the_available_share_alone),
+    T(mem_card_auto_sends_total_and_available),
     T(disk_absolute_emits_used),
     T(swap_card_pct_sends_the_free_share_alone),
     T(swap_card_auto_sends_total_and_free),
@@ -1408,8 +1426,8 @@ static const test_t ALL_TESTS[] = {
     T(point_temp_null_when_invalid),
     T(point_cpu_null_when_invalid),
     T(point_net_null_when_invalid),
-    T(point_mem_chart_pct_omits_abs),
-    T(point_mem_chart_abs_emits),
+    T(point_mem_pct_sends_the_available_share_alone),
+    T(point_mem_auto_sends_total_and_available),
     T(point_swap_auto_sends_total_and_free),
     T(point_swap_pct_sends_the_free_share_alone),
     T(point_swap_null_without_swap),

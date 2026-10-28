@@ -253,7 +253,7 @@ static int test_current_serializes_the_latest_row(void)
     insert_sample();
     request(NULL);
     int rc = handler_current(NULL, ctx);
-    return fixture_done(rc == 200 && has("\"mem_percent\":50") && has("\"thresh_cpu\"") &&
+    return fixture_done(rc == 200 && has("\"mem_available\":50") && has("\"thresh_cpu\"") &&
                         strcmp(g_mime, "application/json") == 0);
 }
 
@@ -333,7 +333,7 @@ static int test_stream_sends_a_frame_then_stops(void)
     request(NULL);
     int rc = handler_stream(NULL, ctx);
     return fixture_done(rc == 200 && has("text/event-stream") && has("data: {") &&
-                        has("\"mem_percent\""));
+                        has("\"mem_available\""));
 }
 
 static int test_stream_stops_when_the_client_hangs_up(void)

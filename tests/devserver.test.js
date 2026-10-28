@@ -189,20 +189,39 @@ test('toCurrent: gates excluded cards', () => {
   const out = toCurrent(currentSnapshot('normal'), f, 85.0);
 
   assert.ok('load_1m' in out && 'thresh_load' in out);
-  assert.ok(!('mem_percent' in out) && !('thresh_mem' in out));
+  assert.ok(!('mem_available' in out) && !('thresh_mem' in out));
   assert.ok(!('net_rx' in out));
 });
 
-test('toCurrent: percent unit omits the raw mem/disk fields', () => {
+test('toCurrent: percent unit omits the raw disk fields', () => {
   const pct = toCurrent(currentSnapshot('normal'), configFields({}), 85.0);
 
-  assert.ok(!('mem_used' in pct) && !('disk_used' in pct)); /* defaults are '%' */
-  assert.ok('mem_percent' in pct && 'disk_percent' in pct);
+  assert.ok(!('disk_used' in pct) && 'disk_percent' in pct); /* disk_card_unit defaults to '%' */
 
-  const f = configFields({ memory_card_unit: 'gb', disk_card_unit: 'gb' });
-  const raw = toCurrent(currentSnapshot('normal'), f, 85.0);
+  const raw = toCurrent(currentSnapshot('normal'), configFields({ disk_card_unit: 'auto' }), 85.0);
 
-  assert.ok('mem_used' in raw && 'mem_total' in raw && 'disk_free' in raw);
+  assert.ok('disk_free' in raw);
+});
+
+/* 750 of 1000 MB in use. */
+const memRaw = (p) => ({ ...p, mem_total_mb: 1000, mem_avail_mb: 250 });
+
+/* The memory fields of an /api/current response, without the unit echoes. */
+const memFields = (out) =>
+  Object.keys(out).filter((k) => /^mem_(used|available|total|percent)/.test(k));
+
+test('toCurrent: mem_available in the card unit, and mem_total only in "auto"', () => {
+  const raw = memRaw(currentSnapshot('normal'));
+  const pct = toCurrent(raw, configFields({}), 85.0); /* memory_card_unit defaults to '%' */
+
+  assert.deepStrictEqual(memFields(pct), ['mem_available']);
+  assert.strictEqual(pct.mem_available, 25);
+
+  const abs = toCurrent(raw, configFields({ memory_card_unit: 'auto' }), 85.0);
+
+  assert.deepStrictEqual(memFields(abs), ['mem_available', 'mem_total']);
+  assert.strictEqual(abs.mem_total, 1000);
+  assert.strictEqual(abs.mem_available, 250);
 });
 
 /* The swap use fields of an /api/current response: not swap I/O's, nor the unit echoes. */
@@ -239,7 +258,7 @@ test('toCurrent: thresh_swap is sent, and no swap field when its card is not lis
 
   const mem = toCurrent(currentSnapshot('normal'), configFields({ cards: ['memory'] }), 85.0);
 
-  assert.ok(!('swap_free' in mem) && !('thresh_swap' in mem) && 'mem_percent' in mem);
+  assert.ok(!('swap_free' in mem) && !('thresh_swap' in mem) && 'mem_available' in mem);
 });
 
 test('toCurrent: thresh_temp derives from the sysfs critical point', () => {
@@ -262,7 +281,7 @@ test('toCurrent: thresh_net tracks the link ceiling', () => {
 
 test('unitsFor: mirrors the C choice for a window', () => {
   const raws = [
-    { mem_used_mb: 300, mem_avail_mb: 1748, disk_used_gb: 20, disk_free_gb: 72,
+    { mem_total_mb: 2048, mem_avail_mb: 1748, disk_used_gb: 20, disk_free_gb: 72,
       net_rx_bps: 5242880, net_tx_bps: 1000 },
   ];
   const u = unitsFor(raws, configFields({}));
@@ -273,6 +292,11 @@ test('unitsFor: mirrors the C choice for a window', () => {
 
   /* Nothing on screen: no unit at all, rather than an invented one. */
   assert.deepStrictEqual(unitsFor([{}], configFields({})), {});
+
+  /* The used memory, worked out from total and available, sets the magnitude too. */
+  const big = unitsFor([{ mem_total_mb: 32768, mem_avail_mb: 100 }], configFields({}));
+
+  assert.deepStrictEqual(big.mem, { sym: 'GB', mul: 1, div: 1024 });
 
   /* A "%" metric has no magnitude. */
   assert.ok(!('mem' in unitsFor(raws, configFields({ memory_chart_unit: '%' }))));
@@ -306,7 +330,7 @@ test('unitsFor: swap takes the larger of used and free, from rows with swap', ()
   assert.deepStrictEqual(small.swap, { sym: 'MB', mul: 1, div: 1 });
 
   /* No row with swap, or a "%" chart: no unit at all. */
-  assert.ok(!('swap' in unitsFor([{ mem_used_mb: 500 }], configFields({}))));
+  assert.ok(!('swap' in unitsFor([{ mem_total_mb: 1000, mem_avail_mb: 500 }], configFields({}))));
   assert.ok(!('swap' in unitsFor([{ swap_total_mb: 200, swap_free_mb: 100 }],
     configFields({ swap_chart_unit: '%' }))));
 });
@@ -314,8 +338,13 @@ test('unitsFor: swap takes the larger of used and free, from rows with swap', ()
 test('toPoint: emits short keys', () => {
   const out = toPoint(point(), configFields({}), 85.0);
 
-  for (const k of ['t', 'l1', 'cu', 'mp', 'dp', 'nr', 'up'])
+  for (const k of ['t', 'l1', 'cu', 'ma', 'dp', 'nr', 'up'])
     assert.ok(k in out, `missing key ${k}`);
+});
+
+test('toPoint: memory gated by charts', () => {
+  assert.ok('ma' in toPoint(point(), configFields({}), 85.0));
+  assert.ok(!('ma' in toPoint(point(), configFields({ charts: ['cpu_load'] }), 85.0)));
 });
 
 test('toPoint: temp gated by charts', () => {
@@ -323,22 +352,34 @@ test('toPoint: temp gated by charts', () => {
   assert.ok(!('tp' in toPoint(point(), configFields({ charts: ['cpu_load'] }), 85.0)));
 });
 
-test('toPoint: percent chart unit omits the raw mem/disk keys', () => {
-  const f = configFields({ memory_chart_unit: '%', disk_chart_unit: '%' });
-  const pct = toPoint(point(), f, 85.0);
+test('toPoint: percent chart unit omits the raw disk keys', () => {
+  const pct = toPoint(point(), configFields({ disk_chart_unit: '%' }), 85.0);
 
-  assert.ok(!('mu' in pct) && !('du' in pct));
-  assert.ok('mp' in pct && 'dp' in pct);
+  assert.ok(!('du' in pct) && 'dp' in pct);
 
-  const raw = toPoint(point(), configFields({}), 85.0); /* defaults are mb/gb */
+  const raw = toPoint(point(), configFields({}), 85.0); /* disk_chart_unit defaults to 'auto' */
 
-  assert.ok('mu' in raw && 'mt' in raw && 'df' in raw);
+  assert.ok('df' in raw);
+});
+
+test('toPoint: ma in the chart unit, and mt only in "auto"', () => {
+  const raw = memRaw(point());
+  const pct = toPoint(raw, configFields({ memory_chart_unit: '%' }), 85.0);
+
+  assert.strictEqual(pct.ma, 25);
+  assert.ok(!('mt' in pct) && !('mu' in pct) && !('mp' in pct));
+
+  const abs = toPoint(raw, configFields({}), 85.0); /* memory_chart_unit defaults to 'auto' */
+
+  assert.strictEqual(abs.ma, 250);
+  assert.strictEqual(abs.mt, 1000);
+  assert.ok(!('mu' in abs) && !('mp' in abs));
 });
 
 test('cycle scenario: cards tick with time, charts sweep low-high-low', () => {
   const snap = currentSnapshot('cycle');
 
-  assert.ok(snap.mem_percent >= 0 && snap.mem_percent <= 99);
+  assert.ok(snap.mem_avail_mb >= 0 && snap.mem_avail_mb <= snap.mem_total_mb);
 
   const p = makePoints('1d', 'cycle', 9);
 

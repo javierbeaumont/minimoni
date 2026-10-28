@@ -77,6 +77,16 @@ function loadConvert(load, cores, unit) {
   return load;
 }
 
+/* The used memory and its available share, worked out from total and available as db.c's read_row
+ * does. */
+function memUsed(m) {
+  return Math.max(m.mem_total_mb - m.mem_avail_mb, 0.0);
+}
+
+function memAvailablePercent(m) {
+  return m.mem_total_mb > 0 ? 100.0 - (memUsed(m) * 100.0) / m.mem_total_mb : 100.0;
+}
+
 /* The used swap and its free share, worked out from total and free as db.c's read_row does. */
 function swapUsed(m) {
   return Math.max(m.swap_total_mb - m.swap_free_mb, 0.0);
@@ -129,13 +139,12 @@ function toCurrent(raw, f, fallback, netMaxSpeed = 0) {
   }
 
   if (configHas(cards, 'memory')) {
-    if (mu[0] !== '%') {
-      out.mem_used = round(m.mem_used_mb, 2);
-      out.mem_available = round(m.mem_avail_mb, 2);
-      out.mem_total = round(m.mem_total_mb, 2);
-    }
+    const pct = mu[0] === '%';
 
-    out.mem_percent = round(m.mem_percent, 1);
+    out.mem_available = pct ? round(memAvailablePercent(m), 1) : round(m.mem_avail_mb, 2);
+
+    if (!pct)
+      out.mem_total = round(m.mem_total_mb, 2);
   }
 
   if (configHas(cards, 'swap')) {
@@ -255,8 +264,13 @@ function unitsFor(raws, f) {
   /* Like the C server: a row with no delta yet carries noise, not throughput. */
   const withNet = raws.filter((r) => r.net_valid !== 0);
 
-  if (String(f.mem_chart_unit)[0] !== '%')
-    out.mem = unitFor(peak(raws, 'mem_used_mb', 'mem_avail_mb'), 'mb');
+  if (String(f.mem_chart_unit)[0] !== '%') {
+    const withUsed = raws.map((r) => ({
+      ...r, mem_used_mb: r.mem_total_mb != null ? memUsed(r) : null,
+    }));
+
+    out.mem = unitFor(peak(withUsed, 'mem_used_mb', 'mem_avail_mb'), 'mb');
+  }
 
   if (String(f.swap_chart_unit)[0] !== '%') {
     const withUsed = raws.map((r) => ({
@@ -305,13 +319,14 @@ function toPoint(raw, f, fallback, netMaxSpeed = 0) {
     ci: round(m.cpu_idle, 1),
   };
 
-  if (mu[0] !== '%') {
-    out.mu = round(m.mem_used_mb, 2);
-    out.ma = round(m.mem_avail_mb, 2);
-    out.mt = round(m.mem_total_mb, 2);
-  }
+  if (configHas(f.charts, 'memory')) {
+    const pct = mu[0] === '%';
 
-  out.mp = round(m.mem_percent, 1);
+    out.ma = pct ? round(memAvailablePercent(m), 1) : round(m.mem_avail_mb, 2);
+
+    if (!pct)
+      out.mt = round(m.mem_total_mb, 2);
+  }
 
   if (configHas(f.charts, 'swap')) {
     const has = m.swap_total_mb != null;
