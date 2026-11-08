@@ -7,6 +7,9 @@ listen        = "0.0.0.0:8080"
 db        = "/var/lib/minimoni/metrics.db"
 interval  = 60                              # seconds between samples (range: 1-3600)
 disk_path = "/"
+# temp_scale             = "celsius" # "celsius" | "fahrenheit": the scale of the temp_* alerts
+# temp_critical_fallback = 85        # critical trip point when sysfs has none, in temp_scale
+#                                    # (default: 85 °C, which is 185 °F)
 
 [webhook]
 # ca_file              = "/etc/minimoni/ca.pem" # CAs to trust (default: the host's CA store)
@@ -35,7 +38,6 @@ disk_path = "/"
 # disk_chart_unit        = "auto" # chart Y-axis: "%" | "auto"
 # temp_card_unit         = "c"    # status card: "%" | "c" | "f"
 # temp_chart_unit        = "c"    # chart Y-axis: "%" | "c" | "f"
-# temp_critical_fallback = 95     # temp % 100% ref when sysfs has no critical trip point (def: 85)
 # net_card_unit          = "bytes" # status card: "%" | "bytes" | "bits" (magnitude is automatic)
 # net_chart_unit         = "bytes" # chart Y-axis: "%" | "bytes" | "bits"
 # net_max_speed          = 300    # link ceiling in Mbit/s: your real one. The net "%" denominator
@@ -54,7 +56,7 @@ cooldown = "1h"
 
 [[alert]]
 name = "high-temp"
-metric = "temp_celsius"
+metric = "temp_degrees"
 operator = ">"
 threshold = 80
 command = "/usr/local/bin/alert.sh"

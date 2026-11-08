@@ -30,7 +30,9 @@
  *   - POSTs the webhook (if configured)
  *   - executes the command via system() with MINIMONI_ALERT_* env vars set
  *   - logs the fire event in alert_log
+ * `temp_critical` is the critical trip point in °C, the one sysfs gives or the configured
+ * fallback: `temp_percent` is measured against it.
  * Individual failures are logged to stderr; the function always returns 0. */
-int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row);
+int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double temp_critical);
 
 #endif /* MINIMONI_ALERTS_H */

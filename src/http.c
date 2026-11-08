@@ -426,6 +426,7 @@ int http_start(http_ctx_t *ctx, const config_t *cfg, db_t *db)
     ctx->db = db;
     ctx->num_cores = read_num_cores("/sys/devices/system/cpu/online");
     ctx->temp_critical_valid = metrics_temp_critical(&ctx->temp_critical) == 0;
+    metrics_temp_zone_note();
     /* Host properties, read once at startup like the trip point above: a link
      * renegotiation (or a new cable) needs a restart to be picked up. */
     ctx->net_speed_mbit = metrics_link_speed_mbit();

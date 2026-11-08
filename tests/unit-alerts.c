@@ -229,13 +229,14 @@ static int test_drops_the_server_name(void)
 static int test_every_config_metric_has_a_value(void)
 {
     static const char *const names[] = {ALERT_METRICS, NULL};
+    config_t                 cfg = {.temp_scale = "celsius"};
     db_row_t                 row;
     memset(&row, 0, sizeof(row));
     row.cpu_valid = row.temp_valid = row.net_valid = row.swap_valid = row.swap_io_valid = 1;
 
     for (int i = 0; names[i]; i++) {
         int valid = 0;
-        get_metric_value(&row, names[i], &valid);
+        metric_value(&row, names[i], &cfg, 100.0, &valid);
         if (!valid)
             return 1;
     }
@@ -279,6 +280,61 @@ static int test_disk_metrics_read_their_fields(void)
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
         int valid = 0;
         if (get_metric_value(&row, names[i], &valid) != i + 1.0 || !valid)
+            return 1;
+    }
+
+    return 0;
+}
+
+/* A Raspberry Pi at 55 °C, its critical trip at 110 °C: 131 °F of 230 °F. */
+static double temp_metric(const char *scale, const char *m, int *valid)
+{
+    config_t cfg = {0};
+    db_row_t row;
+    memset(&row, 0, sizeof(row));
+    row.temp_valid = 1;
+    row.temp_celsius = 55.0;
+    snprintf(cfg.temp_scale, sizeof(cfg.temp_scale), "%s", scale);
+
+    return metric_value(&row, m, &cfg, 110.0, valid);
+}
+
+static int near(double a, double b) { return a - b < 1e-9 && b - a < 1e-9; }
+
+/* In Celsius: the temperature in degrees and as a percent of the critical. */
+static int test_temp_metrics_in_celsius(void)
+{
+    int v1, v2;
+
+    int ok = near(temp_metric("celsius", "temp_degrees", &v1), 55.0) &&
+             near(temp_metric("celsius", "temp_percent", &v2), 50.0);
+
+    return ok && v1 && v2 ? 0 : 1;
+}
+
+/* In Fahrenheit the degrees and the percent are the scale's own: the percent counts from 0 °F. */
+static int test_temp_metrics_in_fahrenheit(void)
+{
+    int v1, v2;
+
+    int ok = near(temp_metric("fahrenheit", "temp_degrees", &v1), 131.0) &&
+             near(temp_metric("fahrenheit", "temp_percent", &v2), 13100.0 / 230.0);
+
+    return ok && v1 && v2 ? 0 : 1;
+}
+
+/* Without a sensor no temperature metric has a value. */
+static int test_temp_metrics_without_a_sensor_have_no_value(void)
+{
+    static const char *const names[] = {"temp_degrees", "temp_percent"};
+    config_t                 cfg = {.temp_scale = "celsius"};
+    db_row_t                 row;
+    memset(&row, 0, sizeof(row));
+
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        int valid = 1;
+        metric_value(&row, names[i], &cfg, 110.0, &valid);
+        if (valid)
             return 1;
     }
 
@@ -451,6 +507,9 @@ static const test_t ALL_TESTS[] = {
     T(every_config_metric_has_a_value),
     T(mem_metrics_read_their_fields),
     T(disk_metrics_read_their_fields),
+    T(temp_metrics_in_celsius),
+    T(temp_metrics_in_fahrenheit),
+    T(temp_metrics_without_a_sensor_have_no_value),
     T(swap_metrics_read_their_fields),
     T(swap_metrics_without_swap_have_no_value),
     T(swap_io_metrics_without_a_sample_have_no_value),

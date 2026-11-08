@@ -33,7 +33,7 @@ const path = require('path');
 const dev = path.join(__dirname, '..', 'tools', 'devserver');
 
 const {
-  configFields, parseDashboard, dashboardTempCriticalFallback, loadDashboardConfig,
+  configFields, parseTable, parseDashboard, collectTempCriticalFallback, loadConfig,
 } = require(path.join(dev, 'config'));
 
 const { streamShouldDrop } = require(path.join(dev, 'handler'));
@@ -433,13 +433,13 @@ test('parseDashboard: scalars, comment, # inside string', () => {
     'title = "My # Server"   # trailing comment',
     'theme = "dark"',
     'show_footer = false',
-    'temp_critical_fallback = 90',
+    'net_max_speed = 90',
   ].join('\n'));
 
   assert.strictEqual(d.title, 'My # Server');
   assert.strictEqual(d.theme, 'dark');
   assert.strictEqual(d.show_footer, false);
-  assert.strictEqual(d.temp_critical_fallback, 90);
+  assert.strictEqual(d.net_max_speed, 90);
   assert.ok(!('listen' in d)); /* keys outside [dashboard] are ignored */
 });
 
@@ -472,13 +472,24 @@ test('parseDashboard: ignores non-dashboard tables', () => {
   assert.ok(!('name' in d));
 });
 
-test('loadDashboardConfig: reads the [dashboard] table from disk', () => {
+test('parseTable: reads the table named, and only it', () => {
+  const c = parseTable(['[collect]', 'temp_scale = "fahrenheit"', '[dashboard]', 'title = "x"']
+    .join('\n'), 'collect');
+
+  assert.deepStrictEqual(c, { temp_scale: 'fahrenheit' });
+});
+
+test('loadConfig: reads the [dashboard] and [collect] tables from disk', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minimoni-test-'));
   const file = path.join(dir, 'config.toml');
 
   try {
-    fs.writeFileSync(file, '[dashboard]\ntitle = "from disk"\n');
-    assert.strictEqual(loadDashboardConfig(file).title, 'from disk');
+    fs.writeFileSync(file, '[collect]\ntemp_critical_fallback = 90\n[dashboard]\ntitle = "from disk"\n');
+
+    const { dashboard, collect } = loadConfig(file);
+
+    assert.strictEqual(dashboard.title, 'from disk');
+    assert.strictEqual(collect.temp_critical_fallback, 90);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -571,11 +582,16 @@ test('unitsFor: swap I/O in bytes takes the busier direction; in "ram" no unit',
   assert.ok(!('swap_io' in unitsFor(io, configFields({ swap_io_chart_unit: 'ram' }))));
 });
 
-test('dashboardTempCriticalFallback: valid, non-positive, absent', () => {
-  assert.strictEqual(dashboardTempCriticalFallback({ temp_critical_fallback: 90 }), 90);
-  assert.strictEqual(dashboardTempCriticalFallback({ temp_critical_fallback: 0 }), 85);
-  assert.strictEqual(dashboardTempCriticalFallback({ temp_critical_fallback: -5 }), 85);
-  assert.strictEqual(dashboardTempCriticalFallback({}), 85);
+test('collectTempCriticalFallback: valid, non-positive, absent', () => {
+  assert.strictEqual(collectTempCriticalFallback({ temp_critical_fallback: 90 }), 90);
+  assert.strictEqual(collectTempCriticalFallback({ temp_critical_fallback: 0 }), 85);
+  assert.strictEqual(collectTempCriticalFallback({ temp_critical_fallback: -5 }), 85);
+  assert.strictEqual(collectTempCriticalFallback({}), 85);
+});
+
+test('collectTempCriticalFallback: in Fahrenheit, given in Fahrenheit and returned in °C', () => {
+  assert.strictEqual(
+    collectTempCriticalFallback({ temp_scale: 'fahrenheit', temp_critical_fallback: 185 }), 85);
 });
 
 test('configFields: defaults, memory rename, overrides', () => {

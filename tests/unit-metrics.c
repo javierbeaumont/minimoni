@@ -606,8 +606,8 @@ static void tree_remove(const sysfs_file_t *files, int n)
     rmdir(g_tree);
 }
 
-/* temp_critical on g_tree; what it logged lands in `err`. */
-static int critical_logged(double *crit, char *err, size_t cap)
+/* temp_zone_note on g_tree when `note`, else temp_critical; what it logged lands in `err`. */
+static int temp_logged(int note, double *crit, char *err, size_t cap)
 {
     char path[64];
     snprintf(path, sizeof(path), "/tmp/minimoni-thermal-err-%d.txt", (int)getpid());
@@ -616,7 +616,12 @@ static int critical_logged(double *crit, char *err, size_t cap)
     if (!freopen(path, "w", stderr))
         return -2;
 
-    int rc = temp_critical(g_tree, crit);
+    int rc = 0;
+
+    if (note)
+        temp_zone_note(g_tree);
+    else
+        rc = temp_critical(g_tree, crit);
 
     fflush(stderr);
     if (!freopen("/dev/null", "w", stderr))
@@ -736,7 +741,23 @@ static int test_temp_without_zones(void)
     return ok ? 0 : 1;
 }
 
-/* Reading the critical trip logs which zone the temperature comes from. */
+/* Reading the critical trip logs nothing: collect reads it every run. */
+static int test_temp_critical_logs_nothing(void)
+{
+    double crit = 0;
+    char   err[256];
+
+    if (tree_make(BOARD_THEN_CPU, 10) != 0)
+        return 1;
+
+    int rc = temp_logged(0, &crit, err, sizeof(err));
+
+    tree_remove(BOARD_THEN_CPU, 10);
+
+    return rc == 0 && err[0] == '\0' ? 0 : 1;
+}
+
+/* The zone note logs which zone the temperature comes from, and its type. */
 static int test_temp_zone_logged(void)
 {
     double crit = 0;
@@ -745,7 +766,7 @@ static int test_temp_zone_logged(void)
     if (tree_make(BOARD_THEN_CPU, 10) != 0)
         return 1;
 
-    int rc = critical_logged(&crit, err, sizeof(err));
+    int rc = temp_logged(1, &crit, err, sizeof(err));
 
     tree_remove(BOARD_THEN_CPU, 10);
 
@@ -777,6 +798,7 @@ static const test_t ALL_TESTS[] = {
     T(temp_no_critical_in_the_zone_read),
     T(temp_without_a_cpu_zone_reads_zone_0),
     T(temp_without_zones),
+    T(temp_critical_logs_nothing),
     T(temp_zone_logged),
     T(vmstat_swap_counters),
     T(vmstat_without_swap_counters),

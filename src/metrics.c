@@ -376,15 +376,21 @@ static int temp_critical(const char *dir, double *celsius)
     char type[32];
     int  zone = temp_zone(dir, type, sizeof(type));
 
-    if (zone < 0)
-        return -1;
+    return zone < 0 ? -1 : zone_critical(dir, zone, celsius);
+}
 
-    fprintf(stderr, "metrics: temperature read from thermal_zone%d (%s)\n", zone, type);
+static void temp_zone_note(const char *dir)
+{
+    char type[32];
+    int  zone = temp_zone(dir, type, sizeof(type));
 
-    return zone_critical(dir, zone, celsius);
+    if (zone >= 0)
+        fprintf(stderr, "metrics: temperature read from thermal_zone%d (%s)\n", zone, type);
 }
 
 int metrics_temp_critical(double *celsius) { return temp_critical(THERMAL_DIR, celsius); }
+
+void metrics_temp_zone_note(void) { temp_zone_note(THERMAL_DIR); }
 
 /* --- Rates from cumulative counters: network and swap I/O --- */
 

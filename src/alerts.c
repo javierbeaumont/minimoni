@@ -81,10 +81,6 @@ static double get_metric_value(const db_row_t *row, const char *m, int *valid)
         return row->disk_used_percent;
     if (!strcmp(m, "disk_available_percent"))
         return row->disk_available_percent;
-    if (!strcmp(m, "temp_celsius")) {
-        *valid = row->temp_valid;
-        return row->temp_celsius;
-    }
     if (!strcmp(m, "net_rx_bps")) {
         *valid = row->net_valid;
         return row->net_rx_bps;
@@ -131,6 +127,37 @@ static double get_metric_value(const db_row_t *row, const char *m, int *valid)
     /* Unreachable from a loaded config: config_load refuses any other name. */
     *valid = 0;
     return 0.0;
+}
+
+/* The temperature in cfg's scale: in degrees, or as a percent of `critical` (°C) counted from the
+ * scale's zero. */
+static double temp_metric_value(const db_row_t *row, const char *m, const config_t *cfg,
+                                double critical, int *valid)
+{
+    int    f = cfg->temp_scale[0] == 'f';
+    double t = f ? row->temp_celsius * 9.0 / 5.0 + 32.0 : row->temp_celsius;
+    double crit = f ? critical * 9.0 / 5.0 + 32.0 : critical;
+
+    *valid = row->temp_valid;
+
+    if (!strcmp(m, "temp_degrees"))
+        return t;
+
+    *valid = *valid && crit > 0;
+
+    if (!strcmp(m, "temp_percent"))
+        return *valid ? t * 100.0 / crit : 0.0;
+
+    *valid = 0;
+    return 0.0;
+}
+
+/* The temperature metrics also need the scale and the critical trip point. */
+static double metric_value(const db_row_t *row, const char *m, const config_t *cfg,
+                           double temp_critical, int *valid)
+{
+    return strncmp(m, "temp_", 5) == 0 ? temp_metric_value(row, m, cfg, temp_critical, valid)
+                                       : get_metric_value(row, m, valid);
 }
 
 /* --- Condition evaluation --- */
@@ -569,7 +596,7 @@ static int run_command(const alert_cfg_t *a, double value)
 
 /* --- Public API --- */
 
-int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row)
+int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double temp_critical)
 {
     if (cfg->alert_count == 0)
         return 0;
@@ -584,7 +611,7 @@ int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row)
         const alert_cfg_t *a = &cfg->alerts[i];
 
         int    valid;
-        double value = get_metric_value(row, a->metric, &valid);
+        double value = metric_value(row, a->metric, cfg, temp_critical, &valid);
         if (!valid)
             continue;
 

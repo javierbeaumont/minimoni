@@ -35,9 +35,9 @@ const { execFileSync } = require('child_process');
 const {
   DEFAULT_CONFIG,
   configFields,
+  collectTempCriticalFallback,
   dashboardNetMaxSpeed,
-  dashboardTempCriticalFallback,
-  loadDashboardConfig,
+  loadConfig,
 } = require('./config');
 
 const { makeHandler } = require('./handler');
@@ -146,11 +146,11 @@ function main() {
   const opts = parseArgs(process.argv.slice(2));
   const log = makeLog(opts.verbose);
 
-  const dashboard = loadDashboardConfig(opts.config);
+  const { dashboard, collect } = loadConfig(opts.config);
   const state = {
     version: gitVersion(),
     configFields: configFields(dashboard),
-    tempCriticalFallback: dashboardTempCriticalFallback(dashboard),
+    tempCriticalFallback: collectTempCriticalFallback(collect),
     netMaxSpeed: dashboardNetMaxSpeed(dashboard),
     scenario: opts.scenario,
     flaky: opts.flaky,

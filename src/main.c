@@ -143,6 +143,10 @@ static int run_collect(const char *config_path)
         return 1;
     }
 
+    double critical;
+    double temp_critical =
+        metrics_temp_critical(&critical) == 0 ? critical : cfg.temp_critical_fallback;
+
     int ret = 0;
     if (db_insert(&db, &m) != 0) {
         ret = 1;
@@ -151,7 +155,7 @@ static int run_collect(const char *config_path)
         db_prune(&db, retention_days(&cfg));
         db_row_t row;
         if (db_current(&db, &row) == 0)
-            alerts_evaluate(&db, &cfg, &row);
+            alerts_evaluate(&db, &cfg, &row, temp_critical);
     }
 
     db_close(&db);
@@ -196,6 +200,8 @@ static int run_serve(const char *config_path)
 
     int           days = retention_days(&cfg);
     metrics_run_t run = {0};
+    double        temp_critical =
+        http.temp_critical_valid ? http.temp_critical : cfg.temp_critical_fallback;
 
     while (!shutdown_flag) {
         int r = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, NULL);
@@ -222,7 +228,7 @@ static int run_serve(const char *config_path)
 
         db_row_t row;
         if (db_current(&db, &row) == 0)
-            alerts_evaluate(&db, &cfg, &row);
+            alerts_evaluate(&db, &cfg, &row, temp_critical);
     }
 
     http_stop(&http);

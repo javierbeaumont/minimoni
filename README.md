@@ -354,6 +354,8 @@ key and the limit.
 db        = "/var/lib/minimoni/metrics.db"
 interval  = 60
 disk_path = "/"
+# temp_scale             = "celsius" # "celsius" | "fahrenheit"
+# temp_critical_fallback = 85        # in temp_scale (default: 85 °C)
 ```
 
 **`db`**: path to the SQLite database. Default: `./metrics.db`. For a persistent installation, use
@@ -375,6 +377,14 @@ Lower intervals give finer granularity; higher intervals reduce database growth:
 `/data`, set `disk_path = "/data"`. It must exist when minimoni starts, or the config fails to load.
 If it or `/proc` stops being readable later, `serve` logs it once and keeps running, storing no
 sample until it recovers, and logs the recovery.
+
+**`temp_scale`**: `"celsius"` (default) or `"fahrenheit"`: the scale of the `temp_*` alert
+thresholds and of `temp_critical_fallback`, so changing it changes what they mean. Any other value
+fails the load.
+
+**`temp_critical_fallback`**: the critical trip point to use when the sensor reports none, in
+`temp_scale`. It must be above 0; otherwise the default is kept, with a warning. Default: 85 °C
+(185 °F).
 
 ### Server
 
@@ -429,7 +439,6 @@ disk_card_unit         = "%"    # status card: "%" | "auto"
 disk_chart_unit        = "auto" # chart Y-axis: "%" | "auto"
 temp_card_unit         = "c"    # status card: "%" | "c" | "f"
 temp_chart_unit        = "c"    # chart Y-axis: "%" | "c" | "f"
-# temp_critical_fallback = 95     # temp % 100% ref when sysfs has no critical trip (default: 85)
 net_card_unit          = "bytes" # status card: "%" | "bytes" | "bits"
 net_chart_unit         = "bytes" # chart Y-axis: "%" | "bytes" | "bits"
 # net_max_speed          = 300    # link ceiling in Mbit/s: the net "%" denominator and the
@@ -496,7 +505,7 @@ yellow at 1 % of the RAM per minute and red at 5 %, in either unit.
 
 **`temp_card_unit`** / **`temp_chart_unit`**: `"c"` for Celsius, `"f"` for Fahrenheit, or `"%"` of
 the critical trip point the kernel reports for the sensor, falling back to
-`temp_critical_fallback` when it reports none.
+`collect.temp_critical_fallback` when it reports none.
 
 **Automatic magnitudes.** Under `"auto"`, `"bytes"` or `"bits"` you choose what is measured, never
 the magnitude: the server picks that from the largest value in the window on screen, and a card and
@@ -555,7 +564,8 @@ cooldown  = "1h"                # minimum time between repeated firings
 | `disk_available_gb`      | GB        | Disk space available to users other than root     |
 | `disk_used_percent`      | %         | Used disk space as percent of total               |
 | `disk_available_percent` | %         | Available disk space as percent of total          |
-| `temp_celsius`           | C         | CPU temperature (skipped if no sensor is present) |
+| `temp_degrees`           | °C or °F  | CPU temperature (skipped if no sensor is present) |
+| `temp_percent`           | %         | Temperature as percent of the critical trip point |
 | `net_rx_bps`             | bytes/s   | Receive throughput                                |
 | `net_tx_bps`             | bytes/s   | Transmit throughput                               |
 | `uptime_seconds`         | s         | Seconds since boot                                |
@@ -569,10 +579,12 @@ cooldown  = "1h"                # minimum time between repeated firings
 | `swap_out_ram`           | % RAM/min | Swap I/O out, in % of the RAM per minute          |
 
 Thresholds are compared against the raw metric value, in the unit named by its suffix: `_mb` is
-megabytes, `_gb` is gigabytes, `_percent` is a percentage, `_celsius` is degrees Celsius, `_bps` is
-bytes per second, `_ram` is swap I/O as a percent of the RAM per minute (past 100 when the same
-pages go back and forth). `_bps` and `_ram` are averages over the collect interval: a longer
-interval smooths out short bursts. `load_*` are raw load averages; `uptime_seconds` is in seconds.
+megabytes, `_gb` is gigabytes, `_percent` is a percentage, `_degrees` is degrees in
+`collect.temp_scale`, `_bps` is bytes per second, `_ram` is swap I/O as a percent of the RAM per
+minute (past 100 when the same pages go back and forth). `_bps` and `_ram` are averages over the
+collect interval: a longer interval smooths out short bursts. `load_*` are raw load averages;
+`uptime_seconds` is in seconds. `temp_percent` counts from the scale's zero (0 °C or 0 °F) up to
+the critical trip point, the sensor's or `temp_critical_fallback`.
 Dashboard unit settings do not affect alert thresholds: alerts work from the database, never in the
 dashboard's units. The `swap_*` metrics are skipped on a host without swap.
 
@@ -688,7 +700,7 @@ cooldown  = "30m"
 
 [[alert]]
 name      = "overheating"
-metric    = "temp_celsius"
+metric    = "temp_degrees"
 operator  = ">"
 threshold = 80
 command   = "/usr/local/bin/thermal-alert.sh"

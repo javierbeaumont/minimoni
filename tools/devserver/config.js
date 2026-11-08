@@ -19,8 +19,8 @@
  * along with minimoni. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Loads the [dashboard] table of a real minimoni config for /api/current (unset
- * keys use src/config.c defaults). Node has no TOML parser, so parseDashboard() is
+/* Loads the [dashboard] and [collect] tables of a real minimoni config for /api/current
+ * (unset keys use src/config.c defaults). Node has no TOML parser, so parseTable() is
  * a deliberate subset reader, not a general one. */
 
 'use strict';
@@ -128,12 +128,12 @@ function parseValue(s) {
   return Number.isNaN(n) ? undefined : n;
 }
 
-/* Parse the [dashboard] table into a plain object (see the file header). */
-function parseDashboard(text) {
+/* Parse the table [name] into a plain object (see the file header). */
+function parseTable(text, name) {
   const out = {};
   const lines = text.split(/\r?\n/);
 
-  let inDashboard = false;
+  let inTable = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = stripComment(lines[i]).trim();
@@ -142,12 +142,12 @@ function parseDashboard(text) {
       continue;
 
     if (line[0] === '[') {
-      inDashboard = line === '[dashboard]';
+      inTable = line === `[${name}]`;
 
       continue;
     }
 
-    if (!inDashboard)
+    if (!inTable)
       continue;
 
     const eq = line.indexOf('=');
@@ -177,12 +177,17 @@ function parseDashboard(text) {
   return out;
 }
 
-/* Fallback 100% reference for temp percent mode when sysfs has no critical
- * trip point (config.c default 85). */
-function dashboardTempCriticalFallback(d) {
-  const v = Number('temp_critical_fallback' in d ? d.temp_critical_fallback : 85.0);
+const parseDashboard = (text) => parseTable(text, 'dashboard');
 
-  return Number.isFinite(v) && v > 0 ? v : 85.0;
+/* The critical trip point that stands in when sysfs has none, given in temp_scale and returned in
+ * °C (config.c default 85 °C). */
+function collectTempCriticalFallback(c) {
+  const v = Number('temp_critical_fallback' in c ? c.temp_critical_fallback : 85.0);
+
+  if (!(Number.isFinite(v) && v > 0))
+    return 85.0;
+
+  return c.temp_scale === 'fahrenheit' ? ((v - 32) * 5) / 9 : v;
 }
 
 /* Net percent reference in Mbit/s; 0 means unset, so the detected link is used. */
@@ -192,7 +197,7 @@ function dashboardNetMaxSpeed(d) {
   return Number.isFinite(v) && v > 0 ? v : 0;
 }
 
-function loadDashboardConfig(filepath) {
+function loadConfig(filepath) {
   let text;
 
   try {
@@ -206,7 +211,7 @@ function loadDashboardConfig(filepath) {
     process.exit(1);
   }
 
-  return parseDashboard(text);
+  return { dashboard: parseDashboard(text), collect: parseTable(text, 'collect') };
 }
 
 /* Mirrors src/http.c /api/current: config keys -> response fields, including
@@ -242,9 +247,10 @@ function configFields(d) {
 module.exports = {
   DEFAULT_CONFIG,
   CONFIG_DEFAULTS,
+  parseTable,
   parseDashboard,
-  dashboardTempCriticalFallback,
+  collectTempCriticalFallback,
   dashboardNetMaxSpeed,
-  loadDashboardConfig,
+  loadConfig,
   configFields,
 };

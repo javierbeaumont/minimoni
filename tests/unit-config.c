@@ -882,17 +882,79 @@ static int test_dashboard_refresh_past_int_max_clamps(void)
 static int test_temp_critical_fallback_variants(void)
 {
     config_t cfg;
-    if (load_cfg(&cfg, "[dashboard]\ntemp_critical_fallback = 95.5\n") != 0)
+    if (load_cfg(&cfg, "[collect]\ntemp_critical_fallback = 95.5\n") != 0)
         return 1;
     if (cfg.temp_critical_fallback < 95.4f || cfg.temp_critical_fallback > 95.6f)
         return 1;
-    if (load_cfg(&cfg, "[dashboard]\ntemp_critical_fallback = 90\n") != 0) /* int form */
+    if (load_cfg(&cfg, "[collect]\ntemp_critical_fallback = 90\n") != 0) /* int form */
         return 1;
     if (cfg.temp_critical_fallback < 89.9f || cfg.temp_critical_fallback > 90.1f)
         return 1;
-    if (load_cfg(&cfg, "[dashboard]\ntemp_critical_fallback = -5\n") != 0) /* invalid */
+    if (load_cfg(&cfg, "[collect]\ntemp_critical_fallback = -5\n") != 0) /* invalid */
         return 1;
     return cfg.temp_critical_fallback > 84.9f && cfg.temp_critical_fallback < 85.1f ? 0 : 1;
+}
+
+/* In Fahrenheit the fallback is given in Fahrenheit: 194 °F is 90 °C. */
+static int test_temp_critical_fallback_in_fahrenheit(void)
+{
+    config_t cfg;
+
+    if (load_cfg(&cfg, "[collect]\ntemp_scale = \"fahrenheit\"\ntemp_critical_fallback = 194\n") !=
+        0)
+        return 1;
+
+    return cfg.temp_critical_fallback > 89.9f && cfg.temp_critical_fallback < 90.1f ? 0 : 1;
+}
+
+/* In [dashboard] the fallback is an unknown key, and the default stays. */
+static int test_temp_critical_fallback_in_dashboard_is_unknown(void)
+{
+    config_t cfg;
+    char     err[512];
+
+    if (load_cfg_err(&cfg, "[dashboard]\ntemp_critical_fallback = 95\n", err, sizeof(err)) != 0)
+        return 1;
+
+    return strstr(err, "unknown key 'dashboard.temp_critical_fallback'") &&
+                   cfg.temp_critical_fallback > 84.9f && cfg.temp_critical_fallback < 85.1f
+               ? 0
+               : 1;
+}
+
+static int test_temp_scale_celsius_by_default(void)
+{
+    config_t cfg;
+
+    if (load_cfg(&cfg, "[collect]\ndb = \"/tmp/x.db\"\n") != 0)
+        return 1;
+
+    return strcmp(cfg.temp_scale, "celsius") == 0 ? 0 : 1;
+}
+
+static int test_temp_scale_fahrenheit_accepted(void)
+{
+    config_t cfg;
+
+    if (load_cfg(&cfg, "[collect]\ntemp_scale = \"fahrenheit\"\n") != 0)
+        return 1;
+
+    return strcmp(cfg.temp_scale, "fahrenheit") == 0 ? 0 : 1;
+}
+
+/* Any other scale fails the load: going on would read every temperature threshold in the wrong
+ * one. */
+static int test_unknown_temp_scale_fails(void)
+{
+    config_t cfg;
+    char     err[512];
+
+    if (load_cfg_err(&cfg, "[collect]\ntemp_scale = \"kelvin\"\n", err, sizeof(err)) != -1)
+        return 1;
+
+    return strstr(err, "collect.temp_scale must be \"celsius\" or \"fahrenheit\" (got 'kelvin')")
+               ? 0
+               : 1;
 }
 
 /* --- charts / cards visibility lists --- */
@@ -1001,7 +1063,7 @@ static int test_config_has_states(void)
 static int test_alert_full_entry(void)
 {
     config_t cfg;
-    if (load_cfg(&cfg, "[[alert]]\nname = \"hot\"\nmetric = \"temp_celsius\"\noperator = \">=\"\n"
+    if (load_cfg(&cfg, "[[alert]]\nname = \"hot\"\nmetric = \"temp_degrees\"\noperator = \">=\"\n"
                        "threshold = 80.5\nwebhook = \"http://h\"\ncommand = \"echo hi\"\n"
                        "cooldown = \"5m\"\n") != 0)
         return 1;
@@ -1531,6 +1593,40 @@ static int test_old_disk_alert_metrics_fail(void)
     return 0;
 }
 
+static int test_temp_alert_metrics_accepted(void)
+{
+    static const char *const names[] = {"temp_degrees", "temp_percent"};
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        char toml[256];
+        snprintf(toml, sizeof(toml),
+                 "[[alert]]\nname = \"hot\"\nmetric = \"%s\"\noperator = \">\"\n"
+                 "threshold = 1\nwebhook = \"w\"\n",
+                 names[i]);
+
+        config_t cfg;
+        if (load_cfg(&cfg, toml) != 0 || cfg.alert_count != 1 ||
+            strcmp(cfg.alerts[0].metric, names[i]))
+            return 1;
+    }
+
+    return 0;
+}
+
+/* The old name fails the load: temp_celsius, now temp_degrees in collect.temp_scale. */
+static int test_old_temp_alert_metric_fails(void)
+{
+    config_t cfg;
+    char     err[512];
+
+    if (load_cfg_err(&cfg,
+                     "[[alert]]\nname = \"hot\"\nmetric = \"temp_celsius\"\noperator = \">\"\n"
+                     "threshold = 1\nwebhook = \"w\"\n",
+                     err, sizeof(err)) != -1)
+        return 1;
+
+    return strstr(err, "config: alert 'hot': unknown metric 'temp_celsius'") ? 0 : 1;
+}
+
 static int test_swap_alert_metrics_accepted(void)
 {
     static const char *const names[] = {"swap_free_mb",      "swap_used_mb", "swap_free_percent",
@@ -1661,6 +1757,11 @@ static const test_t ALL_TESTS[] = {
     T(dashboard_refresh_invalid_defaults),
     T(dashboard_refresh_past_int_max_clamps),
     T(temp_critical_fallback_variants),
+    T(temp_critical_fallback_in_fahrenheit),
+    T(temp_critical_fallback_in_dashboard_is_unknown),
+    T(temp_scale_celsius_by_default),
+    T(temp_scale_fahrenheit_accepted),
+    T(unknown_temp_scale_fails),
     /* charts / cards */
     T(charts_cards_lists),
     T(charts_cards_empty_hides_all),
@@ -1733,6 +1834,8 @@ static const test_t ALL_TESTS[] = {
     T(old_mem_alert_metrics_fail),
     T(disk_alert_metrics_accepted),
     T(old_disk_alert_metrics_fail),
+    T(temp_alert_metrics_accepted),
+    T(old_temp_alert_metric_fails),
     T(swap_alert_metrics_accepted),
     T(missing_disk_path_fails),
 };

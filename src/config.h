@@ -32,9 +32,9 @@
     "load_1m", "load_5m", "load_15m", "cpu_user_percent", "cpu_system_percent",                    \
         "cpu_idle_percent", "mem_used_mb", "mem_available_mb", "mem_used_percent",                 \
         "mem_available_percent", "disk_used_gb", "disk_available_gb", "disk_used_percent",         \
-        "disk_available_percent", "temp_celsius", "net_rx_bps", "net_tx_bps", "uptime_seconds",    \
-        "swap_free_mb", "swap_used_mb", "swap_free_percent", "swap_used_percent", "swap_in_bps",   \
-        "swap_out_bps", "swap_in_ram", "swap_out_ram"
+        "disk_available_percent", "temp_degrees", "temp_percent", "net_rx_bps", "net_tx_bps",      \
+        "uptime_seconds", "swap_free_mb", "swap_used_mb", "swap_free_percent",                     \
+        "swap_used_percent", "swap_in_bps", "swap_out_bps", "swap_in_ram", "swap_out_ram"
 
 typedef struct {
     char   name[64];
@@ -53,36 +53,37 @@ typedef struct {
     int  sse_keepalive_seconds; /* SSE keepalive interval, default: 1; inactive if >= refresh */
 
     /* [collect] */
-    long interval_seconds; /* default: 60 */
-    char db_path[256];     /* default: "./metrics.db" */
-    char disk_path[256];   /* default: "/" */
+    long  interval_seconds;       /* default: 60 */
+    char  db_path[256];           /* default: "./metrics.db" */
+    char  disk_path[256];         /* default: "/" */
+    char  temp_scale[16];         /* "celsius" | "fahrenheit", default: "celsius" */
+    float temp_critical_fallback; /* critical trip when sysfs has none, in °C; default: 85 */
 
     /* [webhook] */
     int  insecure_skip_verify; /* 1 = POST https webhooks unverified, default: 0 */
     char ca_file[256];         /* PEM CA certificates; default: "" (the system store) */
 
     /* [dashboard] */
-    char  title[128];             /* default: "minimoni" */
-    char  theme[8];               /* "auto" | "light" | "dark", default: "auto" */
-    int   show_footer;            /* 1 = show project footer, 0 = hide, default: 1 */
-    int   refresh_seconds;        /* default: 30 */
-    char  memory_card_unit[16];   /* "%" | "auto", default: "%" */
-    char  memory_chart_unit[16];  /* "%" | "auto", default: "auto" */
-    char  swap_card_unit[16];     /* "%" | "auto", default: "%" */
-    char  swap_chart_unit[16];    /* "%" | "auto", default: "auto" */
-    char  swap_io_card_unit[16];  /* "bytes" | "ram", default: "bytes" */
-    char  swap_io_chart_unit[16]; /* "bytes" | "ram", default: "bytes" */
-    char  disk_card_unit[16];     /* "%" | "auto", default: "%" */
-    char  disk_chart_unit[16];    /* "%" | "auto", default: "auto" */
-    char  temp_card_unit[4];      /* "c" | "f" | "%", default: "c" */
-    char  temp_chart_unit[4];     /* "c" | "f" | "%", default: "c" */
-    float temp_critical_fallback; /* temp percent 100% ref when sysfs critical absent; def: 85 */
-    char  cpu_load_card_unit[4];  /* "abs" | "%", default: "abs" */
-    char  cpu_load_chart_unit[4]; /* "abs" | "%", default: "abs" */
-    char  net_card_unit[8];       /* "%" | "bytes" | "bits", default: "bytes" */
-    char  net_chart_unit[8];      /* "%" | "bytes" | "bits", default: "bytes" */
-    int   net_max_speed;          /* net % 100% ref (Mbit/s); 0 = use the detected link */
-    char  uptime_unit[8];         /* "h"|"d"|"auto", default: "auto" */
+    char title[128];             /* default: "minimoni" */
+    char theme[8];               /* "auto" | "light" | "dark", default: "auto" */
+    int  show_footer;            /* 1 = show project footer, 0 = hide, default: 1 */
+    int  refresh_seconds;        /* default: 30 */
+    char memory_card_unit[16];   /* "%" | "auto", default: "%" */
+    char memory_chart_unit[16];  /* "%" | "auto", default: "auto" */
+    char swap_card_unit[16];     /* "%" | "auto", default: "%" */
+    char swap_chart_unit[16];    /* "%" | "auto", default: "auto" */
+    char swap_io_card_unit[16];  /* "bytes" | "ram", default: "bytes" */
+    char swap_io_chart_unit[16]; /* "bytes" | "ram", default: "bytes" */
+    char disk_card_unit[16];     /* "%" | "auto", default: "%" */
+    char disk_chart_unit[16];    /* "%" | "auto", default: "auto" */
+    char temp_card_unit[4];      /* "c" | "f" | "%", default: "c" */
+    char temp_chart_unit[4];     /* "c" | "f" | "%", default: "c" */
+    char cpu_load_card_unit[4];  /* "abs" | "%", default: "abs" */
+    char cpu_load_chart_unit[4]; /* "abs" | "%", default: "abs" */
+    char net_card_unit[8];       /* "%" | "bytes" | "bits", default: "bytes" */
+    char net_chart_unit[8];      /* "%" | "bytes" | "bits", default: "bytes" */
+    int  net_max_speed;          /* net % 100% ref (Mbit/s); 0 = use the detected link */
+    char uptime_unit[8];         /* "h"|"d"|"auto", default: "auto" */
     /* charts/cards: count=0 means show all in default order */
     char charts[MAX_CHARTS][16]; /* cpu_load, cpu_usage, memory, swap, swap_io, disk, temp, net */
     int  chart_count;
