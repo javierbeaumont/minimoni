@@ -53,6 +53,16 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Log in to Docker Hub
+        env:
+          DOCKERHUB_PULL_TOKEN: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
+          DOCKERHUB_USERNAME: ${{ github.repository_owner }}
+        run: |
+          if [ -n "$DOCKERHUB_PULL_TOKEN" ]; then
+            echo "$DOCKERHUB_PULL_TOKEN" |
+              docker login --username "$DOCKERHUB_USERNAME" --password-stdin
+          fi
+
       # QEMU emulation is only needed for the arm32 archs; amd64 and
       # arm64 build natively on their own runners.
       - name: Set up QEMU
@@ -100,6 +110,15 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Log in to Docker Hub
+        env:
+          DOCKERHUB_PULL_TOKEN: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
+          DOCKERHUB_USERNAME: ${{ github.repository_owner }}
+        run: |
+          if [ -n "$DOCKERHUB_PULL_TOKEN" ]; then
+            echo "$DOCKERHUB_PULL_TOKEN" |
+              docker login --username "$DOCKERHUB_USERNAME" --password-stdin
+          fi
       - run: make ${{ matrix.target }}
 
   release:

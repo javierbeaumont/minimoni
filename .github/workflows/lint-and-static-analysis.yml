@@ -39,6 +39,16 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Log in to Docker Hub
+        env:
+          DOCKERHUB_PULL_TOKEN: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
+          DOCKERHUB_USERNAME: ${{ github.repository_owner }}
+        run: |
+          if [ -n "$DOCKERHUB_PULL_TOKEN" ]; then
+            echo "$DOCKERHUB_PULL_TOKEN" |
+              docker login --username "$DOCKERHUB_USERNAME" --password-stdin
+          fi
+
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:

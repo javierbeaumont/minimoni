@@ -227,11 +227,11 @@ check-pie:
 # Source-build checks (Docker). `make clean`, not clean-build: a host-built BearSSL would leak in.
 # Dependabot does not watch these digests: bump them by hand.
 DEBIAN_DIGEST = 913f6706df59a68922d1dd08f78c2476560a8d367897200a6005b00e5f67c2d5
-DEBIAN_IMAGE = public.ecr.aws/docker/library/debian:trixie@sha256:$(DEBIAN_DIGEST)
+DEBIAN_IMAGE = debian:trixie@sha256:$(DEBIAN_DIGEST)
 FEDORA_DIGEST = 43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
-FEDORA_IMAGE = public.ecr.aws/docker/library/fedora:44@sha256:$(FEDORA_DIGEST)
+FEDORA_IMAGE = fedora:44@sha256:$(FEDORA_DIGEST)
 UBUNTU_DIGEST = f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7
-UBUNTU_IMAGE = public.ecr.aws/docker/library/ubuntu:26.04@sha256:$(UBUNTU_DIGEST)
+UBUNTU_IMAGE = ubuntu:26.04@sha256:$(UBUNTU_DIGEST)
 APT_INSTALL = apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends \
   gcc make xxd git libc6-dev openssl socat sqlite3 wget
 DNF_INSTALL = dnf install -y -q gcc make git vim-common openssl socat sqlite wget
