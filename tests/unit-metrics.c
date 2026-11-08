@@ -19,8 +19,9 @@
  * along with minimoni. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Unit tests for src/metrics.c: the pure rate computation, the /proc/meminfo and /proc/vmstat
- * readers fed synthetic text, and the thermal zone reader fed a synthetic sysfs tree.
+/* Unit tests for src/metrics.c: the pure rate computation, the /proc/meminfo, /proc/vmstat and
+ * /proc/net/dev readers fed synthetic text, and the thermal zone and network interface readers fed
+ * a synthetic sysfs tree.
  * Zero-dependency, no framework; build with `make test`. metrics.c is #included directly so the
  * static helpers are exercisable without reading /proc or /sys. */
 
@@ -108,7 +109,8 @@ static int test_counter_rates_negative_dt(void)
     return counter_rates(&prev, &cur, &in, &out) == 0 ? 0 : 1;
 }
 
-/* The in counter went backwards (an interface or the kernel reset it): gap, not a negative rate. */
+/* The `in` counter went backwards (an interface or the kernel reset it): gap, not a negative
+ * rate. */
 static int test_counter_rates_in_reset_is_a_gap(void)
 {
     counters_t prev = snap(1000, 1000, 0, 0);
@@ -529,7 +531,7 @@ static int test_meminfo_available_above_total_uses_free_and_logs_once(void)
 
 /* --- Temperature: the zone read and its critical trip --- */
 
-/* A file of a sysfs thermal tree: its path in the tree and what it holds. */
+/* A file of a sysfs tree: its path in the tree and what it holds. */
 typedef struct {
     const char *path;
     const char *text;
@@ -563,7 +565,7 @@ static char g_tree[64];
 /* Writes the first `n` files in a new directory, g_tree. Returns 0, or -1 on a failure. */
 static int tree_make(const sysfs_file_t *files, int n)
 {
-    snprintf(g_tree, sizeof(g_tree), "%s", "/tmp/minimoni-thermal-XXXXXX");
+    snprintf(g_tree, sizeof(g_tree), "%s", "/tmp/minimoni-sysfs-XXXXXX");
 
     if (!mkdtemp(g_tree))
         return -1;
@@ -573,11 +575,11 @@ static int tree_make(const sysfs_file_t *files, int n)
 
         snprintf(path, sizeof(path), "%s/%s", g_tree, files[i].path);
 
-        char *slash = strrchr(path, '/');
-
-        *slash = '\0';
-        mkdir(path, 0700);
-        *slash = '/';
+        for (char *slash = path + strlen(g_tree) + 1; (slash = strchr(slash, '/')); slash++) {
+            *slash = '\0';
+            mkdir(path, 0700);
+            *slash = '/';
+        }
 
         FILE *f = fopen(path, "w");
 
@@ -591,7 +593,7 @@ static int tree_make(const sysfs_file_t *files, int n)
     return 0;
 }
 
-/* Removes what tree_make wrote: each zone's directory goes with its last file. */
+/* Removes what tree_make wrote: each directory goes with its last file. */
 static void tree_remove(const sysfs_file_t *files, int n)
 {
     for (int i = 0; i < n; i++) {
@@ -599,8 +601,11 @@ static void tree_remove(const sysfs_file_t *files, int n)
 
         snprintf(path, sizeof(path), "%s/%s", g_tree, files[i].path);
         unlink(path);
-        *strrchr(path, '/') = '\0';
-        rmdir(path);
+
+        for (char *slash; (slash = strrchr(path, '/')) > path + strlen(g_tree);) {
+            *slash = '\0';
+            rmdir(path);
+        }
     }
 
     rmdir(g_tree);
@@ -776,6 +781,207 @@ static int test_temp_zone_logged(void)
                : 1;
 }
 
+/* --- Network: the interfaces summed and their link speed --- */
+
+/* A host running a container: `eth0` is its NIC; `docker0`, the container's veth and `lo` are
+ * virtual. */
+static const sysfs_file_t HOST_DOCKER[] = {
+    {"class/net/eth0/speed", "100\n"},
+    {"class/net/docker0/speed", "10000\n"},
+    {"class/net/veth1a2b3c/speed", "10000\n"},
+    {"devices/virtual/net/docker0/ifindex", "3\n"},
+    {"devices/virtual/net/veth1a2b3c/ifindex", "5\n"},
+    {"devices/virtual/net/lo/ifindex", "1\n"},
+};
+
+/* The same host before its link is up. */
+static const sysfs_file_t HOST_DOCKER_LINK_DOWN[] = {
+    {"class/net/eth0/speed", "-1\n"},
+    {"class/net/docker0/speed", "10000\n"},
+    {"class/net/veth1a2b3c/speed", "10000\n"},
+    {"devices/virtual/net/docker0/ifindex", "3\n"},
+    {"devices/virtual/net/veth1a2b3c/ifindex", "5\n"},
+    {"devices/virtual/net/lo/ifindex", "1\n"},
+};
+
+/* Inside a container without the host's network: its `eth0` is a veth. */
+static const sysfs_file_t CONTAINER[] = {
+    {"class/net/eth0/speed", "10000\n"},
+    {"devices/virtual/net/eth0/ifindex", "9\n"},
+    {"devices/virtual/net/lo/ifindex", "1\n"},
+};
+
+/* An interface of /proc/net/dev: its name and the bytes it received and sent. */
+typedef struct {
+    const char *name;
+    long        rx, tx;
+} net_dev_t;
+
+/* sample_net on g_tree, at `sec` seconds, of a /proc/net/dev listing the first `n` of `ifs`. */
+static void sample_dev(metrics_t *m, const net_dev_t *ifs, int n, long sec)
+{
+    char  text[1024] = {0};
+    FILE *w = fmemopen(text, sizeof(text) - 1, "w");
+
+    if (w) {
+        fputs("Inter-|   Receive                |  Transmit\n"
+              " face |bytes    packets errs ...|bytes    packets errs ...\n",
+              w);
+        for (int i = 0; i < n; i++)
+            fprintf(w, "%6s: %ld 0 0 0 0 0 0 0 %ld 0 0 0 0 0 0 0\n", ifs[i].name, ifs[i].rx,
+                    ifs[i].tx);
+        fclose(w);
+    }
+
+    FILE           *f = reading(text);
+    struct timespec now = {sec, 0};
+
+    sample_net(f, g_tree, now, m);
+
+    if (f)
+        fclose(f);
+}
+
+/* A 50 MB download in the container: `eth0` receives it, `docker0` and the veth pass it on. Only
+ * `eth0` counts. */
+static int test_net_sums_the_physical_interfaces(void)
+{
+    const net_dev_t before[] = {
+        {"lo", 0, 0}, {"eth0", 1000000, 100000}, {"docker0", 0, 0}, {"veth1a2b3c", 0, 0}};
+    const net_dev_t after[] = {{"lo", 2000, 2000},
+                               {"eth0", 51000000, 300000},
+                               {"docker0", 100000, 48000000},
+                               {"veth1a2b3c", 100000, 48000000}};
+    metrics_t       m = {0};
+    s_prev_net_valid = 0;
+
+    if (tree_make(HOST_DOCKER, 6) != 0)
+        return 1;
+
+    sample_dev(&m, before, 4, 10);
+    sample_dev(&m, after, 4, 12);
+
+    tree_remove(HOST_DOCKER, 6);
+
+    return m.net_valid && approx(m.net_rx_bps, 25000000.0) && approx(m.net_tx_bps, 100000.0) ? 0
+                                                                                             : 1;
+}
+
+/* With no physical interface, every one but `lo` counts. */
+static int test_net_without_a_physical_sums_all_but_lo(void)
+{
+    const net_dev_t before[] = {{"lo", 0, 0}, {"eth0", 0, 0}};
+    const net_dev_t after[] = {{"lo", 5000, 5000}, {"eth0", 50000000, 200000}};
+    metrics_t       m = {0};
+    s_prev_net_valid = 0;
+
+    if (tree_make(CONTAINER, 3) != 0)
+        return 1;
+
+    sample_dev(&m, before, 2, 10);
+    sample_dev(&m, after, 2, 12);
+
+    tree_remove(CONTAINER, 3);
+
+    return m.net_valid && approx(m.net_rx_bps, 25000000.0) && approx(m.net_tx_bps, 100000.0) ? 0
+                                                                                             : 1;
+}
+
+/* When the only physical interface goes, the sum moves to the virtual ones: one gap, then rates
+ * again. */
+static int test_net_switching_sets_is_a_gap(void)
+{
+    const net_dev_t with_eth0[] = {
+        {"lo", 0, 0}, {"eth0", 1000, 1000}, {"docker0", 0, 0}, {"veth1a2b3c", 0, 0}};
+    const net_dev_t without[] = {{"lo", 0, 0}, {"docker0", 5000, 5000}, {"veth1a2b3c", 5000, 5000}};
+    const net_dev_t later[] = {{"lo", 0, 0}, {"docker0", 7000, 7000}, {"veth1a2b3c", 7000, 7000}};
+    metrics_t       m = {0};
+    s_prev_net_valid = 0;
+
+    if (tree_make(HOST_DOCKER, 6) != 0)
+        return 1;
+
+    sample_dev(&m, with_eth0, 4, 10);
+    sample_dev(&m, without, 3, 12);
+    int gap = !m.net_valid;
+    sample_dev(&m, later, 3, 14);
+
+    tree_remove(HOST_DOCKER, 6);
+
+    return gap && m.net_valid && approx(m.net_rx_bps, 2000.0) ? 0 : 1;
+}
+
+/* The link speed of `eth0` alone, not that of `docker0` and the veth. */
+static int test_link_speed_of_the_physical_interfaces(void)
+{
+    if (tree_make(HOST_DOCKER, 6) != 0)
+        return 1;
+
+    int speed = link_speed(g_tree);
+
+    tree_remove(HOST_DOCKER, 6);
+
+    return speed == 100 ? 0 : 1;
+}
+
+/* With the physical link down there is no speed, though the virtual interfaces report one. */
+static int test_link_speed_of_a_physical_link_down(void)
+{
+    if (tree_make(HOST_DOCKER_LINK_DOWN, 6) != 0)
+        return 1;
+
+    int speed = link_speed(g_tree);
+
+    tree_remove(HOST_DOCKER_LINK_DOWN, 6);
+
+    return speed == 0 ? 0 : 1;
+}
+
+/* With no physical interface, the speed of every one but `lo` counts. */
+static int test_link_speed_without_a_physical_sums_all_but_lo(void)
+{
+    if (tree_make(CONTAINER, 3) != 0)
+        return 1;
+
+    int speed = link_speed(g_tree);
+
+    tree_remove(CONTAINER, 3);
+
+    return speed == 10000 ? 0 : 1;
+}
+
+/* Without sysfs no interface reads as virtual: every one but `lo` counts. */
+static int test_net_without_sysfs_sums_all_but_lo(void)
+{
+    const net_dev_t before[] = {{"lo", 0, 0}, {"eth0", 0, 0}, {"docker0", 0, 0}};
+    const net_dev_t after[] = {{"lo", 5000, 5000}, {"eth0", 4000, 2000}, {"docker0", 0, 6000}};
+    metrics_t       m = {0};
+    s_prev_net_valid = 0;
+
+    if (tree_make(CONTAINER, 0) != 0)
+        return 1;
+
+    sample_dev(&m, before, 3, 10);
+    sample_dev(&m, after, 3, 12);
+
+    tree_remove(CONTAINER, 0);
+
+    return m.net_valid && approx(m.net_rx_bps, 2000.0) && approx(m.net_tx_bps, 4000.0) ? 0 : 1;
+}
+
+/* Without sysfs there is no speed. */
+static int test_link_speed_without_sysfs_is_0(void)
+{
+    if (tree_make(CONTAINER, 0) != 0)
+        return 1;
+
+    int speed = link_speed(g_tree);
+
+    tree_remove(CONTAINER, 0);
+
+    return speed == 0 ? 0 : 1;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
@@ -810,6 +1016,14 @@ static const test_t ALL_TESTS[] = {
     T(swap_io_counter_reset_is_a_gap),
     T(link_speed_parse),
     T(link_speed_sum_is_sane),
+    T(net_sums_the_physical_interfaces),
+    T(net_without_a_physical_sums_all_but_lo),
+    T(net_switching_sets_is_a_gap),
+    T(link_speed_of_the_physical_interfaces),
+    T(link_speed_of_a_physical_link_down),
+    T(link_speed_without_a_physical_sums_all_but_lo),
+    T(net_without_sysfs_sums_all_but_lo),
+    T(link_speed_without_sysfs_is_0),
     T(collect_fills_plausible_values),
     T(collect_second_pass_yields_rates),
     T(collect_bad_disk_path_fails),

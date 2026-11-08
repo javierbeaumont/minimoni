@@ -36,7 +36,9 @@ typedef struct {
     int                num_cores;     /* from /sys/devices/system/cpu/online */
     double             temp_critical; /* critical trip point in Celsius, 0 if absent */
     int                temp_critical_valid;
-    int          net_speed_mbit; /* link speed sum, 0 if none reported (see config fallback) */
+    /* Link speed sum, 0 if none reported (see config fallback); serve's loop updates it every
+     * cycle. */
+    atomic_int   net_speed_mbit;
     volatile int stopping;
     /* Open SSE streams. Each one parks a civetweb worker for as long as the
      * client stays connected, so the count is capped at cfg->max_dashboards. */

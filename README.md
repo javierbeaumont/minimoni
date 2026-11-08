@@ -525,6 +525,10 @@ reaches them. Set your real ceiling, because sysfs reports the NIC and not the u
 a 1 GbE card on a 300 Mbit line reads 1000, and every value then looks three times healthier than
 it is. With neither this key nor sysfs, minimoni assumes 1 GbE.
 
+The traffic and the sysfs speed are those of the physical interfaces, so what a bridge or a
+container's veth passes on is not counted twice; with none physical, as in a container without the
+host's network, those of every interface but `lo`. The speed is read again every `interval`.
+
 The number of data points per chart is no longer a per-install setting: the dashboard
 JS asks for what it can render, via the `points` query parameter on `/api/metrics`
 (see [HTTP endpoints](#http-endpoints)). The server caps it at `1440`: one point per

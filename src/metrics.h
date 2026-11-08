@@ -51,9 +51,10 @@ typedef struct {
     int    temp_valid;
     double temp_celsius;
 
-    /* Network throughput in bytes/s, summed over all non-loopback interfaces.
-     * Computed from the delta between consecutive collect samples (like CPU);
-     * net_valid=0 on the first sample and after a counter reset. */
+    /* Network throughput in bytes/s, summed over the physical interfaces (every one but `lo` when
+     * none is). Computed from the delta between consecutive collect samples (like CPU);
+     * net_valid=0 on the first sample, after a counter reset and when the sum moves from one of
+     * those sets to the other. */
     int    net_valid;
     double net_rx_bps, net_tx_bps;
 
@@ -80,9 +81,8 @@ typedef struct {
 /* Note a metrics_collect result: logs a run's first failure and the recovery that ends it. */
 void metrics_run_note(metrics_run_t *run, int rc);
 
-/* Sum of sysfs `speed` (Mbit/s) over the non-loopback interfaces, i.e. the same
- * set collect_net sums traffic over; the 100% reference for net percent mode.
- * Returns 0 when no interface reports a usable speed (virtual devices, wifi),
+/* Sum of sysfs `speed` (Mbit/s) over the interfaces metrics_collect sums traffic over; the 100%
+ * reference for net percent mode. Returns 0 when none reports a usable speed (wifi, a link down),
  * leaving the caller to fall back to config. */
 int metrics_link_speed_mbit(void);
 

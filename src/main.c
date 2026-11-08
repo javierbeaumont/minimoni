@@ -217,6 +217,9 @@ static int run_serve(const char *config_path)
 
         int rc = metrics_collect(&m, cfg.disk_path);
         metrics_run_note(&run, rc);
+        /* A link can come up after start or renegotiate. Read here once a cycle, not per request:
+         * every open dashboard sends one each refresh seconds. */
+        atomic_store(&http.net_speed_mbit, metrics_link_speed_mbit());
 
         if (rc != 0)
             continue;

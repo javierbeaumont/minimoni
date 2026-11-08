@@ -423,29 +423,36 @@ static int counter_rates(const counters_t *prev, const counters_t *cur, double *
 
 /* --- Network --- */
 
-/* in is what the interfaces received, out what they sent. */
+#define SYS_DIR "/sys"
+
+/* In s_prev_net, `in` is what the interfaces received and `out` what they sent;
+ * s_prev_net_physical says whether they were the physical ones. */
 static int        s_prev_net_valid = 0;
+static int        s_prev_net_physical;
 static counters_t s_prev_net;
 
-/* Sum the bytes received and sent by every non-loopback interface in /proc/net/dev into *cur,
- * stamped with a monotonic timestamp. Returns 0, or -1 when the file cannot be read. */
-static int read_net_raw(counters_t *cur)
+/* Whether sysfs lists `name` as virtual: a bridge, a veth, a tunnel... */
+static int net_is_virtual(const char *sys, const char *name)
 {
-    cur->in = 0;
-    cur->out = 0;
-    clock_gettime(CLOCK_MONOTONIC, &cur->t);
+    char path[320]; /* fits the longest possible name plus SYS_DIR and the fixed parts */
+    snprintf(path, sizeof(path), "%s/devices/virtual/net/%s", sys, name);
 
-    FILE *f = fopen("/proc/net/dev", "r");
-    if (!f)
-        return -1;
+    return access(path, F_OK) == 0;
+}
 
+/* Sum the bytes the physical interfaces listed in `f` (/proc/net/dev) received and sent into
+ * cur->in and cur->out; when none is physical, as in a container without the host's network, those
+ * of every interface but `lo`. *physical says which sum it is. Returns 0, or -1 when the header
+ * lines are missing. */
+static int read_net_dev(FILE *f, const char *sys, counters_t *cur, int *physical)
+{
     /* skip the two header lines */
     char line[256];
-    if (!fgets(line, sizeof(line), f) || !fgets(line, sizeof(line), f)) {
-        fclose(f);
+    if (!fgets(line, sizeof(line), f) || !fgets(line, sizeof(line), f))
         return -1;
-    }
 
+    int64_t all_in = 0, all_out = 0, phys_in = 0, phys_out = 0;
+    int     phys = 0;
     while (fgets(line, sizeof(line), f)) {
         char *colon = strchr(line, ':');
         if (!colon)
@@ -487,11 +494,18 @@ static int read_net_raw(counters_t *cur)
         if (!ok)
             continue;
 
-        cur->in += cols[0];
-        cur->out += cols[8];
+        all_in += cols[0];
+        all_out += cols[8];
+        if (!net_is_virtual(sys, iface)) {
+            phys_in += cols[0];
+            phys_out += cols[8];
+            phys++;
+        }
     }
 
-    fclose(f);
+    *physical = phys > 0;
+    cur->in = *physical ? phys_in : all_in;
+    cur->out = *physical ? phys_out : all_out;
 
     return 0;
 }
@@ -505,53 +519,77 @@ static int parse_link_speed(const char *s)
     return (end != s && v > 0 && v <= 1000000) ? (int)v : 0;
 }
 
-int metrics_link_speed_mbit(void)
+/* Sum of the sysfs `speed` of the interfaces read_net_dev sums traffic over. */
+static int link_speed(const char *sys)
 {
-    DIR *d = opendir("/sys/class/net");
+    char path[320]; /* fits the longest possible d_name plus SYS_DIR and the fixed parts */
+    snprintf(path, sizeof(path), "%s/class/net", sys);
+    DIR *d = opendir(path);
     if (!d)
         return 0;
 
-    int total = 0;
+    int all = 0, phys = 0, phys_speed = 0;
     for (struct dirent *e = readdir(d); e; e = readdir(d)) {
         if (e->d_name[0] == '.' || strcmp(e->d_name, "lo") == 0)
             continue;
-        char path[320]; /* fits the longest possible d_name plus the fixed parts */
-        snprintf(path, sizeof(path), "/sys/class/net/%s/speed", e->d_name);
+
+        int physical = !net_is_virtual(sys, e->d_name);
+        phys += physical;
+
+        snprintf(path, sizeof(path), "%s/class/net/%s/speed", sys, e->d_name);
         FILE *f = fopen(path, "r");
         if (!f)
             continue;
+
         char buf[32] = {0};
-        if (fgets(buf, sizeof(buf), f))
-            total += parse_link_speed(buf);
+        int  speed = fgets(buf, sizeof(buf), f) ? parse_link_speed(buf) : 0;
         fclose(f);
+        all += speed;
+        if (physical)
+            phys_speed += speed;
     }
 
     closedir(d);
-    return total;
+    return phys > 0 ? phys_speed : all;
+}
+
+int metrics_link_speed_mbit(void) { return link_speed(SYS_DIR); }
+
+/* One network sample, taken at `now`: `f` is /proc/net/dev, or NULL when it did not open. A failed
+ * read keeps the previous sample for the next rate. */
+static void sample_net(FILE *f, const char *sys, struct timespec now, metrics_t *m)
+{
+    m->net_valid = 0;
+
+    counters_t cur = {.t = now};
+    int        physical = 0;
+    if (!f || read_net_dev(f, sys, &cur, &physical) != 0)
+        return;
+
+    /* Sums over different sets of interfaces give no rate. */
+    if (s_prev_net_valid && physical == s_prev_net_physical)
+        m->net_valid = counter_rates(&s_prev_net, &cur, &m->net_rx_bps, &m->net_tx_bps);
+
+    s_prev_net = cur;
+    s_prev_net_physical = physical;
+    s_prev_net_valid = 1;
 }
 
 static void collect_net(metrics_t *m)
 {
-    counters_t cur;
-    if (read_net_raw(&cur) != 0) {
-        m->net_valid = 0;
-        return;
-    }
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    FILE *f = fopen("/proc/net/dev", "r");
 
-    if (!s_prev_net_valid) {
-        s_prev_net = cur;
-        s_prev_net_valid = 1;
-        m->net_valid = 0;
-        return;
-    }
+    sample_net(f, SYS_DIR, now, m);
 
-    m->net_valid = counter_rates(&s_prev_net, &cur, &m->net_rx_bps, &m->net_tx_bps);
-    s_prev_net = cur;
+    if (f)
+        fclose(f);
 }
 
 /* --- Swap I/O --- */
 
-/* in is what was read back from swap, out what was written to it. */
+/* In s_prev_swap_io, `in` is what was read back from swap and `out` what was written to it. */
 static int        s_prev_swap_io_valid = 0;
 static counters_t s_prev_swap_io;
 
@@ -579,7 +617,7 @@ static int read_vmstat_swap(FILE *f, int64_t *in_pages, int64_t *out_pages)
     return found == 3 ? 0 : -1;
 }
 
-/* One swap I/O sample, taken at `now`: f is /proc/vmstat, or NULL when it did not open. */
+/* One swap I/O sample, taken at `now`: `f` is /proc/vmstat, or NULL when it did not open. */
 static void sample_swap_io(FILE *f, struct timespec now, metrics_t *m)
 {
     m->swap_io_valid = 0;

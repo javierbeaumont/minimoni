@@ -190,7 +190,7 @@ static int handler_current(struct mg_connection *conn, void *cbdata)
     jbuf_init(&j, buf, sizeof(buf));
     jbuf_begin(&j);
     json_serialize_current(&j, &row, ctx->cfg, ctx->num_cores, ctx->temp_critical_valid,
-                           ctx->temp_critical, ctx->net_speed_mbit);
+                           ctx->temp_critical, atomic_load(&ctx->net_speed_mbit));
     jbuf_end(&j);
 
     return send_json(conn, &j, "/api/current");
@@ -290,7 +290,7 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
         jbuf_init(&j, pt, sizeof(pt));
         jbuf_begin(&j);
         json_serialize_point(&j, &rows[i], ctx->cfg, ctx->num_cores, ctx->temp_critical_valid,
-                             ctx->temp_critical, ctx->net_speed_mbit);
+                             ctx->temp_critical, atomic_load(&ctx->net_speed_mbit));
         jbuf_end(&j);
 
         emit_part(conn, &j, &emitted, "/api/metrics point");
@@ -359,7 +359,7 @@ static void stream_loop(struct mg_connection *conn, const http_ctx_t *ctx)
             jbuf_init(&j, buf, sizeof(buf));
             jbuf_begin(&j);
             json_serialize_current(&j, &row, ctx->cfg, ctx->num_cores, ctx->temp_critical_valid,
-                                   ctx->temp_critical, ctx->net_speed_mbit);
+                                   ctx->temp_critical, atomic_load(&ctx->net_speed_mbit));
             jbuf_end(&j);
 
             if (stream_frame(conn, &j) < 0)
@@ -427,9 +427,7 @@ int http_start(http_ctx_t *ctx, const config_t *cfg, db_t *db)
     ctx->num_cores = read_num_cores("/sys/devices/system/cpu/online");
     ctx->temp_critical_valid = metrics_temp_critical(&ctx->temp_critical) == 0;
     metrics_temp_zone_note();
-    /* Host properties, read once at startup like the trip point above: a link
-     * renegotiation (or a new cable) needs a restart to be picked up. */
-    ctx->net_speed_mbit = metrics_link_speed_mbit();
+    atomic_init(&ctx->net_speed_mbit, metrics_link_speed_mbit());
 
     /* The reserve is ours, not the operator's: they ask for N dashboards and the
      * pool is sized to serve N streams plus everything else. */
