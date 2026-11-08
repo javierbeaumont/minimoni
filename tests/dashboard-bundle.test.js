@@ -149,6 +149,50 @@ test('the swap I/O chart draws in and out', () => {
   assert.ok(read('chart.js').includes("k: 'swap-out'"), 'chart.js draws no swap out line');
 });
 
+/* tx and rx read sent and received in the card, the legend and the tooltip. */
+test('the network card and chart say sent and received', () => {
+  const card = html.match(
+    /<div class="card hide" id="c-net">[\s\S]*?<div class="csub">[\s\S]*?<\/div>/);
+  const legend = html.match(/<div class="legend" id="leg-g-net"[^>]*>([\s\S]*?)<\/div>/);
+  const chart = read('chart.js');
+
+  assert.ok(card, 'index.html has no network card');
+  assert.deepStrictEqual([...card[0].matchAll(/s-net-[rt]x"[^>]*>(\w+)<\/span>/g)].map((m) => m[1]),
+    ['sent', 'received', 'sent', 'received']);
+  assert.ok(legend, 'the network chart has no legend');
+  assert.deepStrictEqual([...legend[1].matchAll(/<\/span>(\w+)<\/span>/g)].map((m) => m[1]),
+    ['sent', 'received']);
+  assert.deepStrictEqual([...legend[1].matchAll(/aria-label="(\w+) series"/g)].map((m) => m[1]),
+    ['sent', 'received']);
+  assert.match(chart, /k: 'net-tx'.*label: 'sent'/);
+  assert.match(chart, /k: 'net-rx'.*label: 'received'/);
+});
+
+/* Until the first /api/current brings the config, the dashboard assumes the server's defaults. */
+test("the dashboard starts with the server's default units", () => {
+  const config = fs.readFileSync(path.join(__dirname, '..', 'src', 'config.c'), 'utf8');
+  const name = {
+    cpu_load: 'load', disk: 'disk', memory: 'mem', net: 'net', swap: 'swap', swap_io: 'swap_io',
+    temp: 'temp',
+  };
+  const server = { card: {}, chart: {} };
+
+  for (const [, metric, kind, unit] of config.matchAll(
+    /snprintf\(cfg->(\w+)_(card|chart)_unit, [^;]*"%s", "([^"]*)"\);/g)) {
+    assert.ok(name[metric], `no dashboard name for ${metric}`);
+    server[kind][name[metric]] = unit;
+  }
+
+  const cards = read('cards.js');
+  const defaults = (map) => Object.fromEntries(
+    [...cards.match(new RegExp(`const ${map} = \\{([^}]*)\\}`))[1]
+      .matchAll(/(\w+): '([^']*)'/g)].map((m) => [m[1], m[2]]));
+
+  assert.strictEqual(Object.keys(server.card).length, Object.keys(name).length);
+  assert.deepStrictEqual(defaults('cfgCardUnits'), server.card);
+  assert.deepStrictEqual(defaults('cfgChartUnits'), server.chart);
+});
+
 test('every chart legend has one hidden flag per series', () => {
   const hidden = vm.runInContext('seriesHidden', ctx);
   const legends = [...html.matchAll(

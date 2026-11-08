@@ -39,12 +39,13 @@ const THRESH = {
   temp: [68, 76.5],  /* °C: 80 and 90 % of the default critical, 85 °C */
 };
 
-/* Units read from server config; sensible defaults until first /current */
+/* Units read from server config; the server's defaults until the first /api/current */
 const cfgCardUnits = {
-  mem: '%', swap: '%', swap_io: 'bytes', disk: '%', temp: 'degrees', net: 'kb', load: 'abs',
+  mem: '%', swap: '%', swap_io: 'bytes', disk: '%', temp: 'degrees', net: 'bytes', load: 'abs',
 };
 const cfgChartUnits = {
-  mem: 'mb', swap: 'auto', swap_io: 'bytes', disk: 'gb', temp: 'degrees', net: 'kb', load: 'abs',
+  mem: 'auto', swap: 'auto', swap_io: 'bytes', disk: 'auto', temp: 'degrees', net: 'bytes',
+  load: 'abs',
 };
 let cfgTempScale = 'celsius';
 let cfgUptimeUnit = 'auto';

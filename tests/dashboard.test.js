@@ -151,8 +151,8 @@ test('cardLevel thresholds', () => {
 });
 
 test('pairLevel: the busier direction decides', () => {
-  assert.strictEqual(pairLevel(10, 95, [85, 98]), 'y');  /* download alone crosses warn */
-  assert.strictEqual(pairLevel(99, 10, [85, 98]), 'r');  /* upload alone saturates */
+  assert.strictEqual(pairLevel(10, 95, [85, 98]), 'y');  /* received alone crosses warn */
+  assert.strictEqual(pairLevel(99, 10, [85, 98]), 'r');  /* sent alone saturates */
   assert.strictEqual(pairLevel(10, 20, [85, 98]), 'g');
   assert.strictEqual(pairLevel(null, 99, [85, 98]), 'r'); /* one direction is enough */
   assert.strictEqual(pairLevel(null, null, [85, 98]), ''); /* no delta yet: no semaphore */

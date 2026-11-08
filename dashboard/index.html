@@ -130,13 +130,13 @@
     </div>
     <div class="card hide" id="c-net">
       <div class="clabel">Network
-        <span class="card-unit s-net-tx" data-series="0">upload</span>
-        <span class="card-unit hide s-net-rx" data-series="1">download</span>
+        <span class="card-unit s-net-tx" data-series="0">sent</span>
+        <span class="card-unit hide s-net-rx" data-series="1">received</span>
       </div>
       <div class="cval">&#8212;</div>
       <div class="csub">
-        <span class="card-sub hide" data-card="net" data-idx="0"><span class="card-sub-lbl s-net-tx">upload</span> <span class="card-sub-val"></span></span>
-        <span class="card-sub" data-card="net" data-idx="1"><span class="card-sub-lbl s-net-rx">download</span> <span class="card-sub-val"></span></span>
+        <span class="card-sub hide" data-card="net" data-idx="0"><span class="card-sub-lbl s-net-tx">sent</span> <span class="card-sub-val"></span></span>
+        <span class="card-sub" data-card="net" data-idx="1"><span class="card-sub-lbl s-net-rx">received</span> <span class="card-sub-val"></span></span>
       </div>
     </div>
   </div>
@@ -213,8 +213,8 @@
       <div class="chdr">
         <span class="ctitle">Network</span>
         <div class="legend" id="leg-g-net" data-chart="g-net">
-          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="upload series" data-series="0"><span class="leg-dot s-net-tx"></span>upload</span>
-          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="download series" data-series="1"><span class="leg-dot s-net-rx"></span>download</span>
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="sent series" data-series="0"><span class="leg-dot s-net-tx"></span>sent</span>
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="received series" data-series="1"><span class="leg-dot s-net-rx"></span>received</span>
         </div>
       </div>
       <canvas id="g-net" role="img" aria-label="Network history chart"></canvas>

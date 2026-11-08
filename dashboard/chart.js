@@ -440,8 +440,8 @@ function renderAll() {
     }
 
     drawChart('g-net', [
-      { c: CLR.tx, k: 'net-tx', v: pts.map((p) => (netIsPct ? p.nt : scaleTo(p.nt, netU))), label: 'upload' },
-      { c: CLR.rx, k: 'net-rx', v: pts.map((p) => (netIsPct ? p.nr : scaleTo(p.nr, netU))), label: 'download' },
+      { c: CLR.tx, k: 'net-tx', v: pts.map((p) => (netIsPct ? p.nt : scaleTo(p.nt, netU))), label: 'sent' },
+      { c: CLR.rx, k: 'net-rx', v: pts.map((p) => (netIsPct ? p.nr : scaleTo(p.nr, netU))), label: 'received' },
     ].filter((_, i) => !seriesHidden['g-net'][i]), netOpts);
   }
 
