@@ -31,8 +31,10 @@
  *   - executes the command via system() with MINIMONI_ALERT_* env vars set
  *   - logs the fire event in alert_log
  * `temp_critical` is the critical trip point in °C that temp_ref resolves: `temp_percent` is
- * measured against it.
+ * measured against it. `net_ref` is the link ceiling in bytes/s that net_ref_bps resolves:
+ * `net_rx_percent` and `net_tx_percent` are measured against it.
  * Individual failures are logged to stderr; the function always returns 0. */
-int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double temp_critical);
+int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double temp_critical,
+                    double net_ref);
 
 #endif /* MINIMONI_ALERTS_H */

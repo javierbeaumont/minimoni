@@ -213,8 +213,8 @@ static int known_name(const char *name, const char *const *known, const char *ke
  * otherwise silently ignore, leaving the user wondering why their setting did
  * not take effect. */
 static const char *const SERVER_KEYS[] = {"listen", "max_dashboards", "sse_keepalive"};
-static const char *const COLLECT_KEYS[] = {"db", "disk_path", "interval", "temp_critical",
-                                           "temp_scale"};
+static const char *const COLLECT_KEYS[] = {
+    "db", "disk_path", "interval", "net_max_speed", "temp_critical", "temp_scale"};
 static const char *const WEBHOOK_KEYS[] = {"ca_file", "insecure_skip_verify"};
 /* One key per line, so a new one never reflows the list. */
 /* clang-format off */
@@ -228,7 +228,6 @@ static const char *const DASHBOARD_KEYS[] = {"cards",
                                              "memory_chart_unit",
                                              "net_card_unit",
                                              "net_chart_unit",
-                                             "net_max_speed",
                                              "ranges",
                                              "refresh",
                                              "show_footer",
@@ -507,6 +506,15 @@ int config_load(config_t *cfg, const char *path)
             fprintf(stderr, "config: temp_critical must be above 0 °C (32 °F); ignored\n");
     }
 
+    v = toml_seek(root, "collect.net_max_speed");
+    if (v.type == TOML_INT64 && v.u.int64 > 0 && v.u.int64 <= 1000000)
+        cfg->net_max_speed = (int)v.u.int64;
+    else if (v.type == TOML_INT64)
+        fprintf(stderr,
+                "config: net_max_speed must be 1..1000000 Mbit/s (got %ld); "
+                "using default\n",
+                (long)v.u.int64);
+
     /* [webhook] */
     v = toml_seek(root, "webhook.insecure_skip_verify");
     if (v.type == TOML_BOOLEAN)
@@ -587,15 +595,6 @@ int config_load(config_t *cfg, const char *path)
     unit_copy(cfg->net_chart_unit, sizeof(cfg->net_chart_unit), v, "net_chart_unit", NET_UNITS);
     v = toml_seek(root, "dashboard.uptime_unit");
     unit_copy(cfg->uptime_unit, sizeof(cfg->uptime_unit), v, "uptime_unit", UPTIME_UNITS);
-
-    v = toml_seek(root, "dashboard.net_max_speed");
-    if (v.type == TOML_INT64 && v.u.int64 > 0 && v.u.int64 <= 1000000)
-        cfg->net_max_speed = (int)v.u.int64;
-    else if (v.type == TOML_INT64)
-        fprintf(stderr,
-                "config: net_max_speed must be 1..1000000 Mbit/s (got %ld); "
-                "using default\n",
-                (long)v.u.int64);
 
     v = toml_seek(root, "dashboard.charts");
     if (v.type == TOML_ARRAY) {

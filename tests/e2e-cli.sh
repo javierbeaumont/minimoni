@@ -151,6 +151,22 @@ rc=$?
 check_rc "an alert with == fails the load" 1 "$rc"
 check_has "and says what to use instead" "$out" "use '<= 0' to check for zero"
 
+# The one-shot collect evaluates the network percents too.
+cat >"$work/net.toml" <<EOF
+[collect]
+db = "$work/net.db"
+net_max_speed = 100
+[[alert]]
+name = "net"
+metric = "net_rx_percent"
+operator = ">="
+threshold = 0
+command = "echo \$MINIMONI_ALERT_METRIC=\$MINIMONI_ALERT_VALUE > $work/net.out"
+EOF
+"$BIN" collect --config "$work/net.toml" >/dev/null 2>&1
+check_has "collect fires a net_rx_percent alert" "$(cat "$work/net.out" 2>/dev/null)" \
+    "net_rx_percent="
+
 # --- db info ---
 info=$("$BIN" db info "$work/metrics.db" 2>/dev/null)
 rc=$?
@@ -238,11 +254,11 @@ units_serve() { # CFG_BODY [COLLECT_LINES] -> sets $current and $metrics
 db = "$udb"
 interval = 60
 disk_path = "/"
+net_max_speed = 100
 ${2:-}
 [server]
 listen = "127.0.0.1:$PORT"
 [dashboard]
-net_max_speed = 100
 $1
 EOF
     "$BIN" serve --config "$work/u.toml" >/dev/null 2>&1 &

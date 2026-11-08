@@ -188,9 +188,9 @@ function collectTempCritical(c) {
   return Number.isFinite(celsius) && celsius > 0 ? celsius : null;
 }
 
-/* Net percent reference in Mbit/s; 0 means unset, so the detected link is used. */
-function dashboardNetMaxSpeed(d) {
-  const v = Number('net_max_speed' in d ? d.net_max_speed : 0);
+/* Net percent reference in Mbit/s, from [collect]; 0 means unset, so the detected link is used. */
+function collectNetMaxSpeed(c) {
+  const v = Number('net_max_speed' in c ? c.net_max_speed : 0);
 
   return Number.isFinite(v) && v > 0 ? v : 0;
 }
@@ -250,7 +250,7 @@ module.exports = {
   parseTable,
   parseDashboard,
   collectTempCritical,
-  dashboardNetMaxSpeed,
+  collectNetMaxSpeed,
   loadConfig,
   configFields,
 };

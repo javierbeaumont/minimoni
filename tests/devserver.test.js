@@ -33,7 +33,7 @@ const path = require('path');
 const dev = path.join(__dirname, '..', 'tools', 'devserver');
 
 const {
-  configFields, parseTable, parseDashboard, collectTempCritical, loadConfig,
+  configFields, parseTable, parseDashboard, collectTempCritical, collectNetMaxSpeed, loadConfig,
 } = require(path.join(dev, 'config'));
 
 const { streamShouldDrop } = require(path.join(dev, 'handler'));
@@ -464,13 +464,13 @@ test('parseDashboard: scalars, comment, # inside string', () => {
     'title = "My # Server"   # trailing comment',
     'theme = "dark"',
     'show_footer = false',
-    'net_max_speed = 90',
+    'refresh = 90',
   ].join('\n'));
 
   assert.strictEqual(d.title, 'My # Server');
   assert.strictEqual(d.theme, 'dark');
   assert.strictEqual(d.show_footer, false);
-  assert.strictEqual(d.net_max_speed, 90);
+  assert.strictEqual(d.refresh, 90);
   assert.ok(!('listen' in d)); /* keys outside [dashboard] are ignored */
 });
 
@@ -611,6 +611,12 @@ test('unitsFor: swap I/O in bytes takes the busier direction; in "ram" no unit',
   assert.deepStrictEqual(unitsFor(io, configFields({})).swap_io,
     { sym: 'KB/s', mul: 1, div: 1024 });
   assert.ok(!('swap_io' in unitsFor(io, configFields({ swap_io_chart_unit: 'ram' }))));
+});
+
+test('collectNetMaxSpeed: valid, non-positive, absent', () => {
+  assert.strictEqual(collectNetMaxSpeed({ net_max_speed: 300 }), 300);
+  assert.strictEqual(collectNetMaxSpeed({ net_max_speed: 0 }), 0);
+  assert.strictEqual(collectNetMaxSpeed({}), 0);
 });
 
 test('collectTempCritical: valid, non-positive, absent', () => {

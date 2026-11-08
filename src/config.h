@@ -33,8 +33,9 @@
         "cpu_idle_percent", "mem_used_mb", "mem_available_mb", "mem_used_percent",                 \
         "mem_available_percent", "disk_used_gb", "disk_available_gb", "disk_used_percent",         \
         "disk_available_percent", "temp_degrees", "temp_percent", "net_rx_bps", "net_tx_bps",      \
-        "uptime_seconds", "swap_free_mb", "swap_used_mb", "swap_free_percent",                     \
-        "swap_used_percent", "swap_in_bps", "swap_out_bps", "swap_in_ram", "swap_out_ram"
+        "net_rx_percent", "net_tx_percent", "uptime_seconds", "swap_free_mb", "swap_used_mb",      \
+        "swap_free_percent", "swap_used_percent", "swap_in_bps", "swap_out_bps", "swap_in_ram",    \
+        "swap_out_ram"
 
 typedef struct {
     char   name[64];
@@ -58,6 +59,7 @@ typedef struct {
     char  disk_path[256];   /* default: "/" */
     char  temp_scale[16];   /* "celsius" | "fahrenheit", default: "celsius" */
     float temp_critical;    /* critical trip point in °C, wins over the sensor's; 0: unset */
+    int   net_max_speed;    /* link ceiling in Mbit/s, wins over the detected link; 0: unset */
 
     /* [webhook] */
     int  insecure_skip_verify; /* 1 = POST https webhooks unverified, default: 0 */
@@ -82,7 +84,6 @@ typedef struct {
     char cpu_load_chart_unit[4]; /* "abs" | "%", default: "abs" */
     char net_card_unit[8];       /* "%" | "bytes" | "bits", default: "bytes" */
     char net_chart_unit[8];      /* "%" | "bytes" | "bits", default: "bytes" */
-    int  net_max_speed;          /* net % 100% ref (Mbit/s); 0 = use the detected link */
     char uptime_unit[8];         /* "h"|"d"|"auto", default: "auto" */
     /* charts/cards: count=0 means show all in default order */
     char charts[MAX_CHARTS][16]; /* cpu_load, cpu_usage, memory, swap, swap_io, disk, temp, net */

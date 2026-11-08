@@ -356,6 +356,7 @@ interval  = 60
 disk_path = "/"
 # temp_scale    = "celsius" # "celsius" | "fahrenheit"
 # temp_critical = 80        # in temp_scale; wins over the sensor's (default: sensor's, else 85 °C)
+# net_max_speed = 300       # link ceiling in Mbit/s; wins over sysfs (default: sysfs, else 1000)
 ```
 
 **`db`**: path to the SQLite database. Default: `./metrics.db`. For a persistent installation, use
@@ -389,6 +390,17 @@ set, it wins over the one the sensor reports, which may mean something else: a R
 example, reports 110 °C, where the kernel shuts it down, but its firmware slows it down from 80 °C,
 so `temp_critical = 80` measures against that. Unset, the sensor's applies, or 85 °C (185 °F) when
 it reports none. It must be above 0 °C (32 °F), or it is ignored with a warning.
+
+**`net_max_speed`**: the link ceiling in Mbit/s. It is the 100 % of the `net_rx_percent` and
+`net_tx_percent` alerts and of the dashboard's net `"%"` units, and anchors its semaphore: yellow at
+85% of it, red at 98%, both levels drawn on the chart once traffic reaches them. Set your real
+ceiling, because sysfs reports the NIC and not the uplink behind it: a 1 GbE card on a 300 Mbit line
+reads 1000, and every value then looks three times healthier than it is. With neither this key nor
+sysfs, minimoni assumes 1 GbE.
+
+The traffic and the sysfs speed are those of the physical interfaces, so what a bridge or a
+container's veth passes on is not counted twice; with none physical, as in a container without the
+host's network, those of every interface but `lo`. The speed is read again every `interval`.
 
 ### Server
 
@@ -445,9 +457,6 @@ temp_card_unit         = "degrees" # status card: "%" | "degrees"
 temp_chart_unit        = "degrees" # chart Y-axis: "%" | "degrees"
 net_card_unit          = "bytes" # status card: "%" | "bytes" | "bits"
 net_chart_unit         = "bytes" # chart Y-axis: "%" | "bytes" | "bits"
-# net_max_speed          = 300    # link ceiling in Mbit/s: the net "%" denominator and the
-#                                 # source of its thresholds. Wins over the sysfs link speed
-#                                 # (the NIC's, not your uplink). Unset: sysfs, else 1000
 uptime_unit            = "auto" # uptime display: "auto" | "h" | "d"
 ```
 
@@ -497,9 +506,9 @@ absolute chart is fine. Under `"auto"` the magnitude is not configurable, see **
 magnitudes** below.
 
 **`net_card_unit`** / **`net_chart_unit`**: `"%"` measures throughput against the link ceiling (see
-`net_max_speed`); `"bytes"` counts in KB/s, MB/s and GB/s, and `"bits"` in Kbps, Mbps and Gbps, the
-form link speeds are usually quoted in. Bytes climb in steps of 1024, bits in steps of 1000, as each
-convention has it. As with memory, swap and disk, the magnitude itself is automatic.
+`collect.net_max_speed`); `"bytes"` counts in KB/s, MB/s and GB/s, and `"bits"` in Kbps, Mbps and
+Gbps, the form link speeds are usually quoted in. Bytes climb in steps of 1024, bits in steps of
+1000, as each convention has it. As with memory, swap and disk, the magnitude itself is automatic.
 
 **`swap_io_card_unit`** / **`swap_io_chart_unit`**: `"bytes"` counts what goes in and out of swap in
 KB/s, MB/s and GB/s, with the magnitude picked automatically; `"ram"` shows it as % of the RAM per
@@ -518,16 +527,6 @@ integer digits a card can display, so numbers stay whole (`1748 MB`, not `1.707 
 up an order of magnitude early so a value arriving after the choice still fits. With nothing on
 screen there is nothing to infer a unit from, and none is shown. Explicit magnitudes (`"mb"`,
 `"gb"`, `"tb"`, `"kbps"`...) are not accepted: they warn at startup and fall back to the default.
-
-**`net_max_speed`**: the link ceiling in Mbit/s. Denominator of the net `"%"` units and anchor of
-the semaphore: yellow at 85% of it, red at 98%, both levels drawn on the chart once traffic
-reaches them. Set your real ceiling, because sysfs reports the NIC and not the uplink behind it:
-a 1 GbE card on a 300 Mbit line reads 1000, and every value then looks three times healthier than
-it is. With neither this key nor sysfs, minimoni assumes 1 GbE.
-
-The traffic and the sysfs speed are those of the physical interfaces, so what a bridge or a
-container's veth passes on is not counted twice; with none physical, as in a container without the
-host's network, those of every interface but `lo`. The speed is read again every `interval`.
 
 The number of data points per chart is no longer a per-install setting: the dashboard
 JS asks for what it can render, via the `points` query parameter on `/api/metrics`
@@ -576,6 +575,8 @@ cooldown  = "1h"                # minimum time between repeated firings
 | `temp_percent`           | %         | Temperature as percent of the critical trip point |
 | `net_rx_bps`             | bytes/s   | Receive throughput                                |
 | `net_tx_bps`             | bytes/s   | Transmit throughput                               |
+| `net_rx_percent`         | %         | Receive throughput as percent of link ceiling     |
+| `net_tx_percent`         | %         | Transmit throughput as percent of link ceiling    |
 | `uptime_seconds`         | s         | Seconds since boot                                |
 | `swap_free_mb`           | MB        | Free swap                                         |
 | `swap_used_mb`           | MB        | Used swap                                         |
@@ -589,10 +590,12 @@ cooldown  = "1h"                # minimum time between repeated firings
 Thresholds are compared against the raw metric value, in the unit named by its suffix: `_mb` is
 megabytes, `_gb` is gigabytes, `_percent` is a percentage, `_degrees` is degrees in
 `collect.temp_scale`, `_bps` is bytes per second, `_ram` is swap I/O as a percent of the RAM per
-minute (past 100 when the same pages go back and forth). `_bps` and `_ram` are averages over the
-collect interval: a longer interval smooths out short bursts. `load_*` are raw load averages;
-`uptime_seconds` is in seconds. `temp_percent` counts from the scale's zero (0 °C or 0 °F) up to
-the critical trip point (see `collect.temp_critical`).
+minute (past 100 when the same pages go back and forth). `_bps`, `_ram` and `net_*_percent` are
+averages over the collect interval: a longer interval smooths out short bursts. `load_*` are raw
+load averages; `uptime_seconds` is in seconds. `temp_percent` counts from the scale's zero (0 °C or
+0 °F) up to the critical trip point (see `collect.temp_critical`). `net_rx_percent` and
+`net_tx_percent` are measured against the link ceiling the dashboard's net semaphore uses (see
+`collect.net_max_speed`), so a threshold of 85 or 98 matches its yellow or its red.
 Dashboard unit settings do not affect alert thresholds: alerts work from the database, never in the
 dashboard's units. The `swap_*` metrics are skipped on a host without swap.
 

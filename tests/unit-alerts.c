@@ -236,7 +236,7 @@ static int test_every_config_metric_has_a_value(void)
 
     for (int i = 0; names[i]; i++) {
         int valid = 0;
-        metric_value(&row, names[i], &cfg, 100.0, &valid);
+        metric_value(&row, names[i], &cfg, 100.0, 12.5e6, &valid);
         if (!valid)
             return 1;
     }
@@ -296,7 +296,7 @@ static double temp_metric(const char *scale, const char *m, int *valid)
     row.temp_celsius = 55.0;
     snprintf(cfg.temp_scale, sizeof(cfg.temp_scale), "%s", scale);
 
-    return metric_value(&row, m, &cfg, 110.0, valid);
+    return metric_value(&row, m, &cfg, 110.0, 12.5e6, valid);
 }
 
 static int near(double a, double b) { return a - b < 1e-9 && b - a < 1e-9; }
@@ -333,12 +333,43 @@ static int test_temp_metrics_without_a_sensor_have_no_value(void)
 
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
         int valid = 1;
-        metric_value(&row, names[i], &cfg, 110.0, &valid);
+        metric_value(&row, names[i], &cfg, 110.0, 12.5e6, &valid);
         if (valid)
             return 1;
     }
 
     return 0;
+}
+
+/* Over a 100 Mbit/s link (12.5e6 bytes/s), 2.5e6 bytes/s in is 20 % and 10e6 out is 80 %. */
+static int test_net_percents_of_the_link(void)
+{
+    config_t cfg = {0};
+    db_row_t row;
+    memset(&row, 0, sizeof(row));
+    row.net_valid = 1;
+    row.net_rx_bps = 2.5e6;
+    row.net_tx_bps = 10e6;
+
+    int    rx, tx;
+    double r = metric_value(&row, "net_rx_percent", &cfg, 100.0, 12.5e6, &rx);
+    double t = metric_value(&row, "net_tx_percent", &cfg, 100.0, 12.5e6, &tx);
+
+    return near(r, 20.0) && near(t, 80.0) && rx && tx ? 0 : 1;
+}
+
+/* Without a rate, as on the first sample, the percents have no value either. */
+static int test_net_percents_without_a_rate_have_no_value(void)
+{
+    config_t cfg = {0};
+    db_row_t row;
+    memset(&row, 0, sizeof(row));
+
+    int rx = 1, tx = 1;
+    metric_value(&row, "net_rx_percent", &cfg, 100.0, 12.5e6, &rx);
+    metric_value(&row, "net_tx_percent", &cfg, 100.0, 12.5e6, &tx);
+
+    return !rx && !tx ? 0 : 1;
 }
 
 static const char *const SWAP_METRICS[] = {"swap_free_mb",      "swap_used_mb", "swap_free_percent",
@@ -510,6 +541,8 @@ static const test_t ALL_TESTS[] = {
     T(temp_metrics_in_celsius),
     T(temp_metrics_in_fahrenheit),
     T(temp_metrics_without_a_sensor_have_no_value),
+    T(net_percents_of_the_link),
+    T(net_percents_without_a_rate_have_no_value),
     T(swap_metrics_read_their_fields),
     T(swap_metrics_without_swap_have_no_value),
     T(swap_io_metrics_without_a_sample_have_no_value),

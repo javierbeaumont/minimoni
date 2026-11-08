@@ -36,7 +36,7 @@ const {
   DEFAULT_CONFIG,
   configFields,
   collectTempCritical,
-  dashboardNetMaxSpeed,
+  collectNetMaxSpeed,
   loadConfig,
 } = require('./config');
 
@@ -151,7 +151,7 @@ function main() {
     version: gitVersion(),
     configFields: configFields(dashboard, collect),
     tempCritical: collectTempCritical(collect),
-    netMaxSpeed: dashboardNetMaxSpeed(dashboard),
+    netMaxSpeed: collectNetMaxSpeed(collect),
     scenario: opts.scenario,
     flaky: opts.flaky,
   };

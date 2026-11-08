@@ -147,6 +147,7 @@ static int run_collect(const char *config_path)
     double critical = 0;
     int    has_critical = metrics_temp_critical(&critical) == 0;
     double temp_critical = temp_ref(cfg.temp_critical, has_critical, critical);
+    double net_ref = net_ref_bps(cfg.net_max_speed, metrics_link_speed_mbit());
 
     int ret = 0;
     if (db_insert(&db, &m) != 0) {
@@ -156,7 +157,7 @@ static int run_collect(const char *config_path)
         db_prune(&db, retention_days(&cfg));
         db_row_t row;
         if (db_current(&db, &row) == 0)
-            alerts_evaluate(&db, &cfg, &row, temp_critical);
+            alerts_evaluate(&db, &cfg, &row, temp_critical, net_ref);
     }
 
     db_close(&db);
@@ -219,7 +220,8 @@ static int run_serve(const char *config_path)
         metrics_run_note(&run, rc);
         /* A link can come up after start or renegotiate. Read here once a cycle, not per request:
          * every open dashboard sends one each refresh seconds. */
-        atomic_store(&http.net_speed_mbit, metrics_link_speed_mbit());
+        int link_mbit = metrics_link_speed_mbit();
+        atomic_store(&http.net_speed_mbit, link_mbit);
 
         if (rc != 0)
             continue;
@@ -232,7 +234,8 @@ static int run_serve(const char *config_path)
 
         db_row_t row;
         if (db_current(&db, &row) == 0)
-            alerts_evaluate(&db, &cfg, &row, temp_critical);
+            alerts_evaluate(&db, &cfg, &row, temp_critical,
+                            net_ref_bps(cfg.net_max_speed, link_mbit));
     }
 
     http_stop(&http);

@@ -1270,7 +1270,7 @@ static int test_net_max_speed_default(void)
 static int test_net_max_speed_applied(void)
 {
     config_t cfg;
-    if (load_cfg(&cfg, "[dashboard]\nnet_max_speed = 300\n") != 0)
+    if (load_cfg(&cfg, "[collect]\nnet_max_speed = 300\n") != 0)
         return 1;
     return cfg.net_max_speed == 300 ? 0 : 1;
 }
@@ -1278,9 +1278,21 @@ static int test_net_max_speed_applied(void)
 static int test_net_max_speed_invalid(void)
 {
     config_t cfg;
-    if (load_cfg(&cfg, "[dashboard]\nnet_max_speed = 0\n") != 0)
+    if (load_cfg(&cfg, "[collect]\nnet_max_speed = 0\n") != 0)
         return 1;
     return cfg.net_max_speed == 0 ? 0 : 1;
+}
+
+/* It moved to [collect], with the alerts that read it: in [dashboard] it is an unknown key. */
+static int test_net_max_speed_in_dashboard_is_unknown(void)
+{
+    config_t cfg;
+    char     err[512];
+
+    if (load_cfg_err(&cfg, "[dashboard]\nnet_max_speed = 300\n", err, sizeof(err)) != 0)
+        return 1;
+
+    return strstr(err, "unknown key 'dashboard.net_max_speed'") && cfg.net_max_speed == 0 ? 0 : 1;
 }
 
 static int test_net_unit_percent_accepted(void)
@@ -1721,6 +1733,26 @@ static int test_swap_alert_metrics_accepted(void)
     return 0;
 }
 
+static int test_net_alert_metrics_accepted(void)
+{
+    static const char *const names[] = {"net_rx_bps", "net_tx_bps", "net_rx_percent",
+                                        "net_tx_percent"};
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        char toml[256];
+        snprintf(toml, sizeof(toml),
+                 "[[alert]]\nname = \"net\"\nmetric = \"%s\"\noperator = \">\"\n"
+                 "threshold = 1\nwebhook = \"w\"\n",
+                 names[i]);
+
+        config_t cfg;
+        if (load_cfg(&cfg, toml) != 0 || cfg.alert_count != 1 ||
+            strcmp(cfg.alerts[0].metric, names[i]))
+            return 1;
+    }
+
+    return 0;
+}
+
 /* A missing disk_path was once loaded: serve then failed every collection and stored nothing. */
 static int test_missing_disk_path_fails(void)
 {
@@ -1868,6 +1900,7 @@ static const test_t ALL_TESTS[] = {
     T(net_max_speed_default),
     T(net_max_speed_applied),
     T(net_max_speed_invalid),
+    T(net_max_speed_in_dashboard_is_unknown),
     T(net_unit_percent_accepted),
     /* [webhook] */
     T(insecure_skip_verify_default_false),
@@ -1915,6 +1948,7 @@ static const test_t ALL_TESTS[] = {
     T(temp_alert_metrics_accepted),
     T(old_temp_alert_metric_fails),
     T(swap_alert_metrics_accepted),
+    T(net_alert_metrics_accepted),
     T(missing_disk_path_fails),
 };
 

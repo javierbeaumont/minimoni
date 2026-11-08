@@ -152,12 +152,31 @@ static double temp_metric_value(const db_row_t *row, const char *m, const config
     return 0.0;
 }
 
-/* The temperature metrics also need the scale and the critical trip point. */
-static double metric_value(const db_row_t *row, const char *m, const config_t *cfg,
-                           double temp_critical, int *valid)
+/* The traffic as a percent of the link ceiling `ref` (bytes/s). */
+static double net_metric_value(const db_row_t *row, const char *m, double ref, int *valid)
 {
-    return strncmp(m, "temp_", 5) == 0 ? temp_metric_value(row, m, cfg, temp_critical, valid)
-                                       : get_metric_value(row, m, valid);
+    *valid = row->net_valid && ref > 0;
+
+    if (*valid && !strcmp(m, "net_rx_percent"))
+        return row->net_rx_bps * 100.0 / ref;
+    if (*valid && !strcmp(m, "net_tx_percent"))
+        return row->net_tx_bps * 100.0 / ref;
+
+    *valid = 0;
+    return 0.0;
+}
+
+/* The temperature metrics also need the scale and the critical trip point, and the network's
+ * percents the link ceiling. */
+static double metric_value(const db_row_t *row, const char *m, const config_t *cfg,
+                           double temp_critical, double net_ref, int *valid)
+{
+    if (strncmp(m, "temp_", 5) == 0)
+        return temp_metric_value(row, m, cfg, temp_critical, valid);
+    if (!strcmp(m, "net_rx_percent") || !strcmp(m, "net_tx_percent"))
+        return net_metric_value(row, m, net_ref, valid);
+
+    return get_metric_value(row, m, valid);
 }
 
 /* --- Condition evaluation --- */
@@ -596,7 +615,8 @@ static int run_command(const alert_cfg_t *a, double value)
 
 /* --- Public API --- */
 
-int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double temp_critical)
+int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double temp_critical,
+                    double net_ref)
 {
     if (cfg->alert_count == 0)
         return 0;
@@ -611,7 +631,7 @@ int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double t
         const alert_cfg_t *a = &cfg->alerts[i];
 
         int    valid;
-        double value = metric_value(row, a->metric, cfg, temp_critical, &valid);
+        double value = metric_value(row, a->metric, cfg, temp_critical, net_ref, &valid);
         if (!valid)
             continue;
 
