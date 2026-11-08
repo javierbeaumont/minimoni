@@ -218,10 +218,11 @@ static int run_serve(const char *config_path)
 
         int rc = metrics_collect(&m, cfg.disk_path);
         metrics_run_note(&run, rc);
-        /* A link can come up after start or renegotiate. Read here once a cycle, not per request:
-         * every open dashboard sends one each refresh seconds. */
+        /* A link can come up after start or renegotiate, and a CPU go online or offline. Read here
+         * once a cycle, not per request: every open dashboard sends one each refresh seconds. */
         int link_mbit = metrics_link_speed_mbit();
         atomic_store(&http.net_speed_mbit, link_mbit);
+        atomic_store(&http.num_cores, metrics_num_cores());
 
         if (rc != 0)
             continue;

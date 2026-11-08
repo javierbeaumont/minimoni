@@ -86,6 +86,10 @@ void metrics_run_note(metrics_run_t *run, int rc);
  * leaving the caller to fall back to config. */
 int metrics_link_speed_mbit(void);
 
+/* The CPUs online, for the load's percent and levels. Returns 1 when they cannot be counted, logged
+ * the first time. */
+int metrics_num_cores(void);
+
 /* The critical trip point, in °C, of the thermal zone collect reads. Returns 0, or -1 when there
  * is no zone or it has no critical trip. */
 int metrics_temp_critical(double *celsius);

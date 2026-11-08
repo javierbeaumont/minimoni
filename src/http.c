@@ -21,7 +21,6 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include <ctype.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdint.h>
@@ -39,56 +38,6 @@
 #include "http.h"
 #include "json.h"
 #include "metrics.h"
-
-/* =========================================================================
- * CPU count  (for load normalisation when cpu_load_unit = "%")
- * ======================================================================= */
-
-/* CPUs in a kernel cpulist such as "0-3,8-11", or -1 unless the whole list parses. */
-static int count_cpulist(const char *s)
-{
-    int n = 0;
-
-    for (;;) {
-        char *end;
-
-        if (!isdigit((unsigned char)*s))
-            return -1;
-
-        unsigned long lo = strtoul(s, &end, 10);
-        unsigned long hi = lo;
-        if (*end == '-') {
-            s = end + 1;
-            if (!isdigit((unsigned char)*s))
-                return -1;
-            hi = strtoul(s, &end, 10);
-            if (hi < lo)
-                return -1;
-        }
-
-        n += (int)(hi - lo + 1);
-
-        if (*end != ',')
-            return *end == '\n' || *end == '\0' ? n : -1;
-        s = end + 1;
-    }
-}
-
-static int read_num_cores(const char *path)
-{
-    FILE *f = fopen(path, "r");
-    if (!f)
-        return 1;
-
-    char  buf[64];
-    char *got = fgets(buf, sizeof(buf), f);
-    fclose(f);
-
-    /* A list cut at the buffer would count only its head: refused, like a missing file. */
-    int n = got && strchr(buf, '\n') ? count_cpulist(buf) : -1;
-
-    return n > 0 ? n : 1;
-}
 
 /* =========================================================================
  * Request handlers
@@ -189,8 +138,9 @@ static int handler_current(struct mg_connection *conn, void *cbdata)
     jbuf_t j;
     jbuf_init(&j, buf, sizeof(buf));
     jbuf_begin(&j);
-    json_serialize_current(&j, &row, ctx->cfg, ctx->num_cores, ctx->temp_critical_valid,
-                           ctx->temp_critical, atomic_load(&ctx->net_speed_mbit));
+    json_serialize_current(&j, &row, ctx->cfg, atomic_load(&ctx->num_cores),
+                           ctx->temp_critical_valid, ctx->temp_critical,
+                           atomic_load(&ctx->net_speed_mbit));
     jbuf_end(&j);
 
     return send_json(conn, &j, "/api/current");
@@ -289,8 +239,9 @@ static int handler_metrics(struct mg_connection *conn, void *cbdata)
         jbuf_t j;
         jbuf_init(&j, pt, sizeof(pt));
         jbuf_begin(&j);
-        json_serialize_point(&j, &rows[i], ctx->cfg, ctx->num_cores, ctx->temp_critical_valid,
-                             ctx->temp_critical, atomic_load(&ctx->net_speed_mbit));
+        json_serialize_point(&j, &rows[i], ctx->cfg, atomic_load(&ctx->num_cores),
+                             ctx->temp_critical_valid, ctx->temp_critical,
+                             atomic_load(&ctx->net_speed_mbit));
         jbuf_end(&j);
 
         emit_part(conn, &j, &emitted, "/api/metrics point");
@@ -358,8 +309,9 @@ static void stream_loop(struct mg_connection *conn, const http_ctx_t *ctx)
             jbuf_t j;
             jbuf_init(&j, buf, sizeof(buf));
             jbuf_begin(&j);
-            json_serialize_current(&j, &row, ctx->cfg, ctx->num_cores, ctx->temp_critical_valid,
-                                   ctx->temp_critical, atomic_load(&ctx->net_speed_mbit));
+            json_serialize_current(&j, &row, ctx->cfg, atomic_load(&ctx->num_cores),
+                                   ctx->temp_critical_valid, ctx->temp_critical,
+                                   atomic_load(&ctx->net_speed_mbit));
             jbuf_end(&j);
 
             if (stream_frame(conn, &j) < 0)
@@ -424,7 +376,7 @@ int http_start(http_ctx_t *ctx, const config_t *cfg, db_t *db)
     atomic_init(&ctx->sse_active, 0);
     ctx->cfg = cfg;
     ctx->db = db;
-    ctx->num_cores = read_num_cores("/sys/devices/system/cpu/online");
+    atomic_init(&ctx->num_cores, metrics_num_cores());
     ctx->temp_critical_valid = metrics_temp_critical(&ctx->temp_critical) == 0;
     metrics_temp_zone_note();
     atomic_init(&ctx->net_speed_mbit, metrics_link_speed_mbit());

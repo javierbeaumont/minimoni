@@ -982,6 +982,113 @@ static int test_link_speed_without_sysfs_is_0(void)
     return speed == 0 ? 0 : 1;
 }
 
+/* --- CPU count --- */
+
+/* The CPU count once took only the first span: "0-3,8-11" gave 4 and "0,2" gave 1. */
+static int test_cpulist_counts_every_span(void)
+{
+    return count_cpulist("0-3,8-11\n") == 8 && count_cpulist("0,2\n") == 2 &&
+                   count_cpulist("0-3\n") == 4 && count_cpulist("0\n") == 1
+               ? 0
+               : 1;
+}
+
+static int test_cpulist_malformed_refused(void)
+{
+    static const char *const bad[] = {"", "x\n", "-1\n", "0-\n", "3-1\n", "0,\n", "0-3 \n"};
+
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+        if (count_cpulist(bad[i]) != -1)
+            return 1;
+
+    return 0;
+}
+
+static const sysfs_file_t CPUS_TWO_SPANS[] = {
+    {"devices/system/cpu/online", "0-3,8-11\n"},
+};
+
+/* num_cores on g_tree `calls` times in a row, as serve's cycles; what it logged lands in `err`. */
+static int cores_logged(int calls, char *err, size_t cap)
+{
+    char path[64];
+    snprintf(path, sizeof(path), "/tmp/minimoni-cores-err-%d.txt", (int)getpid());
+
+    fflush(stderr);
+    if (!freopen(path, "w", stderr))
+        return -2;
+
+    int noted = 0, n = 0;
+    for (int i = 0; i < calls; i++)
+        n = num_cores(g_tree, &noted);
+
+    fflush(stderr);
+    if (!freopen("/dev/null", "w", stderr))
+        return -2;
+
+    FILE  *f = fopen(path, "r");
+    size_t len = f ? fread(err, 1, cap - 1, f) : 0;
+    err[len] = '\0';
+
+    if (f)
+        fclose(f);
+    unlink(path);
+
+    return n;
+}
+
+static int test_cores_counted_from_the_online_list(void)
+{
+    char err[256];
+
+    if (tree_make(CPUS_TWO_SPANS, 1) != 0)
+        return 1;
+
+    int n = cores_logged(1, err, sizeof(err));
+
+    tree_remove(CPUS_TWO_SPANS, 1);
+
+    return n == 8 && err[0] == '\0' ? 0 : 1;
+}
+
+static const char CORES_UNCOUNTED[] = "metrics: cannot count the CPUs online";
+
+/* Without the list, the load's percent and levels assume 1 CPU: logged once, not every cycle. */
+static int test_cores_without_the_list_count_one_logged_once(void)
+{
+    char err[256];
+
+    if (tree_make(CPUS_TWO_SPANS, 0) != 0)
+        return 1;
+
+    int n = cores_logged(3, err, sizeof(err));
+
+    tree_remove(CPUS_TWO_SPANS, 0);
+
+    return n == 1 && count(err, CORES_UNCOUNTED) == 1 ? 0 : 1;
+}
+
+/* Past the 64-byte buffer only the head would be counted (2 here, of 41): it is refused instead. */
+static int test_cores_list_longer_than_the_buffer_counts_one(void)
+{
+    char list[160] = "0-1";
+    for (int cpu = 3; cpu < 80; cpu += 2)
+        snprintf(list + strlen(list), sizeof(list) - strlen(list), ",%d", cpu);
+    strcat(list, "\n");
+
+    const sysfs_file_t online[] = {{"devices/system/cpu/online", list}};
+    char               err[256];
+
+    if (strlen(list) <= 64 || tree_make(online, 1) != 0)
+        return 1;
+
+    int n = cores_logged(1, err, sizeof(err));
+
+    tree_remove(online, 1);
+
+    return n == 1 && count(err, CORES_UNCOUNTED) == 1 ? 0 : 1;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
@@ -1024,6 +1131,11 @@ static const test_t ALL_TESTS[] = {
     T(link_speed_without_a_physical_sums_all_but_lo),
     T(net_without_sysfs_sums_all_but_lo),
     T(link_speed_without_sysfs_is_0),
+    T(cpulist_counts_every_span),
+    T(cpulist_malformed_refused),
+    T(cores_counted_from_the_online_list),
+    T(cores_without_the_list_count_one_logged_once),
+    T(cores_list_longer_than_the_buffer_counts_one),
     T(collect_fills_plausible_values),
     T(collect_second_pass_yields_rates),
     T(collect_bad_disk_path_fails),

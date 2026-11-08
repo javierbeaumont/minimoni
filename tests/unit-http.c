@@ -179,7 +179,7 @@ static http_ctx_t *fixture_ctx(void)
     memset(&ctx, 0, sizeof(ctx));
     ctx.cfg = &g_cfg;
     ctx.db = &g_db;
-    ctx.num_cores = 4;
+    atomic_init(&ctx.num_cores, 4);
     return &ctx;
 }
 
@@ -443,7 +443,7 @@ static int test_http_start_registers_every_route(void)
     http_ctx_t *ctx = fixture_ctx();
     g_handlers_registered = 0;
     int rc = http_start(ctx, &g_cfg, &g_db);
-    int ok = (rc == 0 && g_handlers_registered >= 5 && ctx->num_cores >= 1);
+    int ok = (rc == 0 && g_handlers_registered >= 5 && atomic_load(&ctx->num_cores) >= 1);
     http_stop(ctx);
     return fixture_done(ok);
 }
@@ -502,62 +502,6 @@ static int test_overflowed_frame_is_skipped(void)
     return rc == 0 && g_resp_len == 0 ? 0 : 1;
 }
 
-/* --- CPU count --- */
-
-/* read_num_cores once counted only the first span: "0-3,8-11" gave 4 and "0,2" gave 1. */
-static int test_cpulist_counts_every_span(void)
-{
-    return count_cpulist("0-3,8-11\n") == 8 && count_cpulist("0,2\n") == 2 &&
-                   count_cpulist("0-3\n") == 4 && count_cpulist("0\n") == 1
-               ? 0
-               : 1;
-}
-
-static int test_cpulist_malformed_refused(void)
-{
-    static const char *const bad[] = {"", "x\n", "-1\n", "0-\n", "3-1\n", "0,\n", "0-3 \n"};
-
-    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
-        if (count_cpulist(bad[i]) != -1)
-            return 1;
-
-    return 0;
-}
-
-/* Writes `list` to a temp file and returns read_num_cores on it. */
-static int cores_from_file(const char *list)
-{
-    char path[64];
-    snprintf(path, sizeof(path), "/tmp/minimoni-cpus-%d", (int)getpid());
-
-    FILE *f = fopen(path, "w");
-    if (!f)
-        return -2;
-    fputs(list, f);
-    fclose(f);
-
-    int n = read_num_cores(path);
-    unlink(path);
-
-    return n;
-}
-
-static int test_cores_read_from_the_file(void)
-{
-    return cores_from_file("0-3,8-11\n") == 8 && read_num_cores("/nonexistent") == 1 ? 0 : 1;
-}
-
-/* Past the 64-byte buffer only the head would be counted (2 here, of 41): it is refused instead. */
-static int test_cores_list_longer_than_the_buffer_falls_back(void)
-{
-    char list[160] = "0-1";
-    for (int cpu = 3; cpu < 80; cpu += 2)
-        snprintf(list + strlen(list), sizeof(list) - strlen(list), ",%d", cpu);
-    strcat(list, "\n");
-
-    return strlen(list) > 64 && cores_from_file(list) == 1 ? 0 : 1;
-}
-
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
@@ -581,10 +525,6 @@ static const test_t ALL_TESTS[] = {
     T(overflowed_body_answers_500),
     T(overflowed_part_is_left_out),
     T(overflowed_frame_is_skipped),
-    T(cpulist_counts_every_span),
-    T(cpulist_malformed_refused),
-    T(cores_read_from_the_file),
-    T(cores_list_longer_than_the_buffer_falls_back),
 };
 
 int main(void)

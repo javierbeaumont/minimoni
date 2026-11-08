@@ -393,8 +393,8 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
             lw = 70.0;
             lc = 90.0;
         } else {
-            lw = num_cores > 0 ? 0.75 * num_cores : 2.0;
-            lc = num_cores > 0 ? 1.0 * num_cores : 3.5;
+            lw = 0.75 * num_cores;
+            lc = 1.0 * num_cores;
         }
         jbuf_pair(j, "thresh_load", lw, lc);
     }

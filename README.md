@@ -499,6 +499,12 @@ Repeats and custom ordering are valid (e.g. `["4h", "2d", "45d", "2d"]` shows fo
 that order with 45-day retention). Sub-day ranges round up to 1 day for retention purposes
 (prune granularity is days). Default: `["1d", "7d", "30d", "90d"]`.
 
+**`cpu_load_card_unit`** / **`cpu_load_chart_unit`**: `"abs"` shows the load average as the kernel
+reports it; `"%"` shows it as a percent of the CPUs online, counted again every `interval`. The
+load counts the tasks waiting on disk or NFS as well as those running or ready to run, so a load
+above the CPU count can be I/O with the CPUs idle. In a container, both the load and the CPU count
+are the host's.
+
 **`memory_card_unit`** / **`memory_chart_unit`** / **`swap_card_unit`** / **`swap_chart_unit`** /
 **`disk_card_unit`** / **`disk_chart_unit`**: `"%"` shows the share of capacity in use; `"auto"`
 shows the amount itself. Each card key is independent of its chart key: a percentage card next to an

@@ -33,11 +33,11 @@ typedef struct {
     struct mg_context *mg;
     const config_t    *cfg;
     db_t              *db;
-    int                num_cores;     /* from /sys/devices/system/cpu/online */
     double             temp_critical; /* critical trip point in Celsius, 0 if absent */
     int                temp_critical_valid;
-    /* Link speed sum, 0 if none reported (see config fallback); serve's loop updates it every
-     * cycle. */
+    /* The CPUs online, and the link speed sum (0 if none reported; see config fallback): serve's
+     * loop updates both every cycle. */
+    atomic_int   num_cores;
     atomic_int   net_speed_mbit;
     volatile int stopping;
     /* Open SSE streams. Each one parks a civetweb worker for as long as the

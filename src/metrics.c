@@ -21,6 +21,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <limits.h>
@@ -554,6 +555,73 @@ static int link_speed(const char *sys)
 }
 
 int metrics_link_speed_mbit(void) { return link_speed(SYS_DIR); }
+
+/* --- CPU count, for load's percent and levels --- */
+
+/* CPUs in a kernel cpulist such as "0-3,8-11", or -1 unless the whole list parses. */
+static int count_cpulist(const char *s)
+{
+    int n = 0;
+
+    for (;;) {
+        char *end;
+
+        if (!isdigit((unsigned char)*s))
+            return -1;
+
+        unsigned long lo = strtoul(s, &end, 10);
+        unsigned long hi = lo;
+        if (*end == '-') {
+            s = end + 1;
+            if (!isdigit((unsigned char)*s))
+                return -1;
+            hi = strtoul(s, &end, 10);
+            if (hi < lo)
+                return -1;
+        }
+
+        n += (int)(hi - lo + 1);
+
+        if (*end != ',')
+            return *end == '\n' || *end == '\0' ? n : -1;
+        s = end + 1;
+    }
+}
+
+/* The CPUs online under `sys`; 1 when their list cannot be read whole, logged once per `noted`. */
+static int num_cores(const char *sys, int *noted)
+{
+    char path[128]; /* fits SYS_DIR or a test's tree, and the fixed part */
+    snprintf(path, sizeof(path), "%s/devices/system/cpu/online", sys);
+
+    FILE *f = fopen(path, "r");
+    char  buf[64];
+    char *got = f ? fgets(buf, sizeof(buf), f) : NULL;
+    if (f)
+        fclose(f);
+
+    /* A list cut at the buffer would count only its head: refused, like a missing file. */
+    int n = got && strchr(buf, '\n') ? count_cpulist(buf) : -1;
+
+    if (n > 0)
+        return n;
+
+    if (!*noted)
+        fprintf(stderr,
+                "metrics: cannot count the CPUs online in %s; "
+                "the load's percent and levels assume 1 CPU\n",
+                path);
+    *noted = 1;
+
+    return 1;
+}
+
+int metrics_num_cores(void)
+{
+    static int noted;
+
+    return num_cores(SYS_DIR, &noted);
+}
 
 /* One network sample, taken at `now`: `f` is /proc/net/dev, or NULL when it did not open. A failed
  * read keeps the previous sample for the next rate. */
