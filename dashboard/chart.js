@@ -25,7 +25,8 @@
  * top lives in hover.js. bundle.sh inlines format.js, this, hover.js, cards.js,
  * then app.js (one shared global scope). */
 /* global fmtY, fmtTip, fmtX, fmtScaled, scaleTo, usedOf, niceTicks, timeTicks, srvUnits */
-/* global THRESH, cfgCardUnits, cfgChartUnits, cfgVisCharts, pts */
+/* global tempSym, fmtTempVal */
+/* global THRESH, cfgCardUnits, cfgChartUnits, cfgTempScale, cfgVisCharts, pts */
 /* global refreshLockedIdx, scheduleHoverDraw, lockedIdx */
 /* exported renderAll, buildLegends, invalidateCssCache, drawChart, chartCache */
 
@@ -277,8 +278,7 @@ function renderAll() {
   const swpUL   = cfgChartUnits.swap === '%' ? '%' : swapU && swapU.sym;
   const swpIoUL = cfgChartUnits.swap_io === 'ram' ? '% RAM/min' : swapIoU && swapIoU.sym;
   const dskUL   = cfgChartUnits.disk === '%' ? '%' : diskU && diskU.sym;
-  const tmpSym  = cfgChartUnits.temp[0] === 'f' ? '°F'
-              : cfgChartUnits.temp[0] === '%' ? '%' : '°C';
+  const tmpSym  = tempSym(cfgChartUnits.temp, cfgTempScale);
   const netUL   = cfgChartUnits.net === '%' ? '%' : netU && netU.sym;
 
   const loadOpts = cfgChartUnits.load === '%'
@@ -408,13 +408,13 @@ function renderAll() {
     document.getElementById('b-temp').querySelector('.ctitle').textContent =
       'Temperature (' + tmpSym + ')';
 
-    const tempUnitsMatch = (cfgChartUnits.temp || 'c')[0] === (cfgCardUnits.temp || 'c')[0];
+    const tempUnitsMatch = cfgChartUnits.temp === cfgCardUnits.temp;
     const tempOpts = {
       yMin: 0,
       ts:   ts,
       /* Tooltip shows the actual unit symbol; fmtTip alone collapses C and F to
        * a bare degree, ambiguous when the user picked Fahrenheit. */
-      fmtFn: (v) => v.toFixed(1) + tmpSym,
+      fmtFn: (v) => fmtTempVal(v, cfgChartUnits.temp, cfgTempScale),
     };
     if (tempUnitsMatch) tempOpts.thresh = THRESH.temp;
 

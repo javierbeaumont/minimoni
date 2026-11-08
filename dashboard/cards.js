@@ -25,7 +25,8 @@
  * bundle.sh inlines format.js, chart.js, this, then app.js (one shared scope). */
 /* global fmtUptime, fmtTempVal, cardLevel, pairLevel, fmtUnit, usedOf, srvUnits */
 /* global buildTabs */
-/* exported updateCards, wireCards, replayCards, THRESH, cfgCardUnits, cfgChartUnits, cfgVisCharts, cfgRanges */
+/* exported updateCards, wireCards, replayCards, THRESH, cfgCardUnits, cfgChartUnits */
+/* exported cfgTempScale, cfgVisCharts, cfgRanges */
 
 /* Fallback [warn, critical] card thresholds, used only until the first payload:
  * the server sends per-metric thresh_* in /api/current and updateCards overwrites these. */
@@ -35,16 +36,17 @@ const THRESH = {
   swap: [80, 95],
   disk: [80, 90],
   load: [3, 4],    /* abs fallback = [0.75x4, 1.0x4], 4 cores assumed */
-  temp: [70, 80],  /* degC fallback when no sysfs trip point */
+  temp: [68, 76.5],  /* °C: 80 and 90 % of the default critical, 85 °C */
 };
 
 /* Units read from server config; sensible defaults until first /current */
 const cfgCardUnits = {
-  mem: '%', swap: '%', swap_io: 'bytes', disk: '%', temp: 'c', net: 'kb', load: 'abs',
+  mem: '%', swap: '%', swap_io: 'bytes', disk: '%', temp: 'degrees', net: 'kb', load: 'abs',
 };
 const cfgChartUnits = {
-  mem: 'mb', swap: 'auto', swap_io: 'bytes', disk: 'gb', temp: 'c', net: 'kb', load: 'abs',
+  mem: 'mb', swap: 'auto', swap_io: 'bytes', disk: 'gb', temp: 'degrees', net: 'kb', load: 'abs',
 };
+let cfgTempScale = 'celsius';
 let cfgUptimeUnit = 'auto';
 let cfgRanges     = ['1d', '7d', '30d', '90d'];
 /* Three-state visibility: null = show all, [] = hide all, [...] = listed only */
@@ -141,6 +143,7 @@ function updateCards(d) {
   if (d.disk_chart_unit)     cfgChartUnits.disk    = d.disk_chart_unit;
   if (d.temp_card_unit)      cfgCardUnits.temp     = d.temp_card_unit;
   if (d.temp_chart_unit)     cfgChartUnits.temp    = d.temp_chart_unit;
+  if (d.temp_scale)          cfgTempScale          = d.temp_scale;
   if (d.net_card_unit)       cfgCardUnits.net      = d.net_card_unit;
   if (d.net_chart_unit)      cfgChartUnits.net     = d.net_chart_unit;
   if (d.cpu_load_card_unit)  cfgCardUnits.load     = d.cpu_load_card_unit;
@@ -344,7 +347,7 @@ function updateCards(d) {
     const tc      = document.getElementById('c-temp');
     const tempLvl = cardLevel(d.temp, THRESH.temp);
 
-    tc.querySelector('.cval').textContent = fmtTempVal(d.temp, cfgCardUnits.temp);
+    tc.querySelector('.cval').textContent = fmtTempVal(d.temp, cfgCardUnits.temp, cfgTempScale);
     tc.className = 'card' + (tempLvl ? ' ' + tempLvl : '');
   }
 

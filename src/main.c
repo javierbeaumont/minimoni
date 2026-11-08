@@ -34,6 +34,7 @@
 #include "db_cmd.h"
 #include "http.h"
 #include "metrics.h"
+#include "units.h"
 
 static volatile sig_atomic_t shutdown_flag = 0;
 
@@ -143,9 +144,9 @@ static int run_collect(const char *config_path)
         return 1;
     }
 
-    double critical;
-    double temp_critical =
-        metrics_temp_critical(&critical) == 0 ? critical : cfg.temp_critical_fallback;
+    double critical = 0;
+    int    has_critical = metrics_temp_critical(&critical) == 0;
+    double temp_critical = temp_ref(cfg.temp_critical, has_critical, critical);
 
     int ret = 0;
     if (db_insert(&db, &m) != 0) {
@@ -201,7 +202,7 @@ static int run_serve(const char *config_path)
     int           days = retention_days(&cfg);
     metrics_run_t run = {0};
     double        temp_critical =
-        http.temp_critical_valid ? http.temp_critical : cfg.temp_critical_fallback;
+        temp_ref(cfg.temp_critical, http.temp_critical_valid, http.temp_critical);
 
     while (!shutdown_flag) {
         int r = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, NULL);

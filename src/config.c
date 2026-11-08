@@ -144,7 +144,7 @@ static int valid_op(const char *s)
 /* Allowed values per *_unit key, in the order config.example.toml documents. */
 static const char *const SIZE_UNITS[] = {"%", "auto", NULL};
 
-static const char *const TEMP_UNITS[] = {"%", "c", "f", NULL};
+static const char *const TEMP_UNITS[] = {"%", "degrees", NULL};
 static const char *const LOAD_UNITS[] = {"%", "abs", NULL};
 static const char *const NET_UNITS[] = {"%", "bytes", "bits", NULL};
 /* "ram": swap I/O as a percent of the RAM per minute */
@@ -213,7 +213,7 @@ static int known_name(const char *name, const char *const *known, const char *ke
  * otherwise silently ignore, leaving the user wondering why their setting did
  * not take effect. */
 static const char *const SERVER_KEYS[] = {"listen", "max_dashboards", "sse_keepalive"};
-static const char *const COLLECT_KEYS[] = {"db", "disk_path", "interval", "temp_critical_fallback",
+static const char *const COLLECT_KEYS[] = {"db", "disk_path", "interval", "temp_critical",
                                            "temp_scale"};
 static const char *const WEBHOOK_KEYS[] = {"ca_file", "insecure_skip_verify"};
 /* One key per line, so a new one never reflows the list. */
@@ -359,7 +359,6 @@ void config_defaults(config_t *cfg)
     snprintf(cfg->db_path, sizeof(cfg->db_path), "%s", "./metrics.db");
     snprintf(cfg->disk_path, sizeof(cfg->disk_path), "%s", "/");
     snprintf(cfg->temp_scale, sizeof(cfg->temp_scale), "%s", "celsius");
-    cfg->temp_critical_fallback = 85.0f;
     snprintf(cfg->title, sizeof(cfg->title), "%s", "minimoni");
     snprintf(cfg->theme, sizeof(cfg->theme), "%s", "auto");
     cfg->show_footer = 1;
@@ -371,8 +370,8 @@ void config_defaults(config_t *cfg)
     snprintf(cfg->swap_io_chart_unit, sizeof(cfg->swap_io_chart_unit), "%s", "bytes");
     snprintf(cfg->disk_card_unit, sizeof(cfg->disk_card_unit), "%s", "%");
     snprintf(cfg->disk_chart_unit, sizeof(cfg->disk_chart_unit), "%s", "auto");
-    snprintf(cfg->temp_card_unit, sizeof(cfg->temp_card_unit), "%s", "c");
-    snprintf(cfg->temp_chart_unit, sizeof(cfg->temp_chart_unit), "%s", "c");
+    snprintf(cfg->temp_card_unit, sizeof(cfg->temp_card_unit), "%s", "degrees");
+    snprintf(cfg->temp_chart_unit, sizeof(cfg->temp_chart_unit), "%s", "degrees");
     snprintf(cfg->cpu_load_card_unit, sizeof(cfg->cpu_load_card_unit), "%s", "abs");
     snprintf(cfg->cpu_load_chart_unit, sizeof(cfg->cpu_load_chart_unit), "%s", "abs");
     snprintf(cfg->net_card_unit, sizeof(cfg->net_card_unit), "%s", "bytes");
@@ -495,14 +494,18 @@ int config_load(config_t *cfg, const char *path)
     }
 
     /* Given in temp_scale, kept in °C like the trip points sysfs gives */
-    v = toml_seek(root, "collect.temp_critical_fallback");
-    double fallback = v.type == TOML_FP64 ? v.u.fp64 : v.type == TOML_INT64 ? (double)v.u.int64 : 0;
+    v = toml_seek(root, "collect.temp_critical");
+    if (v.type == TOML_FP64 || v.type == TOML_INT64) {
+        double critical = v.type == TOML_FP64 ? v.u.fp64 : (double)v.u.int64;
 
-    if (fallback > 0)
-        cfg->temp_critical_fallback =
-            (float)(cfg->temp_scale[0] == 'f' ? (fallback - 32.0) * 5.0 / 9.0 : fallback);
-    else if (v.type == TOML_FP64 || v.type == TOML_INT64)
-        fprintf(stderr, "config: temp_critical_fallback must be > 0; using default\n");
+        if (cfg->temp_scale[0] == 'f')
+            critical = (critical - 32.0) * 5.0 / 9.0;
+
+        if (critical > 0)
+            cfg->temp_critical = (float)critical;
+        else
+            fprintf(stderr, "config: temp_critical must be above 0 °C (32 °F); ignored\n");
+    }
 
     /* [webhook] */
     v = toml_seek(root, "webhook.insecure_skip_verify");

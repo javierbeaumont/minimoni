@@ -660,10 +660,10 @@ static int test_unit_valid_applied(void)
 {
     config_t cfg;
     if (load_cfg(&cfg, "[dashboard]\nmemory_card_unit = \"auto\"\nnet_chart_unit = \"bits\"\n"
-                       "temp_card_unit = \"f\"\nuptime_unit = \"d\"\n") != 0)
+                       "temp_card_unit = \"%\"\nuptime_unit = \"d\"\n") != 0)
         return 1;
     return strcmp(cfg.memory_card_unit, "auto") == 0 && strcmp(cfg.net_chart_unit, "bits") == 0 &&
-                   strcmp(cfg.temp_card_unit, "f") == 0 && strcmp(cfg.uptime_unit, "d") == 0
+                   strcmp(cfg.temp_card_unit, "%") == 0 && strcmp(cfg.uptime_unit, "d") == 0
                ? 0
                : 1;
 }
@@ -879,45 +879,118 @@ static int test_dashboard_refresh_past_int_max_clamps(void)
                : 1;
 }
 
-static int test_temp_critical_fallback_variants(void)
-{
-    config_t cfg;
-    if (load_cfg(&cfg, "[collect]\ntemp_critical_fallback = 95.5\n") != 0)
-        return 1;
-    if (cfg.temp_critical_fallback < 95.4f || cfg.temp_critical_fallback > 95.6f)
-        return 1;
-    if (load_cfg(&cfg, "[collect]\ntemp_critical_fallback = 90\n") != 0) /* int form */
-        return 1;
-    if (cfg.temp_critical_fallback < 89.9f || cfg.temp_critical_fallback > 90.1f)
-        return 1;
-    if (load_cfg(&cfg, "[collect]\ntemp_critical_fallback = -5\n") != 0) /* invalid */
-        return 1;
-    return cfg.temp_critical_fallback > 84.9f && cfg.temp_critical_fallback < 85.1f ? 0 : 1;
-}
-
-/* In Fahrenheit the fallback is given in Fahrenheit: 194 °F is 90 °C. */
-static int test_temp_critical_fallback_in_fahrenheit(void)
+static int test_temp_critical_unset_by_default(void)
 {
     config_t cfg;
 
-    if (load_cfg(&cfg, "[collect]\ntemp_scale = \"fahrenheit\"\ntemp_critical_fallback = 194\n") !=
-        0)
+    if (load_cfg(&cfg, "[collect]\ndb = \"/tmp/x.db\"\n") != 0)
         return 1;
 
-    return cfg.temp_critical_fallback > 89.9f && cfg.temp_critical_fallback < 90.1f ? 0 : 1;
+    return cfg.temp_critical == 0.0f ? 0 : 1;
 }
 
-/* In [dashboard] the fallback is an unknown key, and the default stays. */
-static int test_temp_critical_fallback_in_dashboard_is_unknown(void)
+static int test_temp_critical_float_and_int(void)
+{
+    config_t cfg;
+
+    if (load_cfg(&cfg, "[collect]\ntemp_critical = 95.5\n") != 0)
+        return 1;
+
+    if (cfg.temp_critical < 95.4f || cfg.temp_critical > 95.6f)
+        return 1;
+
+    if (load_cfg(&cfg, "[collect]\ntemp_critical = 90\n") != 0) /* int form */
+        return 1;
+
+    return cfg.temp_critical > 89.9f && cfg.temp_critical < 90.1f ? 0 : 1;
+}
+
+/* A critical not above 0 is ignored, with a warning, so the sensor's applies. */
+static int test_temp_critical_not_above_zero_is_ignored(void)
 {
     config_t cfg;
     char     err[512];
 
-    if (load_cfg_err(&cfg, "[dashboard]\ntemp_critical_fallback = 95\n", err, sizeof(err)) != 0)
+    if (load_cfg_err(&cfg, "[collect]\ntemp_critical = -5\n", err, sizeof(err)) != 0)
         return 1;
 
-    return strstr(err, "unknown key 'dashboard.temp_critical_fallback'") &&
-                   cfg.temp_critical_fallback > 84.9f && cfg.temp_critical_fallback < 85.1f
+    return strstr(err, "temp_critical must be above 0 °C (32 °F); ignored") &&
+                   cfg.temp_critical == 0.0f
+               ? 0
+               : 1;
+}
+
+/* The bound is 0 °C in Fahrenheit too: 20 °F is below it, so it is ignored, with a warning. */
+static int test_temp_critical_below_0c_in_fahrenheit_is_ignored(void)
+{
+    config_t    cfg;
+    char        err[512];
+    const char *toml = "[collect]\ntemp_scale = \"fahrenheit\"\ntemp_critical = 20\n";
+
+    if (load_cfg_err(&cfg, toml, err, sizeof(err)) != 0)
+        return 1;
+
+    return strstr(err, "temp_critical must be above 0 °C (32 °F); ignored") &&
+                   cfg.temp_critical == 0.0f
+               ? 0
+               : 1;
+}
+
+/* In Fahrenheit the critical is given in Fahrenheit: 194 °F is 90 °C. */
+static int test_temp_critical_in_fahrenheit(void)
+{
+    config_t cfg;
+
+    if (load_cfg(&cfg, "[collect]\ntemp_scale = \"fahrenheit\"\ntemp_critical = 194\n") != 0)
+        return 1;
+
+    return cfg.temp_critical > 89.9f && cfg.temp_critical < 90.1f ? 0 : 1;
+}
+
+/* The old name is an unknown key, in [collect] as in v0.2's [dashboard], and sets nothing. */
+static int test_temp_critical_fallback_is_unknown(void)
+{
+    config_t    cfg;
+    char        err[512];
+    const char *toml = "[collect]\ntemp_critical_fallback = 95\n"
+                       "[dashboard]\ntemp_critical_fallback = 95\n";
+
+    if (load_cfg_err(&cfg, toml, err, sizeof(err)) != 0)
+        return 1;
+
+    return strstr(err, "unknown key 'collect.temp_critical_fallback'") &&
+                   strstr(err, "unknown key 'dashboard.temp_critical_fallback'") &&
+                   cfg.temp_critical == 0.0f
+               ? 0
+               : 1;
+}
+
+static int test_temp_units_degrees_by_default(void)
+{
+    config_t cfg;
+
+    if (load_cfg(&cfg, "[dashboard]\ntitle = \"x\"\n") != 0)
+        return 1;
+
+    return strcmp(cfg.temp_card_unit, "degrees") == 0 && strcmp(cfg.temp_chart_unit, "degrees") == 0
+               ? 0
+               : 1;
+}
+
+/* The scale is temp_scale's, so "c" and "f" are invalid units: each warns and the default stays. */
+static int test_temp_units_c_and_f_are_invalid(void)
+{
+    config_t    cfg;
+    char        err[512];
+    const char *toml = "[dashboard]\ntemp_card_unit = \"f\"\ntemp_chart_unit = \"c\"\n";
+
+    if (load_cfg_err(&cfg, toml, err, sizeof(err)) != 0)
+        return 1;
+
+    return strstr(err, "temp_card_unit: invalid unit 'f'") &&
+                   strstr(err, "temp_chart_unit: invalid unit 'c'") &&
+                   strcmp(cfg.temp_card_unit, "degrees") == 0 &&
+                   strcmp(cfg.temp_chart_unit, "degrees") == 0
                ? 0
                : 1;
 }
@@ -1756,9 +1829,14 @@ static const test_t ALL_TESTS[] = {
     T(dashboard_theme_invalid_defaults),
     T(dashboard_refresh_invalid_defaults),
     T(dashboard_refresh_past_int_max_clamps),
-    T(temp_critical_fallback_variants),
-    T(temp_critical_fallback_in_fahrenheit),
-    T(temp_critical_fallback_in_dashboard_is_unknown),
+    T(temp_critical_unset_by_default),
+    T(temp_critical_float_and_int),
+    T(temp_critical_not_above_zero_is_ignored),
+    T(temp_critical_below_0c_in_fahrenheit_is_ignored),
+    T(temp_critical_in_fahrenheit),
+    T(temp_critical_fallback_is_unknown),
+    T(temp_units_degrees_by_default),
+    T(temp_units_c_and_f_are_invalid),
     T(temp_scale_celsius_by_default),
     T(temp_scale_fahrenheit_accepted),
     T(unknown_temp_scale_fails),

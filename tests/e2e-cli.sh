@@ -232,12 +232,13 @@ sqlite3 "$udb" "INSERT INTO metrics (timestamp, load_1m, load_5m, \
    2048.0, 1536.0, 1048576.0, 2097152.0)" >/dev/null 2>&1
 check_rc "units: seed row inserted" 0 $?
 
-units_serve() { # CFG_BODY -> sets $current and $metrics
+units_serve() { # CFG_BODY [COLLECT_LINES] -> sets $current and $metrics
     cat >"$work/u.toml" <<EOF
 [collect]
 db = "$udb"
 interval = 60
 disk_path = "/"
+${2:-}
 [server]
 listen = "127.0.0.1:$PORT"
 [dashboard]
@@ -262,8 +263,9 @@ swap_io_card_unit = "ram"
 disk_card_unit = "%"
 temp_card_unit = "%"
 cpu_load_card_unit = "%"
-net_card_unit = "%"'
+net_card_unit = "%"' 'temp_critical = 80'
 check_lacks "units %: memory omits the total" "$current" '"mem_total"'
+check_has "units %: temperature is a share of the critical" "$current" '"temp":62.5'
 check_lacks "units %: swap omits the total" "$current" '"swap_total"'
 check_lacks "units %: disk omits the total" "$current" '"disk_total"'
 check_has "units %: memory is the available share alone" "$current" '"mem_available":14.65'
@@ -284,7 +286,7 @@ swap_io_card_unit = "bytes"
 swap_io_chart_unit = "bytes"
 disk_card_unit = "auto"
 disk_chart_unit = "auto"
-temp_card_unit = "c"
+temp_card_unit = "degrees"
 cpu_load_card_unit = "abs"
 net_card_unit = "bytes"
 net_chart_unit = "bytes"'
@@ -294,7 +296,7 @@ check_has "units auto: swap total in base MB" "$current" '"swap_total":2048'
 check_has "units auto: free swap in base MB" "$current" '"swap_free":1536'
 check_has "units auto: disk total in base GB" "$current" '"disk_total":100'
 check_has "units auto: available disk in base GB" "$current" '"disk_available":80'
-check_has "units c: temperature in celsius" "$current" '"temp":50'
+check_has "units degrees: temperature in celsius" "$current" '"temp":50'
 check_has "units bytes: net in base bytes/s" "$current" '"net_rx":5.243e+06'
 check_has "units auto: memory magnitude is MB" "$metrics" '"mem":{"sym":"MB","mul":1,"div":1}'
 check_has "units auto: disk magnitude is GB" "$metrics" '"disk":{"sym":"GB","mul":1,"div":1}'
@@ -314,10 +316,12 @@ check_has "units bytes: 5 MiB/s reads as KB/s" "$metrics" '"net":{"sym":"KB/s","
 
 # Fahrenheit, and the case that separates the two net ladders: the same traffic
 # is 5120 KB/s (four digits, stays put) but 41943 Kbps (five, steps up).
-units_serve 'temp_card_unit = "f"
-net_card_unit = "bits"
-net_chart_unit = "bits"'
-check_has "units f: temperature in fahrenheit" "$current" '"temp":122'
+units_serve 'net_card_unit = "bits"
+net_chart_unit = "bits"' 'temp_scale = "fahrenheit"
+temp_critical = 176'
+check_has "scale fahrenheit: temperature in fahrenheit" "$current" '"temp":122'
+check_has "scale fahrenheit: the levels follow the critical" "$current" \
+    '"thresh_temp":[140.8,158.4]'
 check_has "units bits: value stays in base bytes/s" "$current" '"net_rx":5.243e+06'
 check_has "units bits: the same traffic steps up to Mbps" "$metrics" \
     '"net":{"sym":"Mbps","mul":8,"div":1e+06}'

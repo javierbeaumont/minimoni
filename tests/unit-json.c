@@ -394,19 +394,74 @@ static int test_thresh_temp_from_critical(void)
     char     b[2048];
     db_row_t r = sample_row();
     config_t c = base_cfg();
-    strcpy(c.temp_card_unit, "c");
-    emit(b, sizeof(b), &r, &c, 4, 1, 100.0); /* trip 100 -> [trip-20, trip-10] */
-    return has(b, "\"thresh_temp\":[80,90]") ? 0 : 1;
+
+    emit(b, sizeof(b), &r, &c, 4, 1, 110.0); /* 80 and 90 % of the trip point */
+
+    return has(b, "\"thresh_temp\":[88,99]") ? 0 : 1;
 }
 
-static int test_thresh_temp_fallback_no_critical(void)
+/* The levels count from the scale's zero: 80 and 90 % of 230 °F in degrees, 80 and 90 in "%". */
+static int test_thresh_temp_in_the_scale(void)
+{
+    char     f[2048], pct[2048];
+    db_row_t r = sample_row();
+    config_t c = base_cfg();
+
+    strcpy(c.temp_scale, "fahrenheit");
+    emit(f, sizeof(f), &r, &c, 4, 1, 110.0);
+    strcpy(c.temp_card_unit, "%");
+    emit(pct, sizeof(pct), &r, &c, 4, 1, 110.0);
+
+    return has(f, "\"thresh_temp\":[184,207]") && has(pct, "\"thresh_temp\":[80,90]") ? 0 : 1;
+}
+
+/* Without a trip point or a configured critical, the levels come from the default 85 °C. */
+static int test_thresh_temp_default_critical(void)
 {
     char     b[2048];
     db_row_t r = sample_row();
     config_t c = base_cfg();
-    strcpy(c.temp_card_unit, "c");
-    emit(b, sizeof(b), &r, &c, 4, 0, 0.0); /* no sysfs trip -> [70,80] degC */
-    return has(b, "\"thresh_temp\":[70,80]") ? 0 : 1;
+
+    emit(b, sizeof(b), &r, &c, 4, 0, 0.0);
+
+    return has(b, "\"thresh_temp\":[68,76.5]") ? 0 : 1;
+}
+
+/* A configured critical wins over the sensor's, for the levels and for the "%". */
+static int test_temp_configured_critical_wins(void)
+{
+    char     levels[2048], pct[2048];
+    db_row_t r = sample_row();
+    config_t c = base_cfg();
+
+    c.temp_critical = 85.0f;
+    emit(levels, sizeof(levels), &r, &c, 4, 1, 110.0);
+    strcpy(c.temp_card_unit, "%");
+    emit(pct, sizeof(pct), &r, &c, 4, 1, 110.0);
+
+    char want[64];
+    snprintf(want, sizeof(want), "\"temp\":%.4g", r.temp_celsius * 100.0 / 85.0);
+
+    return has(levels, "\"thresh_temp\":[68,76.5]") && has(pct, want) ? 0 : 1;
+}
+
+/* In Fahrenheit the card, its "%" (from 0 °F) and the chart points all read in °F. */
+static int test_temp_in_fahrenheit(void)
+{
+    char     deg[2048], pct[2048], pt[1024];
+    db_row_t r = sample_row();
+    config_t c = base_cfg();
+
+    strcpy(c.temp_scale, "fahrenheit");
+    emit(deg, sizeof(deg), &r, &c, 4, 1, 110.0);
+    emit_point(pt, sizeof(pt), &r, &c, 4, 1, 110.0);
+    strcpy(c.temp_card_unit, "%");
+    emit(pct, sizeof(pct), &r, &c, 4, 1, 110.0);
+
+    return has(deg, "\"temp\":122") && has(deg, "\"temp_scale\":\"fahrenheit\"") &&
+                   has(pct, "\"temp\":53.04") && has(pt, "\"tp\":122")
+               ? 0
+               : 1;
 }
 
 /* --- Serializer: null handling & unit omission --- */
@@ -1421,7 +1476,10 @@ static const test_t ALL_TESTS[] = {
     T(thresh_swap_fixed),
     T(thresh_swap_io_in_ram_or_bytes),
     T(thresh_temp_from_critical),
-    T(thresh_temp_fallback_no_critical),
+    T(thresh_temp_in_the_scale),
+    T(thresh_temp_default_critical),
+    T(temp_configured_critical_wins),
+    T(temp_in_fahrenheit),
     T(temp_null_when_sensor_invalid),
     T(net_null_when_invalid),
     T(net_percent_uses_detected_link),

@@ -39,7 +39,7 @@ function mkState(over) {
   return {
     version: 'v9.9.9-7-gabcdef0',
     configFields: configFields({}),
-    tempCriticalFallback: 85.0,
+    tempCritical: null,
     scenario: 'normal',
     flaky: false,
     ...over,

@@ -40,12 +40,15 @@ int unit_step(double max, int steps, double factor);
  * else 1 GbE. Both inputs in Mbit/s. */
 double net_ref_bps(int max_mbit, int detected_mbit);
 
-/* Temperature: celsius -> celsius/fahrenheit/percent. In percent mode the value
- * is scaled against `ref` (the temperature that maps to 100%). */
-double temp_convert(double celsius, const char *unit, double ref);
+/* Temperature: °C -> `unit` ("degrees" or "%") in `scale` ("celsius" or "fahrenheit"). In "%" it is
+ * a percent of `ref`, the critical trip point in °C, both counted from the scale's zero. */
+double temp_convert(double celsius, const char *unit, const char *scale, double ref);
 
-/* Resolve the 100% reference for temperature percent mode: the sysfs critical
- * trip point when valid, otherwise the configured fallback. */
-double temp_ref(int crit_valid, double crit, double fallback);
+/* The critical trip point, in °C, when none is configured and the sensor reports none. */
+#define TEMP_CRITICAL_DEFAULT 85.0
+
+/* The critical trip point the temperature is measured against, in °C: `configured` when above
+ * 0, else the sensor's `crit` when `crit_valid`, else TEMP_CRITICAL_DEFAULT. */
+double temp_ref(double configured, int crit_valid, double crit);
 
 #endif /* MINIMONI_UNITS_H */

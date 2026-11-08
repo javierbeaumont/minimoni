@@ -43,8 +43,8 @@ const CONFIG_DEFAULTS = {
   swap_io_chart_unit: 'bytes',
   disk_card_unit: '%',
   disk_chart_unit: 'auto',
-  temp_card_unit: 'c',
-  temp_chart_unit: 'c',
+  temp_card_unit: 'degrees',
+  temp_chart_unit: 'degrees',
   cpu_load_card_unit: 'abs',
   cpu_load_chart_unit: 'abs',
   net_card_unit: 'bytes',
@@ -179,15 +179,13 @@ function parseTable(text, name) {
 
 const parseDashboard = (text) => parseTable(text, 'dashboard');
 
-/* The critical trip point that stands in when sysfs has none, given in temp_scale and returned in
- * °C (config.c default 85 °C). */
-function collectTempCriticalFallback(c) {
-  const v = Number('temp_critical_fallback' in c ? c.temp_critical_fallback : 85.0);
+/* The critical trip point set in [collect], given in temp_scale and returned in °C; null when unset
+ * or not above 0 °C, as config.c ignores it then. */
+function collectTempCritical(c) {
+  const v = Number('temp_critical' in c ? c.temp_critical : NaN);
+  const celsius = c.temp_scale === 'fahrenheit' ? ((v - 32) * 5) / 9 : v;
 
-  if (!(Number.isFinite(v) && v > 0))
-    return 85.0;
-
-  return c.temp_scale === 'fahrenheit' ? ((v - 32) * 5) / 9 : v;
+  return Number.isFinite(celsius) && celsius > 0 ? celsius : null;
 }
 
 /* Net percent reference in Mbit/s; 0 means unset, so the detected link is used. */
@@ -215,8 +213,9 @@ function loadConfig(filepath) {
 }
 
 /* Mirrors src/http.c /api/current: config keys -> response fields, including
- * the memory_* -> mem_* rename. charts/cards absent => null (show all). */
-function configFields(d) {
+ * the memory_* -> mem_* rename. charts/cards absent => null (show all). `c` is the [collect] table,
+ * for temp_scale. */
+function configFields(d, c = {}) {
   const g = (key) => (key in d ? d[key] : CONFIG_DEFAULTS[key]);
 
   return {
@@ -230,6 +229,7 @@ function configFields(d) {
     disk_chart_unit: g('disk_chart_unit'),
     temp_card_unit: g('temp_card_unit'),
     temp_chart_unit: g('temp_chart_unit'),
+    temp_scale: 'temp_scale' in c ? c.temp_scale : 'celsius',
     net_card_unit: g('net_card_unit'),
     net_chart_unit: g('net_chart_unit'),
     cpu_load_card_unit: g('cpu_load_card_unit'),
@@ -249,7 +249,7 @@ module.exports = {
   CONFIG_DEFAULTS,
   parseTable,
   parseDashboard,
-  collectTempCriticalFallback,
+  collectTempCritical,
   dashboardNetMaxSpeed,
   loadConfig,
   configFields,

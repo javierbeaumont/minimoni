@@ -51,23 +51,29 @@ function netConvert(bps, unit, refBps) {
   return bps;
 }
 
-function tempConvert(celsius, unit, ref) {
-  if (!unit)
-    return celsius;
-
-  if (unit[0] === 'f')
-    return (celsius * 9.0) / 5.0 + 32.0;
-
-  if (unit[0] === '%')
-    return ref > 0 ? (celsius * 100.0) / ref : celsius;
-
-  return celsius;
+function tempInScale(celsius, scale) {
+  return scale && scale[0] === 'f' ? (celsius * 9.0) / 5.0 + 32.0 : celsius;
 }
 
-/* 100% reference for temp percent mode: the sysfs critical trip point when
- * present (non-null), else the configured fallback. Mirrors the C server. */
-function tempRef(crit, fallback) {
-  return crit != null ? crit : fallback;
+/* °C -> unit ("degrees" or "%") in scale ("celsius" or "fahrenheit"); in "%", a percent of ref
+ * (°C), both counted from the scale's zero. Mirrors units.c temp_convert(). */
+function tempConvert(celsius, unit, scale, ref) {
+  const t = tempInScale(celsius, scale);
+  const r = tempInScale(ref, scale);
+
+  if (unit && unit[0] === '%')
+    return r > 0 ? (t * 100.0) / r : t;
+
+  return t;
+}
+
+/* The critical trip point the temperature is measured against, in °C: the configured one when
+ * above 0, else the sensor's when non-null, else 85. Mirrors units.c temp_ref(). */
+function tempRef(configured, crit) {
+  if (configured != null && configured > 0)
+    return configured;
+
+  return crit != null ? crit : 85.0;
 }
 
 function loadConvert(load, cores, unit) {
@@ -123,7 +129,7 @@ function configHas(list, name) {
 /* /api/current in CARD units. Mirrors json.c json_serialize_current(): a metric
  * group is emitted only when its card is configured, and [warn, crit] thresholds
  * are computed server-side. */
-function toCurrent(raw, f, fallback, netMaxSpeed = 0) {
+function toCurrent(raw, f, configured, netMaxSpeed = 0) {
   const m = raw;
   const cards = f.cards;
   const lu = String(f.cpu_load_card_unit);
@@ -184,12 +190,11 @@ function toCurrent(raw, f, fallback, netMaxSpeed = 0) {
   }
 
   const tc = m.temp_c;
-  const crit = m.temp_critical_c;
-  const ref = tempRef(crit, fallback);
+  const ref = tempRef(configured, m.temp_critical_c);
   const nref = netRefBps(netMaxSpeed, m.net_speed_mbit);
 
   if (configHas(cards, 'temp')) {
-    out.temp = tc != null ? round(tempConvert(tc, tu, ref), 1) : null;
+    out.temp = tc != null ? round(tempConvert(tc, tu, f.temp_scale, ref), 1) : null;
   }
 
   if (configHas(cards, 'net')) {
@@ -225,12 +230,9 @@ function toCurrent(raw, f, fallback, netMaxSpeed = 0) {
     out.thresh_disk = [80.0, 90.0];
 
   if (configHas(cards, 'temp')) {
-    const base = crit != null ? [crit - 20.0, crit - 10.0] : [70.0, 80.0];
+    const crit = tempConvert(ref, tu, f.temp_scale, ref);
 
-    out.thresh_temp = [
-      round(tempConvert(base[0], tu, ref), 4),
-      round(tempConvert(base[1], tu, ref), 4),
-    ];
+    out.thresh_temp = [round(0.8 * crit, 4), round(0.9 * crit, 4)];
   }
 
   if (configHas(cards, 'net')) {
@@ -313,7 +315,7 @@ function unitsFor(raws, f) {
 }
 
 /* Serialize a raw point for /api/metrics using the CHART units (short keys). */
-function toPoint(raw, f, fallback, netMaxSpeed = 0) {
+function toPoint(raw, f, configured, netMaxSpeed = 0) {
   const m = raw;
   const lu = String(f.cpu_load_chart_unit);
   const mu = String(f.mem_chart_unit);
@@ -369,10 +371,10 @@ function toPoint(raw, f, fallback, netMaxSpeed = 0) {
   }
 
   const tc = m.temp_c;
-  const ref = tempRef(m.temp_critical_c, fallback);
+  const ref = tempRef(configured, m.temp_critical_c);
 
   if (configHas(f.charts, 'temp')) {
-    out.tp = tc != null ? round(tempConvert(tc, tu, ref), 1) : null;
+    out.tp = tc != null ? round(tempConvert(tc, tu, f.temp_scale, ref), 1) : null;
   }
 
   const nref = netRefBps(netMaxSpeed, m.net_speed_mbit);

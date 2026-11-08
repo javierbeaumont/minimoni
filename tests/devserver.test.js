@@ -33,7 +33,7 @@ const path = require('path');
 const dev = path.join(__dirname, '..', 'tools', 'devserver');
 
 const {
-  configFields, parseTable, parseDashboard, collectTempCriticalFallback, loadConfig,
+  configFields, parseTable, parseDashboard, collectTempCritical, loadConfig,
 } = require(path.join(dev, 'config'));
 
 const { streamShouldDrop } = require(path.join(dev, 'handler'));
@@ -115,28 +115,34 @@ test('rangeSeconds: invalid defaults to one day', () => {
   assert.strictEqual(rangeSeconds('bogus'), 86400);
 });
 
-test('tempRef: uses critical', () => {
-  assert.strictEqual(tempRef(105.0, 85.0), 105.0);
+test('tempRef: the configured critical wins over the sensor\'s, lower or higher', () => {
+  assert.strictEqual(tempRef(80.0, 110.0), 80.0);
+  assert.strictEqual(tempRef(120.0, 110.0), 120.0);
 });
 
-test('tempRef: falls back when null', () => {
-  assert.strictEqual(tempRef(null, 85.0), 85.0);
+test('tempRef: the sensor\'s critical when none is configured, else 85', () => {
+  assert.strictEqual(tempRef(null, 105.0), 105.0);
+  assert.strictEqual(tempRef(null, null), 85.0);
 });
 
 test('tempConvert: percent at ref', () => {
-  assert.strictEqual(tempConvert(85.0, '%', 85.0), 100.0);
+  assert.strictEqual(tempConvert(85.0, '%', 'celsius', 85.0), 100.0);
 });
 
 test('tempConvert: percent half', () => {
-  assert.strictEqual(tempConvert(42.5, '%', 85.0), 50.0);
+  assert.strictEqual(tempConvert(42.5, '%', 'celsius', 85.0), 50.0);
+});
+
+test('tempConvert: the percent in Fahrenheit counts from 0 °F', () => {
+  assert.strictEqual(tempConvert(55.0, '%', 'fahrenheit', 110.0), 13100.0 / 230.0);
 });
 
 test('tempConvert: fahrenheit', () => {
-  assert.strictEqual(tempConvert(100.0, 'f', 85.0), 212.0);
+  assert.strictEqual(tempConvert(100.0, 'degrees', 'fahrenheit', 85.0), 212.0);
 });
 
 test('tempConvert: celsius', () => {
-  assert.strictEqual(tempConvert(50.0, 'c', 85.0), 50.0);
+  assert.strictEqual(tempConvert(50.0, 'degrees', 'celsius', 85.0), 50.0);
 });
 
 test('netConvert: anything but "%" passes through', () => {
@@ -164,7 +170,7 @@ test('toCurrent: net percent end to end', () => {
   raw.net_rx_bps = 62500000; /* half of the mock 1000 Mbit/s link */
   raw.net_speed_mbit = 1000;
 
-  const out = toCurrent(raw, configFields({ net_card_unit: '%' }), 85.0);
+  const out = toCurrent(raw, configFields({ net_card_unit: '%' }), null);
 
   assert.strictEqual(out.net_rx, 50);
 });
@@ -176,7 +182,7 @@ test('loadConvert: percent normalises by cores', () => {
 });
 
 test('toCurrent: emits thresholds', () => {
-  const out = toCurrent(currentSnapshot('normal'), configFields({}), 85.0);
+  const out = toCurrent(currentSnapshot('normal'), configFields({}), null);
 
   assert.deepStrictEqual(out.thresh_cpu, [70.0, 90.0]);
   assert.deepStrictEqual(out.thresh_mem, [70.0, 90.0]);
@@ -186,7 +192,7 @@ test('toCurrent: emits thresholds', () => {
 
 test('toCurrent: gates excluded cards', () => {
   const f = configFields({ cards: ['cpu_load'] });
-  const out = toCurrent(currentSnapshot('normal'), f, 85.0);
+  const out = toCurrent(currentSnapshot('normal'), f, null);
 
   assert.ok('load_1m' in out && 'thresh_load' in out);
   assert.ok(!('mem_available' in out) && !('thresh_mem' in out));
@@ -202,12 +208,12 @@ const memFields = (out) =>
 
 test('toCurrent: mem_available in the card unit, and mem_total only in "auto"', () => {
   const raw = memRaw(currentSnapshot('normal'));
-  const pct = toCurrent(raw, configFields({}), 85.0); /* memory_card_unit defaults to '%' */
+  const pct = toCurrent(raw, configFields({}), null); /* memory_card_unit defaults to '%' */
 
   assert.deepStrictEqual(memFields(pct), ['mem_available']);
   assert.strictEqual(pct.mem_available, 25);
 
-  const abs = toCurrent(raw, configFields({ memory_card_unit: 'auto' }), 85.0);
+  const abs = toCurrent(raw, configFields({ memory_card_unit: 'auto' }), null);
 
   assert.deepStrictEqual(memFields(abs), ['mem_available', 'mem_total']);
   assert.strictEqual(abs.mem_total, 1000);
@@ -223,12 +229,12 @@ const diskFields = (out) =>
 
 test('toCurrent: disk_available in the card unit, and disk_total only in "auto"', () => {
   const raw = diskRaw(currentSnapshot('normal'));
-  const pct = toCurrent(raw, configFields({}), 85.0); /* disk_card_unit defaults to '%' */
+  const pct = toCurrent(raw, configFields({}), null); /* disk_card_unit defaults to '%' */
 
   assert.deepStrictEqual(diskFields(pct), ['disk_available']);
   assert.strictEqual(pct.disk_available, 40);
 
-  const abs = toCurrent(raw, configFields({ disk_card_unit: 'auto' }), 85.0);
+  const abs = toCurrent(raw, configFields({ disk_card_unit: 'auto' }), null);
 
   assert.deepStrictEqual(diskFields(abs), ['disk_available', 'disk_total']);
   assert.strictEqual(abs.disk_total, 100);
@@ -240,12 +246,12 @@ const swapFields = (out) => Object.keys(out).filter((k) => /^swap_(total|free)/.
 
 test('toCurrent: swap_free in the card unit, and swap_total only in "auto"', () => {
   const raw = { ...currentSnapshot('normal'), swap_total_mb: 1024, swap_free_mb: 768 };
-  const pct = toCurrent(raw, configFields({}), 85.0); /* swap_card_unit defaults to '%' */
+  const pct = toCurrent(raw, configFields({}), null); /* swap_card_unit defaults to '%' */
 
   assert.deepStrictEqual(swapFields(pct), ['swap_free']);
   assert.strictEqual(pct.swap_free, 75);
 
-  const abs = toCurrent(raw, configFields({ swap_card_unit: 'auto' }), 85.0);
+  const abs = toCurrent(raw, configFields({ swap_card_unit: 'auto' }), null);
 
   assert.deepStrictEqual(swapFields(abs), ['swap_free', 'swap_total']);
   assert.strictEqual(abs.swap_total, 1024);
@@ -254,8 +260,8 @@ test('toCurrent: swap_free in the card unit, and swap_total only in "auto"', () 
 
 test('toCurrent: without swap the fields are null, so the card shows a dash', () => {
   const raw = swapless(currentSnapshot('normal'));
-  const pct = toCurrent(raw, configFields({}), 85.0);
-  const abs = toCurrent(raw, configFields({ swap_card_unit: 'auto' }), 85.0);
+  const pct = toCurrent(raw, configFields({}), null);
+  const abs = toCurrent(raw, configFields({ swap_card_unit: 'auto' }), null);
 
   assert.strictEqual(pct.swap_free, null);
   assert.strictEqual(abs.swap_total, null);
@@ -263,29 +269,54 @@ test('toCurrent: without swap the fields are null, so the card shows a dash', ()
 });
 
 test('toCurrent: thresh_swap is sent, and no swap field when its card is not listed', () => {
-  const all = toCurrent(currentSnapshot('normal'), configFields({}), 85.0);
+  const all = toCurrent(currentSnapshot('normal'), configFields({}), null);
 
   assert.deepStrictEqual(all.thresh_swap, [80.0, 95.0]);
 
-  const mem = toCurrent(currentSnapshot('normal'), configFields({ cards: ['memory'] }), 85.0);
+  const mem = toCurrent(currentSnapshot('normal'), configFields({ cards: ['memory'] }), null);
 
   assert.ok(!('swap_free' in mem) && !('thresh_swap' in mem) && 'mem_available' in mem);
 });
 
 test('toCurrent: thresh_temp derives from the sysfs critical point', () => {
-  const out = toCurrent(currentSnapshot('normal'), configFields({}), 85.0);
+  const out = toCurrent(currentSnapshot('normal'), configFields({}), null);
 
-  assert.deepStrictEqual(out.thresh_temp, [85, 95]); /* mock crit 105 -> [crit-20, crit-10] */
+  assert.deepStrictEqual(out.thresh_temp, [84, 94.5]); /* 80 and 90 % of the mock's 105 */
+});
+
+test('toCurrent: thresh_temp counts from the scale\'s zero', () => {
+  const raw = currentSnapshot('normal');
+  const f = toCurrent(raw, configFields({}, { temp_scale: 'fahrenheit' }), null);
+  const pct = toCurrent(raw, configFields({ temp_card_unit: '%' }), null);
+
+  assert.deepStrictEqual(f.thresh_temp, [176.8, 198.9]); /* of 221 °F */
+  assert.deepStrictEqual(pct.thresh_temp, [80, 90]);
+});
+
+test('toCurrent: the card reads in temp_scale', () => {
+  const raw = currentSnapshot('normal');
+  const deg = toCurrent(raw, configFields({}, { temp_scale: 'fahrenheit' }), null);
+
+  assert.ok(Math.abs(deg.temp - (raw.temp_c * 9) / 5 - 32) < 0.06);
+});
+
+test('toCurrent: a configured critical wins over the sensor\'s for thresh_temp and the "%"', () => {
+  const pct = configFields({ temp_card_unit: '%' });
+  const raw = currentSnapshot('normal');
+  const out = toCurrent(raw, configFields({}), 85.0);
+
+  assert.deepStrictEqual(out.thresh_temp, [68, 76.5]);
+  assert.ok(Math.abs(toCurrent(raw, pct, 85.0).temp - (raw.temp_c * 100) / 85.0) < 0.06);
 });
 
 test('toCurrent: thresh_net tracks the link ceiling', () => {
-  const pct = toCurrent(currentSnapshot('normal'), configFields({ net_card_unit: '%' }), 85.0);
+  const pct = toCurrent(currentSnapshot('normal'), configFields({ net_card_unit: '%' }), null);
 
   assert.deepStrictEqual(pct.thresh_net, [85, 98]);
 
   /* Outside "%", base bytes/s: 100 Mbit configured (4th arg) = 12500000 B/s. */
   const abs = toCurrent(currentSnapshot('normal'),
-    configFields({ net_card_unit: 'bytes' }), 85.0, 100);
+    configFields({ net_card_unit: 'bytes' }), null, 100);
 
   assert.deepStrictEqual(abs.thresh_net, [10625000, 12250000]);
 });
@@ -352,35 +383,35 @@ test('unitsFor: swap takes the larger of used and free, from rows with swap', ()
 });
 
 test('toPoint: emits short keys', () => {
-  const out = toPoint(point(), configFields({}), 85.0);
+  const out = toPoint(point(), configFields({}), null);
 
   for (const k of ['t', 'l1', 'cu', 'ma', 'da', 'nr', 'up'])
     assert.ok(k in out, `missing key ${k}`);
 });
 
 test('toPoint: memory gated by charts', () => {
-  assert.ok('ma' in toPoint(point(), configFields({}), 85.0));
-  assert.ok(!('ma' in toPoint(point(), configFields({ charts: ['cpu_load'] }), 85.0)));
+  assert.ok('ma' in toPoint(point(), configFields({}), null));
+  assert.ok(!('ma' in toPoint(point(), configFields({ charts: ['cpu_load'] }), null)));
 });
 
 test('toPoint: disk gated by charts', () => {
-  assert.ok('da' in toPoint(point(), configFields({}), 85.0));
-  assert.ok(!('da' in toPoint(point(), configFields({ charts: ['cpu_load'] }), 85.0)));
+  assert.ok('da' in toPoint(point(), configFields({}), null));
+  assert.ok(!('da' in toPoint(point(), configFields({ charts: ['cpu_load'] }), null)));
 });
 
 test('toPoint: temp gated by charts', () => {
-  assert.ok('tp' in toPoint(point(), configFields({}), 85.0));
-  assert.ok(!('tp' in toPoint(point(), configFields({ charts: ['cpu_load'] }), 85.0)));
+  assert.ok('tp' in toPoint(point(), configFields({}), null));
+  assert.ok(!('tp' in toPoint(point(), configFields({ charts: ['cpu_load'] }), null)));
 });
 
 test('toPoint: ma in the chart unit, and mt only in "auto"', () => {
   const raw = memRaw(point());
-  const pct = toPoint(raw, configFields({ memory_chart_unit: '%' }), 85.0);
+  const pct = toPoint(raw, configFields({ memory_chart_unit: '%' }), null);
 
   assert.strictEqual(pct.ma, 25);
   assert.ok(!('mt' in pct) && !('mu' in pct) && !('mp' in pct));
 
-  const abs = toPoint(raw, configFields({}), 85.0); /* memory_chart_unit defaults to 'auto' */
+  const abs = toPoint(raw, configFields({}), null); /* memory_chart_unit defaults to 'auto' */
 
   assert.strictEqual(abs.ma, 250);
   assert.strictEqual(abs.mt, 1000);
@@ -389,12 +420,12 @@ test('toPoint: ma in the chart unit, and mt only in "auto"', () => {
 
 test('toPoint: da in the chart unit, and dt only in "auto"', () => {
   const raw = diskRaw(point());
-  const pct = toPoint(raw, configFields({ disk_chart_unit: '%' }), 85.0);
+  const pct = toPoint(raw, configFields({ disk_chart_unit: '%' }), null);
 
   assert.strictEqual(pct.da, 40);
   assert.ok(!('dt' in pct) && !('du' in pct) && !('dp' in pct) && !('df' in pct));
 
-  const abs = toPoint(raw, configFields({}), 85.0); /* disk_chart_unit defaults to 'auto' */
+  const abs = toPoint(raw, configFields({}), null); /* disk_chart_unit defaults to 'auto' */
 
   assert.strictEqual(abs.da, 40);
   assert.strictEqual(abs.dt, 100);
@@ -484,12 +515,12 @@ test('loadConfig: reads the [dashboard] and [collect] tables from disk', () => {
   const file = path.join(dir, 'config.toml');
 
   try {
-    fs.writeFileSync(file, '[collect]\ntemp_critical_fallback = 90\n[dashboard]\ntitle = "from disk"\n');
+    fs.writeFileSync(file, '[collect]\ntemp_critical = 90\n[dashboard]\ntitle = "from disk"\n');
 
     const { dashboard, collect } = loadConfig(file);
 
     assert.strictEqual(dashboard.title, 'from disk');
-    assert.strictEqual(collect.temp_critical_fallback, 90);
+    assert.strictEqual(collect.temp_critical, 90);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -497,24 +528,24 @@ test('loadConfig: reads the [dashboard] and [collect] tables from disk', () => {
 
 test('toPoint: sf in the chart unit, and st only in "auto"', () => {
   const raw = { ...point(), swap_total_mb: 1024, swap_free_mb: 768 };
-  const abs = toPoint(raw, configFields({}), 85.0); /* swap_chart_unit defaults to 'auto' */
+  const abs = toPoint(raw, configFields({}), null); /* swap_chart_unit defaults to 'auto' */
 
   assert.strictEqual(abs.st, 1024);
   assert.strictEqual(abs.sf, 768);
 
-  const pct = toPoint(raw, configFields({ swap_chart_unit: '%' }), 85.0);
+  const pct = toPoint(raw, configFields({ swap_chart_unit: '%' }), null);
 
   assert.strictEqual(pct.sf, 75);
   assert.ok(!('st' in pct));
 });
 
 test('toPoint: without swap the fields are null; with its chart not listed, absent', () => {
-  const none = toPoint(swapless(point()), configFields({}), 85.0);
+  const none = toPoint(swapless(point()), configFields({}), null);
 
   assert.strictEqual(none.st, null);
   assert.strictEqual(none.sf, null);
 
-  const mem = toPoint(point(), configFields({ charts: ['memory'] }), 85.0);
+  const mem = toPoint(point(), configFields({ charts: ['memory'] }), null);
 
   assert.ok(!('st' in mem) && !('sf' in mem));
 });
@@ -525,12 +556,12 @@ const ioRaw = (raw) => ({ ...raw, mem_total_mb: 1000, swap_total_mb: 1024, swap_
 
 test('toCurrent: swap I/O in bytes/s, or in % of the RAM per minute', () => {
   const raw = ioRaw(currentSnapshot('normal'));
-  const bytes = toCurrent(raw, configFields({}), 85.0); /* swap_io_card_unit defaults to 'bytes' */
+  const bytes = toCurrent(raw, configFields({}), null); /* swap_io_card_unit defaults to 'bytes' */
 
   assert.strictEqual(bytes.swap_in, 174762.67);
   assert.strictEqual(bytes.swap_out, 349525.34);
 
-  const ram = toCurrent(raw, configFields({ swap_io_card_unit: 'ram' }), 85.0);
+  const ram = toCurrent(raw, configFields({ swap_io_card_unit: 'ram' }), null);
 
   assert.strictEqual(ram.swap_in, 1);
   assert.strictEqual(ram.swap_out, 2);
@@ -538,37 +569,37 @@ test('toCurrent: swap I/O in bytes/s, or in % of the RAM per minute', () => {
 
 test('toCurrent: thresh_swap_io is 1 and 5 % of the RAM per minute, in the card unit', () => {
   const raw = ioRaw(currentSnapshot('normal'));
-  const ram = toCurrent(raw, configFields({ swap_io_card_unit: 'ram' }), 85.0);
-  const bytes = toCurrent(raw, configFields({}), 85.0);
+  const ram = toCurrent(raw, configFields({ swap_io_card_unit: 'ram' }), null);
+  const bytes = toCurrent(raw, configFields({}), null);
 
   assert.deepStrictEqual(ram.thresh_swap_io, [1, 5]);
   assert.deepStrictEqual(bytes.thresh_swap_io, [174762.6667, 873813.3333]);
 });
 
 test('toCurrent: swap I/O is null without swap, and absent with its card not listed', () => {
-  const none = toCurrent(swapless(currentSnapshot('normal')), configFields({}), 85.0);
+  const none = toCurrent(swapless(currentSnapshot('normal')), configFields({}), null);
 
   assert.strictEqual(none.swap_in, null);
   assert.strictEqual(none.swap_out, null);
 
   const mem = toCurrent(ioRaw(currentSnapshot('normal')),
-    configFields({ cards: ['memory'] }), 85.0);
+    configFields({ cards: ['memory'] }), null);
 
   assert.ok(!('swap_in' in mem) && !('thresh_swap_io' in mem));
 });
 
 test('toPoint: swap I/O in bytes/s or in % of the RAM per minute, null without swap', () => {
-  const bytes = toPoint(ioRaw(point()), configFields({}), 85.0);
+  const bytes = toPoint(ioRaw(point()), configFields({}), null);
 
   assert.strictEqual(bytes.si, 174762.67);
   assert.strictEqual(bytes.so, 349525.34);
 
-  const ram = toPoint(ioRaw(point()), configFields({ swap_io_chart_unit: 'ram' }), 85.0);
+  const ram = toPoint(ioRaw(point()), configFields({ swap_io_chart_unit: 'ram' }), null);
 
   assert.strictEqual(ram.si, 1);
   assert.strictEqual(ram.so, 2);
 
-  const none = toPoint(swapless(point()), configFields({}), 85.0);
+  const none = toPoint(swapless(point()), configFields({}), null);
 
   assert.strictEqual(none.si, null);
   assert.strictEqual(none.so, null);
@@ -582,16 +613,16 @@ test('unitsFor: swap I/O in bytes takes the busier direction; in "ram" no unit',
   assert.ok(!('swap_io' in unitsFor(io, configFields({ swap_io_chart_unit: 'ram' }))));
 });
 
-test('collectTempCriticalFallback: valid, non-positive, absent', () => {
-  assert.strictEqual(collectTempCriticalFallback({ temp_critical_fallback: 90 }), 90);
-  assert.strictEqual(collectTempCriticalFallback({ temp_critical_fallback: 0 }), 85);
-  assert.strictEqual(collectTempCriticalFallback({ temp_critical_fallback: -5 }), 85);
-  assert.strictEqual(collectTempCriticalFallback({}), 85);
+test('collectTempCritical: valid, non-positive, absent', () => {
+  assert.strictEqual(collectTempCritical({ temp_critical: 90 }), 90);
+  assert.strictEqual(collectTempCritical({ temp_critical: 0 }), null);
+  assert.strictEqual(collectTempCritical({ temp_critical: -5 }), null);
+  assert.strictEqual(collectTempCritical({}), null);
 });
 
-test('collectTempCriticalFallback: in Fahrenheit, given in Fahrenheit and returned in °C', () => {
-  assert.strictEqual(
-    collectTempCriticalFallback({ temp_scale: 'fahrenheit', temp_critical_fallback: 185 }), 85);
+test('collectTempCritical: in Fahrenheit, given in °F and returned in °C', () => {
+  assert.strictEqual(collectTempCritical({ temp_scale: 'fahrenheit', temp_critical: 194 }), 90);
+  assert.strictEqual(collectTempCritical({ temp_scale: 'fahrenheit', temp_critical: 20 }), null);
 });
 
 test('configFields: defaults, memory rename, overrides', () => {
@@ -607,6 +638,9 @@ test('configFields: defaults, memory rename, overrides', () => {
   assert.strictEqual(def.swap_chart_unit, 'auto');
   assert.strictEqual(def.swap_io_card_unit, 'bytes');
   assert.strictEqual(def.swap_io_chart_unit, 'bytes');
+  assert.strictEqual(def.temp_card_unit, 'degrees');
+  assert.strictEqual(def.temp_scale, 'celsius');
+  assert.strictEqual(configFields({}, { temp_scale: 'fahrenheit' }).temp_scale, 'fahrenheit');
 
   const over = configFields({ memory_card_unit: 'auto', swap_chart_unit: '%', title: 'X' });
 

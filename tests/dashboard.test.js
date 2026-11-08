@@ -32,7 +32,7 @@ const assert = require('node:assert');
 const path = require('path');
 
 const {
-  fmtY, fmtX, fmtTip, fmtXFull, fmtUptime, usedOf, scaleTo, fmtScaled, fmtUnit, fmtTempVal,
+  fmtY, fmtX, fmtTip, fmtXFull, fmtUptime, usedOf, scaleTo, fmtScaled, fmtUnit, fmtTempVal, tempSym,
   cardLevel, pairLevel, metricsUrl,
   clampPoints,
   niceTicks, timeTicks,
@@ -127,11 +127,18 @@ test('fmtScaled: adaptive precision, dash for null', () => {
   assert.strictEqual(fmtScaled(2, ''), '2.000'); /* no symbol: bare number */
 });
 
-test('fmtTempVal by unit', () => {
-  assert.strictEqual(fmtTempVal(null, 'c'), EMD); /* sensor configured, no reading */
-  assert.strictEqual(fmtTempVal(45.5, 'c'), '45.5' + DEG + 'C');
-  assert.strictEqual(fmtTempVal(113, 'f'), '113.0' + DEG + 'F');
-  assert.strictEqual(fmtTempVal(80, '%'), '80.0%');
+test('fmtTempVal by unit and scale', () => {
+  /* sensor configured, no reading */
+  assert.strictEqual(fmtTempVal(null, 'degrees', 'celsius'), EMD);
+  assert.strictEqual(fmtTempVal(45.5, 'degrees', 'celsius'), '45.5 ' + DEG + 'C');
+  assert.strictEqual(fmtTempVal(113, 'degrees', 'fahrenheit'), '113.0 ' + DEG + 'F');
+  assert.strictEqual(fmtTempVal(80, '%', 'fahrenheit'), '80.0%');
+});
+
+test('tempSym: the degree of the scale, or the percent', () => {
+  assert.strictEqual(tempSym('degrees', 'celsius'), DEG + 'C');
+  assert.strictEqual(tempSym('degrees', 'fahrenheit'), DEG + 'F');
+  assert.strictEqual(tempSym('%', 'celsius'), '%');
 });
 
 test('cardLevel thresholds', () => {

@@ -354,8 +354,8 @@ key and the limit.
 db        = "/var/lib/minimoni/metrics.db"
 interval  = 60
 disk_path = "/"
-# temp_scale             = "celsius" # "celsius" | "fahrenheit"
-# temp_critical_fallback = 85        # in temp_scale (default: 85 °C)
+# temp_scale    = "celsius" # "celsius" | "fahrenheit"
+# temp_critical = 80        # in temp_scale; wins over the sensor's (default: sensor's, else 85 °C)
 ```
 
 **`db`**: path to the SQLite database. Default: `./metrics.db`. For a persistent installation, use
@@ -378,13 +378,17 @@ Lower intervals give finer granularity; higher intervals reduce database growth:
 If it or `/proc` stops being readable later, `serve` logs it once and keeps running, storing no
 sample until it recovers, and logs the recovery.
 
-**`temp_scale`**: `"celsius"` (default) or `"fahrenheit"`: the scale of the `temp_*` alert
-thresholds and of `temp_critical_fallback`, so changing it changes what they mean. Any other value
-fails the load.
+**`temp_scale`**: `"celsius"` (default) or `"fahrenheit"`: the scale of every temperature, on the
+dashboard, in the `temp_*` alert thresholds and in `temp_critical`, so changing it changes what
+those numbers mean. Any other value fails the load.
 
-**`temp_critical_fallback`**: the critical trip point to use when the sensor reports none, in
-`temp_scale`. It must be above 0; otherwise the default is kept, with a warning. Default: 85 °C
-(185 °F).
+**`temp_critical`**: the critical trip point the temperature is measured against, in `temp_scale`.
+It is the 100 % of the `temp_percent` alert and of the dashboard's `"%"` unit, and sets the
+dashboard's colors: yellow from 80 % of it and red from 90 %, counted from the scale's zero. When
+set, it wins over the one the sensor reports, which may mean something else: a Raspberry Pi 4, for
+example, reports 110 °C, where the kernel shuts it down, but its firmware slows it down from 80 °C,
+so `temp_critical = 80` measures against that. Unset, the sensor's applies, or 85 °C (185 °F) when
+it reports none. It must be above 0 °C (32 °F), or it is ignored with a warning.
 
 ### Server
 
@@ -437,8 +441,8 @@ swap_io_card_unit      = "bytes" # status card: "bytes" | "ram"
 swap_io_chart_unit     = "bytes" # chart Y-axis: "bytes" | "ram"
 disk_card_unit         = "%"    # status card: "%" | "auto"
 disk_chart_unit        = "auto" # chart Y-axis: "%" | "auto"
-temp_card_unit         = "c"    # status card: "%" | "c" | "f"
-temp_chart_unit        = "c"    # chart Y-axis: "%" | "c" | "f"
+temp_card_unit         = "degrees" # status card: "%" | "degrees"
+temp_chart_unit        = "degrees" # chart Y-axis: "%" | "degrees"
 net_card_unit          = "bytes" # status card: "%" | "bytes" | "bits"
 net_chart_unit         = "bytes" # chart Y-axis: "%" | "bytes" | "bits"
 # net_max_speed          = 300    # link ceiling in Mbit/s: the net "%" denominator and the
@@ -503,9 +507,9 @@ minute, which reads the same on any host. It is not a share of a total: it passe
 pages go back and forth. Both units draw the same line, the RAM being fixed. The semaphore turns
 yellow at 1 % of the RAM per minute and red at 5 %, in either unit.
 
-**`temp_card_unit`** / **`temp_chart_unit`**: `"c"` for Celsius, `"f"` for Fahrenheit, or `"%"` of
-the critical trip point the kernel reports for the sensor, falling back to
-`collect.temp_critical_fallback` when it reports none.
+**`temp_card_unit`** / **`temp_chart_unit`**: `"degrees"` shows the temperature in
+`collect.temp_scale`; `"%"` shows it as a percent of the critical trip point (see
+`collect.temp_critical`), counted from the scale's zero, as the `temp_percent` alert does.
 
 **Automatic magnitudes.** Under `"auto"`, `"bytes"` or `"bits"` you choose what is measured, never
 the magnitude: the server picks that from the largest value in the window on screen, and a card and
@@ -584,7 +588,7 @@ megabytes, `_gb` is gigabytes, `_percent` is a percentage, `_degrees` is degrees
 minute (past 100 when the same pages go back and forth). `_bps` and `_ram` are averages over the
 collect interval: a longer interval smooths out short bursts. `load_*` are raw load averages;
 `uptime_seconds` is in seconds. `temp_percent` counts from the scale's zero (0 °C or 0 °F) up to
-the critical trip point, the sensor's or `temp_critical_fallback`.
+the critical trip point (see `collect.temp_critical`).
 Dashboard unit settings do not affect alert thresholds: alerts work from the database, never in the
 dashboard's units. The `swap_*` metrics are skipped on a host without swap.
 

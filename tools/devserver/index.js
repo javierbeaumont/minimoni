@@ -35,7 +35,7 @@ const { execFileSync } = require('child_process');
 const {
   DEFAULT_CONFIG,
   configFields,
-  collectTempCriticalFallback,
+  collectTempCritical,
   dashboardNetMaxSpeed,
   loadConfig,
 } = require('./config');
@@ -149,8 +149,8 @@ function main() {
   const { dashboard, collect } = loadConfig(opts.config);
   const state = {
     version: gitVersion(),
-    configFields: configFields(dashboard),
-    tempCriticalFallback: collectTempCriticalFallback(collect),
+    configFields: configFields(dashboard, collect),
+    tempCritical: collectTempCritical(collect),
     netMaxSpeed: dashboardNetMaxSpeed(dashboard),
     scenario: opts.scenario,
     flaky: opts.flaky,

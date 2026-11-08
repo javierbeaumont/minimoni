@@ -224,7 +224,7 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
     const char *du = cfg->disk_card_unit;
     const char *nu = cfg->net_card_unit;
     double      nref = net_ref_bps(cfg->net_max_speed, detected_speed_mbit);
-    double      tref = temp_ref(temp_critical_valid, temp_critical, cfg->temp_critical_fallback);
+    double      tref = temp_ref(cfg->temp_critical, temp_critical_valid, temp_critical);
 
     jbuf_str(j, "timestamp", r->timestamp);
 
@@ -298,7 +298,8 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
 
     if (config_has(cfg->cards, cfg->card_count, "temp")) {
         if (r->temp_valid)
-            jbuf_real(j, "temp", temp_convert(r->temp_celsius, cfg->temp_card_unit, tref));
+            jbuf_real(j, "temp",
+                      temp_convert(r->temp_celsius, cfg->temp_card_unit, cfg->temp_scale, tref));
         else
             jbuf_null(j, "temp");
     }
@@ -326,6 +327,7 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
     jbuf_str(j, "disk_chart_unit", cfg->disk_chart_unit);
     jbuf_str(j, "temp_card_unit", cfg->temp_card_unit);
     jbuf_str(j, "temp_chart_unit", cfg->temp_chart_unit);
+    jbuf_str(j, "temp_scale", cfg->temp_scale);
     jbuf_str(j, "net_card_unit", cfg->net_card_unit);
     jbuf_str(j, "net_chart_unit", cfg->net_chart_unit);
     jbuf_str(j, "cpu_load_card_unit", cfg->cpu_load_card_unit);
@@ -383,7 +385,7 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
      *   swap : [80, 95]   (compared against the used share)
      *   swap_io : [1, 5] % of the RAM per minute, in bytes/s under "bytes"
      *   disk : [80, 90]   (compared against the used share)
-     *   temp : [trip-20, trip-10] converted to the card unit; [70, 80] fallback
+     *   temp : [80%, 90%] of the critical, counted from the zero of temp_scale
      *   net  : [85%, 98%] of the link ceiling, converted to the card unit */
     if (config_has(cfg->cards, cfg->card_count, "cpu_load")) {
         double lw, lc;
@@ -411,15 +413,9 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
     if (config_has(cfg->cards, cfg->card_count, "disk"))
         jbuf_pair(j, "thresh_disk", 80.0, 90.0);
     if (config_has(cfg->cards, cfg->card_count, "temp")) {
-        double tw, tc;
-        if (temp_critical_valid) {
-            tw = temp_convert(temp_critical - 20.0, cfg->temp_card_unit, tref);
-            tc = temp_convert(temp_critical - 10.0, cfg->temp_card_unit, tref);
-        } else {
-            tw = temp_convert(70.0, cfg->temp_card_unit, tref);
-            tc = temp_convert(80.0, cfg->temp_card_unit, tref);
-        }
-        jbuf_pair(j, "thresh_temp", tw, tc);
+        double crit = temp_convert(tref, cfg->temp_card_unit, cfg->temp_scale, tref);
+
+        jbuf_pair(j, "thresh_temp", 0.8 * crit, 0.9 * crit);
     }
     if (config_has(cfg->cards, cfg->card_count, "net"))
         jbuf_pair(j, "thresh_net", net_convert(0.85 * nref, nu, nref),
@@ -491,7 +487,7 @@ void json_serialize_point(jbuf_t *j, const db_row_t *r, const config_t *cfg, int
     int         io_ram = cfg->swap_io_chart_unit[0] == 'r';
     const char *du = cfg->disk_chart_unit;
     const char *nu = cfg->net_chart_unit;
-    double      tref = temp_ref(temp_critical_valid, temp_critical, cfg->temp_critical_fallback);
+    double      tref = temp_ref(cfg->temp_critical, temp_critical_valid, temp_critical);
     double      nref = net_ref_bps(cfg->net_max_speed, detected_speed_mbit);
 
     jbuf_long(j, "t", r->unix_time);
@@ -561,7 +557,8 @@ void json_serialize_point(jbuf_t *j, const db_row_t *r, const config_t *cfg, int
 
     if (config_has(cfg->charts, cfg->chart_count, "temp")) {
         if (r->temp_valid)
-            jbuf_real(j, "tp", temp_convert(r->temp_celsius, cfg->temp_chart_unit, tref));
+            jbuf_real(j, "tp",
+                      temp_convert(r->temp_celsius, cfg->temp_chart_unit, cfg->temp_scale, tref));
         else
             jbuf_null(j, "tp");
     }

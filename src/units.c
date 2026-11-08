@@ -52,15 +52,20 @@ int unit_step(double max, int steps, double factor)
     return i;
 }
 
-double temp_convert(double celsius, const char *unit, double ref)
+static double temp_in_scale(double celsius, const char *scale)
 {
-    if (!unit)
-        return celsius;
-    if (unit[0] == 'f')
-        return celsius * 9.0 / 5.0 + 32.0;
-    if (unit[0] == '%')
-        return (ref > 0) ? celsius * 100.0 / ref : celsius;
-    return celsius;
+    return scale && scale[0] == 'f' ? celsius * 9.0 / 5.0 + 32.0 : celsius;
+}
+
+double temp_convert(double celsius, const char *unit, const char *scale, double ref)
+{
+    double t = temp_in_scale(celsius, scale);
+    double r = temp_in_scale(ref, scale);
+
+    if (unit && unit[0] == '%')
+        return r > 0 ? t * 100.0 / r : t;
+
+    return t;
 }
 
 double load_convert(double load, int cores, const char *unit)
@@ -70,9 +75,10 @@ double load_convert(double load, int cores, const char *unit)
     return load;
 }
 
-/* The 100% reference for temperature percent mode is the sysfs critical trip
- * point when the kernel exposes it; otherwise the configured fallback. */
-double temp_ref(int crit_valid, double crit, double fallback)
+double temp_ref(double configured, int crit_valid, double crit)
 {
-    return crit_valid ? crit : fallback;
+    if (configured > 0)
+        return configured;
+
+    return crit_valid ? crit : TEMP_CRITICAL_DEFAULT;
 }

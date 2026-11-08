@@ -53,11 +53,11 @@ typedef struct {
     int  sse_keepalive_seconds; /* SSE keepalive interval, default: 1; inactive if >= refresh */
 
     /* [collect] */
-    long  interval_seconds;       /* default: 60 */
-    char  db_path[256];           /* default: "./metrics.db" */
-    char  disk_path[256];         /* default: "/" */
-    char  temp_scale[16];         /* "celsius" | "fahrenheit", default: "celsius" */
-    float temp_critical_fallback; /* critical trip when sysfs has none, in °C; default: 85 */
+    long  interval_seconds; /* default: 60 */
+    char  db_path[256];     /* default: "./metrics.db" */
+    char  disk_path[256];   /* default: "/" */
+    char  temp_scale[16];   /* "celsius" | "fahrenheit", default: "celsius" */
+    float temp_critical;    /* critical trip point in °C, wins over the sensor's; 0: unset */
 
     /* [webhook] */
     int  insecure_skip_verify; /* 1 = POST https webhooks unverified, default: 0 */
@@ -76,8 +76,8 @@ typedef struct {
     char swap_io_chart_unit[16]; /* "bytes" | "ram", default: "bytes" */
     char disk_card_unit[16];     /* "%" | "auto", default: "%" */
     char disk_chart_unit[16];    /* "%" | "auto", default: "auto" */
-    char temp_card_unit[4];      /* "c" | "f" | "%", default: "c" */
-    char temp_chart_unit[4];     /* "c" | "f" | "%", default: "c" */
+    char temp_card_unit[8];      /* "degrees" | "%", in temp_scale, default: "degrees" */
+    char temp_chart_unit[8];     /* "degrees" | "%", in temp_scale, default: "degrees" */
     char cpu_load_card_unit[4];  /* "abs" | "%", default: "abs" */
     char cpu_load_chart_unit[4]; /* "abs" | "%", default: "abs" */
     char net_card_unit[8];       /* "%" | "bytes" | "bits", default: "bytes" */

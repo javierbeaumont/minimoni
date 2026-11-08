@@ -105,11 +105,16 @@ function fmtUnit(v, u) {
   return fmtScaled(scaleTo(v, u), u ? u.sym : '');
 }
 
-function fmtTempVal(v, unit) {
+/* The temperature's symbol: '%', or the degree of the scale. */
+function tempSym(unit, scale) {
+  if (unit === '%') return '%';
+  return scale === 'fahrenheit' ? '°F' : '°C';
+}
+
+function fmtTempVal(v, unit, scale) {
   if (v == null) return '—';
-  if (!unit || unit[0] === 'c') return v.toFixed(1) + '°C';
-  if (unit[0] === 'f')          return v.toFixed(1) + '°F';
-  return v.toFixed(1) + '%';
+  const sym = tempSym(unit, scale);
+  return v.toFixed(1) + (sym === '%' ? sym : ' ' + sym);
 }
 
 /* Threshold -> 'g' / 'y' / 'r' (good / warning / critical). No thresholds yet
@@ -194,6 +199,7 @@ if (typeof module !== 'undefined' && module.exports) {
     scaleTo: scaleTo,
     fmtScaled: fmtScaled,
     fmtUnit: fmtUnit,
+    tempSym: tempSym,
     fmtTempVal: fmtTempVal,
     cardLevel: cardLevel,
     pairLevel: pairLevel,

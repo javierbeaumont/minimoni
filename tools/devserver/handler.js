@@ -76,7 +76,7 @@ function makeHandler(state, log = NOOP_LOG) {
     const raw = currentSnapshot(state.scenario);
 
     return {
-      ...toCurrent(raw, state.configFields, state.tempCriticalFallback, state.netMaxSpeed),
+      ...toCurrent(raw, state.configFields, state.tempCritical, state.netMaxSpeed),
       ...state.configFields,
     };
   }
@@ -84,7 +84,7 @@ function makeHandler(state, log = NOOP_LOG) {
   function metrics(rangeValue, nPoints) {
     const raws = makePoints(rangeValue, state.scenario, nPoints);
     const points = raws.map((p) =>
-      toPoint(p, state.configFields, state.tempCriticalFallback, state.netMaxSpeed)
+      toPoint(p, state.configFields, state.tempCritical, state.netMaxSpeed)
     );
 
     return { range: rangeValue, points, units: unitsFor(raws, state.configFields) };

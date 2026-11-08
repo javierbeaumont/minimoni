@@ -52,14 +52,16 @@ int main(void)
     p("unit step ladder top", unit_step(1.0e15, 4, 1024.0));
     p("unit step bits factor", unit_step(1.0e6, 4, 1000.0));
 
-    p("temp c", temp_convert(50.0, "c", 85.0));
-    p("temp f", temp_convert(100.0, "f", 85.0));
-    p("temp f zero", temp_convert(0.0, "f", 85.0));
-    p("temp pct at ref", temp_convert(85.0, "%", 85.0));
-    p("temp pct half", temp_convert(42.5, "%", 85.0));
-    p("temp pct zero ref", temp_convert(50.0, "%", 0.0));
-    p("temp ref crit", temp_ref(1, 105.0, 85.0));
-    p("temp ref fallback", temp_ref(0, 105.0, 85.0));
+    p("temp c", temp_convert(50.0, "degrees", "celsius", 85.0));
+    p("temp f", temp_convert(100.0, "degrees", "fahrenheit", 85.0));
+    p("temp f zero", temp_convert(0.0, "degrees", "fahrenheit", 85.0));
+    p("temp pct at ref", temp_convert(85.0, "%", "celsius", 85.0));
+    p("temp pct half", temp_convert(42.5, "%", "celsius", 85.0));
+    p("temp pct f", temp_convert(55.0, "%", "fahrenheit", 110.0));
+    p("temp pct zero ref", temp_convert(50.0, "%", "celsius", 0.0));
+    p("temp ref configured", temp_ref(80.0, 1, 110.0));
+    p("temp ref crit", temp_ref(0.0, 1, 105.0));
+    p("temp ref default", temp_ref(0.0, 0, 105.0));
 
     p("load abs", load_convert(2.0, 4, "abs"));
     p("load pct", load_convert(2.0, 4, "%"));
