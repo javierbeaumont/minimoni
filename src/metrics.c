@@ -253,64 +253,138 @@ static int collect_disk(metrics_t *m, const char *disk_path)
 
 /* --- Temperature --- */
 
-static void collect_temp(metrics_t *m)
-{
-    /* Prefer CPU-specific zones over generic ACPI zones. */
-    static const char *PREFERRED[] = {"x86_pkg_temp", "cpu-thermal", "soc_thermal", NULL};
+#define THERMAL_DIR "/sys/class/thermal"
 
-    int best_zone = 0;
-    int best_pri = (int)(sizeof(PREFERRED) / sizeof(PREFERRED[0]));
+/* Prefer CPU-specific zones over generic ACPI zones. */
+static const char *const TEMP_ZONES[] = {"x86_pkg_temp", "cpu-thermal", "soc_thermal", NULL};
+
+/* The first line of dir/thermal_zoneN/file, without its newline; empty when unreadable.
+ * Returns 0, or -1 when the file is missing or its path does not fit. */
+static int zone_read(const char *dir, int zone, const char *file, char *buf, size_t cap)
+{
+    char path[256];
+    int  n = snprintf(path, sizeof(path), "%s/thermal_zone%d/%s", dir, zone, file);
+
+    if (n < 0 || (size_t)n >= sizeof(path))
+        return -1;
+
+    FILE *f = fopen(path, "r");
+
+    if (!f)
+        return -1;
+
+    char *got = fgets(buf, (int)cap, f);
+    fclose(f);
+
+    if (!got)
+        buf[0] = '\0';
+
+    /* NOLINTNEXTLINE(clang-analyzer-security.ArrayBound) strcspn stays within buf */
+    buf[strcspn(buf, "\n")] = '\0';
+
+    return 0;
+}
+
+/* The millidegrees in a zone's file, as degrees C. Returns 0, or -1 when it holds no number. */
+static int zone_celsius(const char *dir, int zone, const char *file, double *celsius)
+{
+    char buf[32];
+
+    if (zone_read(dir, zone, file, buf, sizeof(buf)) != 0)
+        return -1;
+
+    char *end;
+    long  millidegrees = strtol(buf, &end, 10);
+
+    if (end == buf)
+        return -1;
+
+    *celsius = (double)millidegrees / 1000.0;
+
+    return 0;
+}
+
+/* The zone under `dir` that collect reads: the one whose type comes first in TEMP_ZONES, else zone
+ * 0. Writes its type to `type` and returns its number, or -1 when there is no zone. */
+static int temp_zone(const char *dir, char *type, size_t cap)
+{
+    int best_zone = -1;
+    int best_pri = (int)(sizeof(TEMP_ZONES) / sizeof(TEMP_ZONES[0]));
 
     for (int z = 0; z < 32; z++) {
-        char path[128];
-        snprintf(path, sizeof(path), "/sys/class/thermal/thermal_zone%d/type", z);
-        FILE *f = fopen(path, "r");
+        char zone_type[32];
 
-        if (!f)
+        if (zone_read(dir, z, "type", zone_type, sizeof(zone_type)) != 0)
             break;
 
-        char  type[32];
-        char *got = fgets(type, sizeof(type), f);
-        fclose(f);
+        int pri = best_pri;
 
-        if (!got)
-            continue;
+        for (int p = 0; TEMP_ZONES[p] && p < pri; p++) {
+            if (strcmp(zone_type, TEMP_ZONES[p]) == 0)
+                pri = p;
+        }
 
-        /* NOLINTNEXTLINE(clang-analyzer-security.ArrayBound) strcspn stays within type[32] */
-        type[strcspn(type, "\n")] = '\0';
-
-        for (int p = 0; PREFERRED[p]; p++) {
-            if (strcmp(type, PREFERRED[p]) == 0 && p < best_pri) {
-                best_pri = p;
-                best_zone = z;
-            }
+        if (z == 0 || pri < best_pri) {
+            best_zone = z;
+            best_pri = pri;
+            snprintf(type, cap, "%s", zone_type);
         }
     }
 
-    char path[128];
-    snprintf(path, sizeof(path), "/sys/class/thermal/thermal_zone%d/temp", best_zone);
-    FILE *f = fopen(path, "r");
-
-    if (!f) {
-        m->temp_valid = 0;
-        return;
-    }
-
-    char  buf[32];
-    char *got = fgets(buf, sizeof(buf), f);
-    fclose(f);
-
-    char *end = buf;
-    long  millidegrees = got ? strtol(buf, &end, 10) : 0;
-
-    if (!got || end == buf) {
-        m->temp_valid = 0;
-        return;
-    }
-
-    m->temp_celsius = (double)millidegrees / 1000.0;
-    m->temp_valid = 1;
+    return best_zone;
 }
+
+/* A zone's critical trip point, in degrees C. Returns 0, or -1 when it has none. */
+static int zone_critical(const char *dir, int zone, double *celsius)
+{
+    for (int i = 0; i < 16; i++) {
+        char file[32];
+        char trip_type[32];
+
+        snprintf(file, sizeof(file), "trip_point_%d_type", i);
+
+        if (zone_read(dir, zone, file, trip_type, sizeof(trip_type)) != 0)
+            return -1;
+
+        if (strcmp(trip_type, "critical") != 0)
+            continue;
+
+        double c;
+
+        snprintf(file, sizeof(file), "trip_point_%d_temp", i);
+
+        if (zone_celsius(dir, zone, file, &c) != 0 || c <= 0)
+            return -1;
+
+        *celsius = c;
+        return 0;
+    }
+
+    return -1;
+}
+
+static void collect_temp(metrics_t *m, const char *dir)
+{
+    char type[32];
+    int  zone = temp_zone(dir, type, sizeof(type));
+
+    m->temp_valid = zone >= 0 && zone_celsius(dir, zone, "temp", &m->temp_celsius) == 0;
+}
+
+static int temp_critical(const char *dir, double *celsius)
+{
+    char type[32];
+    int  zone = temp_zone(dir, type, sizeof(type));
+
+    if (zone < 0)
+        return -1;
+
+    fprintf(stderr, "metrics: temperature read from thermal_zone%d (%s)\n", zone, type);
+
+    return zone_critical(dir, zone, celsius);
+}
+
+int metrics_temp_critical(double *celsius) { return temp_critical(THERMAL_DIR, celsius); }
 
 /* --- Rates from cumulative counters: network and swap I/O --- */
 
@@ -568,7 +642,7 @@ int metrics_collect(metrics_t *m, const char *disk_path)
         return -1;
 
     collect_cpu(m);
-    collect_temp(m);
+    collect_temp(m, THERMAL_DIR);
     collect_net(m);
     collect_swap_io(m);
 

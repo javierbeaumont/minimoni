@@ -19,13 +19,15 @@
  * along with minimoni. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Unit tests for src/metrics.c: the pure rate computation, and the /proc/meminfo and /proc/vmstat
- * readers fed synthetic text. Zero-dependency, no framework; build with `make test`. metrics.c is
- * #included directly so the static helpers are exercisable without reading /proc. */
+/* Unit tests for src/metrics.c: the pure rate computation, the /proc/meminfo and /proc/vmstat
+ * readers fed synthetic text, and the thermal zone reader fed a synthetic sysfs tree.
+ * Zero-dependency, no framework; build with `make test`. metrics.c is #included directly so the
+ * static helpers are exercisable without reading /proc or /sys. */
 
 #define _POSIX_C_SOURCE 200809L
 
 #include <stdint.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -525,6 +527,234 @@ static int test_meminfo_available_above_total_uses_free_and_logs_once(void)
     return ok && count(err, "MemAvailable is above MemTotal") == 1 ? 0 : 1;
 }
 
+/* --- Temperature: the zone read and its critical trip --- */
+
+/* A file of a sysfs thermal tree: its path in the tree and what it holds. */
+typedef struct {
+    const char *path;
+    const char *text;
+} sysfs_file_t;
+
+/* The one zone of a Raspberry Pi, as it reports it. */
+static const sysfs_file_t PI[] = {
+    {"thermal_zone0/type", "cpu-thermal\n"},
+    {"thermal_zone0/temp", "55306\n"},
+    {"thermal_zone0/trip_point_0_type", "critical\n"},
+    {"thermal_zone0/trip_point_0_temp", "110000\n"},
+};
+
+/* A board's zone before the CPU's, each with a critical trip. Its first 4 files are the board's
+ * zone alone, and its first 8 leave the CPU's zone without its critical trip. */
+static const sysfs_file_t BOARD_THEN_CPU[] = {
+    {"thermal_zone0/type", "acpitz\n"},
+    {"thermal_zone0/temp", "27800\n"},
+    {"thermal_zone0/trip_point_0_type", "critical\n"},
+    {"thermal_zone0/trip_point_0_temp", "105000\n"},
+    {"thermal_zone1/type", "x86_pkg_temp\n"},
+    {"thermal_zone1/temp", "48000\n"},
+    {"thermal_zone1/trip_point_0_type", "passive\n"},
+    {"thermal_zone1/trip_point_0_temp", "0\n"},
+    {"thermal_zone1/trip_point_1_type", "critical\n"},
+    {"thermal_zone1/trip_point_1_temp", "100000\n"},
+};
+
+static char g_tree[64];
+
+/* Writes the first `n` files in a new directory, g_tree. Returns 0, or -1 on a failure. */
+static int tree_make(const sysfs_file_t *files, int n)
+{
+    snprintf(g_tree, sizeof(g_tree), "%s", "/tmp/minimoni-thermal-XXXXXX");
+
+    if (!mkdtemp(g_tree))
+        return -1;
+
+    for (int i = 0; i < n; i++) {
+        char path[128];
+
+        snprintf(path, sizeof(path), "%s/%s", g_tree, files[i].path);
+
+        char *slash = strrchr(path, '/');
+
+        *slash = '\0';
+        mkdir(path, 0700);
+        *slash = '/';
+
+        FILE *f = fopen(path, "w");
+
+        if (!f)
+            return -1;
+
+        fputs(files[i].text, f);
+        fclose(f);
+    }
+
+    return 0;
+}
+
+/* Removes what tree_make wrote: each zone's directory goes with its last file. */
+static void tree_remove(const sysfs_file_t *files, int n)
+{
+    for (int i = 0; i < n; i++) {
+        char path[128];
+
+        snprintf(path, sizeof(path), "%s/%s", g_tree, files[i].path);
+        unlink(path);
+        *strrchr(path, '/') = '\0';
+        rmdir(path);
+    }
+
+    rmdir(g_tree);
+}
+
+/* temp_critical on g_tree; what it logged lands in `err`. */
+static int critical_logged(double *crit, char *err, size_t cap)
+{
+    char path[64];
+    snprintf(path, sizeof(path), "/tmp/minimoni-thermal-err-%d.txt", (int)getpid());
+
+    fflush(stderr);
+    if (!freopen(path, "w", stderr))
+        return -2;
+
+    int rc = temp_critical(g_tree, crit);
+
+    fflush(stderr);
+    if (!freopen("/dev/null", "w", stderr))
+        return -2;
+
+    FILE  *f = fopen(path, "r");
+    size_t len = f ? fread(err, 1, cap - 1, f) : 0;
+    err[len] = '\0';
+
+    if (f)
+        fclose(f);
+    unlink(path);
+
+    return rc;
+}
+
+/* A Raspberry Pi's one zone gives the temperature and the critical trip. */
+static int test_temp_reads_a_pi(void)
+{
+    metrics_t m = {0};
+    double    crit = 0;
+
+    if (tree_make(PI, 4) != 0)
+        return 1;
+
+    collect_temp(&m, g_tree);
+
+    int ok = m.temp_valid && approx(m.temp_celsius, 55.306) && temp_critical(g_tree, &crit) == 0 &&
+             approx(crit, 110.0);
+
+    tree_remove(PI, 4);
+
+    return ok ? 0 : 1;
+}
+
+/* The CPU's zone is read rather than zone 0. */
+static int test_temp_prefers_the_cpu_zone(void)
+{
+    metrics_t m = {0};
+
+    if (tree_make(BOARD_THEN_CPU, 10) != 0)
+        return 1;
+
+    collect_temp(&m, g_tree);
+
+    int ok = m.temp_valid && approx(m.temp_celsius, 48.0);
+
+    tree_remove(BOARD_THEN_CPU, 10);
+
+    return ok ? 0 : 1;
+}
+
+/* The critical trip is the one of the zone read, not zone 0's. */
+static int test_temp_critical_of_the_zone_read(void)
+{
+    double crit = 0;
+
+    if (tree_make(BOARD_THEN_CPU, 10) != 0)
+        return 1;
+
+    int ok = temp_critical(g_tree, &crit) == 0 && approx(crit, 100.0);
+
+    tree_remove(BOARD_THEN_CPU, 10);
+
+    return ok ? 0 : 1;
+}
+
+/* With no critical trip in the zone read there is none, though zone 0 has one. */
+static int test_temp_no_critical_in_the_zone_read(void)
+{
+    double crit = 0;
+
+    if (tree_make(BOARD_THEN_CPU, 8) != 0)
+        return 1;
+
+    int ok = temp_critical(g_tree, &crit) == -1;
+
+    tree_remove(BOARD_THEN_CPU, 8);
+
+    return ok ? 0 : 1;
+}
+
+/* Without a CPU zone, zone 0 gives the temperature and the critical trip. */
+static int test_temp_without_a_cpu_zone_reads_zone_0(void)
+{
+    metrics_t m = {0};
+    double    crit = 0;
+
+    if (tree_make(BOARD_THEN_CPU, 4) != 0)
+        return 1;
+
+    collect_temp(&m, g_tree);
+
+    int ok = m.temp_valid && approx(m.temp_celsius, 27.8) && temp_critical(g_tree, &crit) == 0 &&
+             approx(crit, 105.0);
+
+    tree_remove(BOARD_THEN_CPU, 4);
+
+    return ok ? 0 : 1;
+}
+
+/* With no zone there is neither a temperature nor a critical trip. */
+static int test_temp_without_zones(void)
+{
+    metrics_t m = {0};
+    double    crit = 0;
+
+    if (tree_make(PI, 0) != 0)
+        return 1;
+
+    collect_temp(&m, g_tree);
+
+    int ok = !m.temp_valid && temp_critical(g_tree, &crit) == -1;
+
+    tree_remove(PI, 0);
+
+    return ok ? 0 : 1;
+}
+
+/* Reading the critical trip logs which zone the temperature comes from. */
+static int test_temp_zone_logged(void)
+{
+    double crit = 0;
+    char   err[256];
+
+    if (tree_make(BOARD_THEN_CPU, 10) != 0)
+        return 1;
+
+    int rc = critical_logged(&crit, err, sizeof(err));
+
+    tree_remove(BOARD_THEN_CPU, 10);
+
+    return rc == 0 &&
+                   count(err, "metrics: temperature read from thermal_zone1 (x86_pkg_temp)\n") == 1
+               ? 0
+               : 1;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
@@ -541,6 +771,13 @@ static const test_t ALL_TESTS[] = {
     T(meminfo_without_swap),
     T(meminfo_without_available_uses_free_and_logs_once),
     T(meminfo_available_above_total_uses_free_and_logs_once),
+    T(temp_reads_a_pi),
+    T(temp_prefers_the_cpu_zone),
+    T(temp_critical_of_the_zone_read),
+    T(temp_no_critical_in_the_zone_read),
+    T(temp_without_a_cpu_zone_reads_zone_0),
+    T(temp_without_zones),
+    T(temp_zone_logged),
     T(vmstat_swap_counters),
     T(vmstat_without_swap_counters),
     T(swap_io_need_a_previous_sample),
