@@ -167,6 +167,21 @@ EOF
 check_has "collect fires a net_rx_percent alert" "$(cat "$work/net.out" 2>/dev/null)" \
     "net_rx_percent="
 
+# And the load's percents, against the CPUs online.
+cat >"$work/load.toml" <<EOF
+[collect]
+db = "$work/load.db"
+[[alert]]
+name = "load"
+metric = "load_1m_percent"
+operator = ">="
+threshold = 0
+command = "echo \$MINIMONI_ALERT_METRIC=\$MINIMONI_ALERT_VALUE > $work/load.out"
+EOF
+"$BIN" collect --config "$work/load.toml" >/dev/null 2>&1
+check_has "collect fires a load_1m_percent alert" "$(cat "$work/load.out" 2>/dev/null)" \
+    "load_1m_percent="
+
 # --- db info ---
 info=$("$BIN" db info "$work/metrics.db" 2>/dev/null)
 rc=$?

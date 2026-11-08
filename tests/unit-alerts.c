@@ -236,7 +236,7 @@ static int test_every_config_metric_has_a_value(void)
 
     for (int i = 0; names[i]; i++) {
         int valid = 0;
-        metric_value(&row, names[i], &cfg, 100.0, 12.5e6, &valid);
+        metric_value(&row, names[i], &cfg, 100.0, 12.5e6, 4, &valid);
         if (!valid)
             return 1;
     }
@@ -296,7 +296,7 @@ static double temp_metric(const char *scale, const char *m, int *valid)
     row.temp_celsius = 55.0;
     snprintf(cfg.temp_scale, sizeof(cfg.temp_scale), "%s", scale);
 
-    return metric_value(&row, m, &cfg, 110.0, 12.5e6, valid);
+    return metric_value(&row, m, &cfg, 110.0, 12.5e6, 4, valid);
 }
 
 static int near(double a, double b) { return a - b < 1e-9 && b - a < 1e-9; }
@@ -333,7 +333,7 @@ static int test_temp_metrics_without_a_sensor_have_no_value(void)
 
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
         int valid = 1;
-        metric_value(&row, names[i], &cfg, 110.0, 12.5e6, &valid);
+        metric_value(&row, names[i], &cfg, 110.0, 12.5e6, 4, &valid);
         if (valid)
             return 1;
     }
@@ -352,8 +352,8 @@ static int test_net_percents_of_the_link(void)
     row.net_tx_bps = 10e6;
 
     int    rx, tx;
-    double r = metric_value(&row, "net_rx_percent", &cfg, 100.0, 12.5e6, &rx);
-    double t = metric_value(&row, "net_tx_percent", &cfg, 100.0, 12.5e6, &tx);
+    double r = metric_value(&row, "net_rx_percent", &cfg, 100.0, 12.5e6, 4, &rx);
+    double t = metric_value(&row, "net_tx_percent", &cfg, 100.0, 12.5e6, 4, &tx);
 
     return near(r, 20.0) && near(t, 80.0) && rx && tx ? 0 : 1;
 }
@@ -366,10 +366,48 @@ static int test_net_percents_without_a_rate_have_no_value(void)
     memset(&row, 0, sizeof(row));
 
     int rx = 1, tx = 1;
-    metric_value(&row, "net_rx_percent", &cfg, 100.0, 12.5e6, &rx);
-    metric_value(&row, "net_tx_percent", &cfg, 100.0, 12.5e6, &tx);
+    metric_value(&row, "net_rx_percent", &cfg, 100.0, 12.5e6, 4, &rx);
+    metric_value(&row, "net_tx_percent", &cfg, 100.0, 12.5e6, 4, &tx);
 
     return !rx && !tx ? 0 : 1;
+}
+
+/* Each raw load metric reads its own field, whatever the CPU count. */
+static int test_load_metrics_read_their_fields(void)
+{
+    static const char *const names[] = {"load_1m", "load_5m", "load_15m"};
+    config_t                 cfg = {0};
+    db_row_t                 row;
+    memset(&row, 0, sizeof(row));
+    row.load_1m = 1.0;
+    row.load_5m = 2.0;
+    row.load_15m = 3.0;
+
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        int valid = 0;
+        if (metric_value(&row, names[i], &cfg, 100.0, 12.5e6, 4, &valid) != i + 1.0 || !valid)
+            return 1;
+    }
+
+    return 0;
+}
+
+/* On 4 CPUs, loads of 1, 2 and 6 are 25, 50 and 150 %. */
+static int test_load_percents_of_the_cpus(void)
+{
+    config_t cfg = {0};
+    db_row_t row;
+    memset(&row, 0, sizeof(row));
+    row.load_1m = 1.0;
+    row.load_5m = 2.0;
+    row.load_15m = 6.0;
+
+    int    v1, v5, v15;
+    double l1 = metric_value(&row, "load_1m_percent", &cfg, 100.0, 12.5e6, 4, &v1);
+    double l5 = metric_value(&row, "load_5m_percent", &cfg, 100.0, 12.5e6, 4, &v5);
+    double l15 = metric_value(&row, "load_15m_percent", &cfg, 100.0, 12.5e6, 4, &v15);
+
+    return near(l1, 25.0) && near(l5, 50.0) && near(l15, 150.0) && v1 && v5 && v15 ? 0 : 1;
 }
 
 static const char *const SWAP_METRICS[] = {"swap_free_mb",      "swap_used_mb", "swap_free_percent",
@@ -543,6 +581,8 @@ static const test_t ALL_TESTS[] = {
     T(temp_metrics_without_a_sensor_have_no_value),
     T(net_percents_of_the_link),
     T(net_percents_without_a_rate_have_no_value),
+    T(load_metrics_read_their_fields),
+    T(load_percents_of_the_cpus),
     T(swap_metrics_read_their_fields),
     T(swap_metrics_without_swap_have_no_value),
     T(swap_io_metrics_without_a_sample_have_no_value),

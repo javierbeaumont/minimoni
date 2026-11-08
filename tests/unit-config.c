@@ -1733,6 +1733,26 @@ static int test_swap_alert_metrics_accepted(void)
     return 0;
 }
 
+static int test_load_alert_metrics_accepted(void)
+{
+    static const char *const names[] = {"load_1m",         "load_5m",         "load_15m",
+                                        "load_1m_percent", "load_5m_percent", "load_15m_percent"};
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        char toml[256];
+        snprintf(toml, sizeof(toml),
+                 "[[alert]]\nname = \"load\"\nmetric = \"%s\"\noperator = \">\"\n"
+                 "threshold = 1\nwebhook = \"w\"\n",
+                 names[i]);
+
+        config_t cfg;
+        if (load_cfg(&cfg, toml) != 0 || cfg.alert_count != 1 ||
+            strcmp(cfg.alerts[0].metric, names[i]))
+            return 1;
+    }
+
+    return 0;
+}
+
 static int test_net_alert_metrics_accepted(void)
 {
     static const char *const names[] = {"net_rx_bps", "net_tx_bps", "net_rx_percent",
@@ -1948,6 +1968,7 @@ static const test_t ALL_TESTS[] = {
     T(temp_alert_metrics_accepted),
     T(old_temp_alert_metric_fails),
     T(swap_alert_metrics_accepted),
+    T(load_alert_metrics_accepted),
     T(net_alert_metrics_accepted),
     T(missing_disk_path_fails),
 };

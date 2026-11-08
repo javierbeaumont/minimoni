@@ -29,13 +29,13 @@
 
 /* What an alert may watch; alerts.c reads each one from the row. */
 #define ALERT_METRICS                                                                              \
-    "load_1m", "load_5m", "load_15m", "cpu_user_percent", "cpu_system_percent",                    \
-        "cpu_idle_percent", "mem_used_mb", "mem_available_mb", "mem_used_percent",                 \
-        "mem_available_percent", "disk_used_gb", "disk_available_gb", "disk_used_percent",         \
-        "disk_available_percent", "temp_degrees", "temp_percent", "net_rx_bps", "net_tx_bps",      \
-        "net_rx_percent", "net_tx_percent", "uptime_seconds", "swap_free_mb", "swap_used_mb",      \
-        "swap_free_percent", "swap_used_percent", "swap_in_bps", "swap_out_bps", "swap_in_ram",    \
-        "swap_out_ram"
+    "load_1m", "load_5m", "load_15m", "load_1m_percent", "load_5m_percent", "load_15m_percent",    \
+        "cpu_user_percent", "cpu_system_percent", "cpu_idle_percent", "mem_used_mb",               \
+        "mem_available_mb", "mem_used_percent", "mem_available_percent", "disk_used_gb",           \
+        "disk_available_gb", "disk_used_percent", "disk_available_percent", "temp_degrees",        \
+        "temp_percent", "net_rx_bps", "net_tx_bps", "net_rx_percent", "net_tx_percent",            \
+        "uptime_seconds", "swap_free_mb", "swap_used_mb", "swap_free_percent",                     \
+        "swap_used_percent", "swap_in_bps", "swap_out_bps", "swap_in_ram", "swap_out_ram"
 
 typedef struct {
     char   name[64];

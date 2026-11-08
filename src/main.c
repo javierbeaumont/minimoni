@@ -157,7 +157,7 @@ static int run_collect(const char *config_path)
         db_prune(&db, retention_days(&cfg));
         db_row_t row;
         if (db_current(&db, &row) == 0)
-            alerts_evaluate(&db, &cfg, &row, temp_critical, net_ref);
+            alerts_evaluate(&db, &cfg, &row, temp_critical, net_ref, metrics_num_cores());
     }
 
     db_close(&db);
@@ -221,8 +221,9 @@ static int run_serve(const char *config_path)
         /* A link can come up after start or renegotiate, and a CPU go online or offline. Read here
          * once a cycle, not per request: every open dashboard sends one each refresh seconds. */
         int link_mbit = metrics_link_speed_mbit();
+        int cores = metrics_num_cores();
         atomic_store(&http.net_speed_mbit, link_mbit);
-        atomic_store(&http.num_cores, metrics_num_cores());
+        atomic_store(&http.num_cores, cores);
 
         if (rc != 0)
             continue;
@@ -236,7 +237,7 @@ static int run_serve(const char *config_path)
         db_row_t row;
         if (db_current(&db, &row) == 0)
             alerts_evaluate(&db, &cfg, &row, temp_critical,
-                            net_ref_bps(cfg.net_max_speed, link_mbit));
+                            net_ref_bps(cfg.net_max_speed, link_mbit), cores);
     }
 
     http_stop(&http);

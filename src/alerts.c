@@ -166,11 +166,29 @@ static double net_metric_value(const db_row_t *row, const char *m, double ref, i
     return 0.0;
 }
 
-/* The temperature metrics also need the scale and the critical trip point, and the network's
- * percents the link ceiling. */
-static double metric_value(const db_row_t *row, const char *m, const config_t *cfg,
-                           double temp_critical, double net_ref, int *valid)
+/* The load as a percent of the `cores` CPUs online. */
+static double load_metric_value(const db_row_t *row, const char *m, int cores, int *valid)
 {
+    *valid = 1;
+
+    if (!strcmp(m, "load_1m_percent"))
+        return row->load_1m * 100.0 / cores;
+    if (!strcmp(m, "load_5m_percent"))
+        return row->load_5m * 100.0 / cores;
+    if (!strcmp(m, "load_15m_percent"))
+        return row->load_15m * 100.0 / cores;
+
+    *valid = 0;
+    return 0.0;
+}
+
+/* The temperature metrics also need the scale and the critical trip point, the network's percents
+ * the link ceiling, and the load's the CPUs online. */
+static double metric_value(const db_row_t *row, const char *m, const config_t *cfg,
+                           double temp_critical, double net_ref, int cores, int *valid)
+{
+    if (strncmp(m, "load_", 5) == 0 && strstr(m, "_percent"))
+        return load_metric_value(row, m, cores, valid);
     if (strncmp(m, "temp_", 5) == 0)
         return temp_metric_value(row, m, cfg, temp_critical, valid);
     if (!strcmp(m, "net_rx_percent") || !strcmp(m, "net_tx_percent"))
@@ -616,7 +634,7 @@ static int run_command(const alert_cfg_t *a, double value)
 /* --- Public API --- */
 
 int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double temp_critical,
-                    double net_ref)
+                    double net_ref, int cores)
 {
     if (cfg->alert_count == 0)
         return 0;
@@ -631,7 +649,7 @@ int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double t
         const alert_cfg_t *a = &cfg->alerts[i];
 
         int    valid;
-        double value = metric_value(row, a->metric, cfg, temp_critical, net_ref, &valid);
+        double value = metric_value(row, a->metric, cfg, temp_critical, net_ref, cores, &valid);
         if (!valid)
             continue;
 

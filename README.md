@@ -566,6 +566,9 @@ cooldown  = "1h"                # minimum time between repeated firings
 | `load_1m`                | load avg  | 1-minute load average                             |
 | `load_5m`                | load avg  | 5-minute load average                             |
 | `load_15m`               | load avg  | 15-minute load average                            |
+| `load_1m_percent`        | %         | 1-minute load as percent of the CPUs online       |
+| `load_5m_percent`        | %         | 5-minute load as percent of the CPUs online       |
+| `load_15m_percent`       | %         | 15-minute load as percent of the CPUs online      |
 | `cpu_user_percent`       | %         | User-space CPU usage                              |
 | `cpu_system_percent`     | %         | Kernel CPU usage                                  |
 | `cpu_idle_percent`       | %         | Idle CPU                                          |
@@ -597,11 +600,13 @@ Thresholds are compared against the raw metric value, in the unit named by its s
 megabytes, `_gb` is gigabytes, `_percent` is a percentage, `_degrees` is degrees in
 `collect.temp_scale`, `_bps` is bytes per second, `_ram` is swap I/O as a percent of the RAM per
 minute (past 100 when the same pages go back and forth). `_bps`, `_ram` and `net_*_percent` are
-averages over the collect interval: a longer interval smooths out short bursts. `load_*` are raw
-load averages; `uptime_seconds` is in seconds. `temp_percent` counts from the scale's zero (0 °C or
-0 °F) up to the critical trip point (see `collect.temp_critical`). `net_rx_percent` and
-`net_tx_percent` are measured against the link ceiling the dashboard's net semaphore uses (see
-`collect.net_max_speed`), so a threshold of 85 or 98 matches its yellow or its red.
+averages over the collect interval: a longer interval smooths out short bursts. `load_1m`,
+`load_5m` and `load_15m` are raw load averages, and `load_*_percent` are the same averages as a
+percent of the CPUs online (see `cpu_load_card_unit`); `uptime_seconds` is in seconds.
+`temp_percent` counts from the scale's zero (0 °C or 0 °F) up to the critical trip point (see
+`collect.temp_critical`). `net_rx_percent` and `net_tx_percent` are measured against the link
+ceiling the dashboard's net semaphore uses (see `collect.net_max_speed`), so a threshold of 85 or
+98 matches its yellow or its red.
 Dashboard unit settings do not affect alert thresholds: alerts work from the database, never in the
 dashboard's units. The `swap_*` metrics are skipped on a host without swap.
 
@@ -709,9 +714,9 @@ cooldown  = "6h"
 
 [[alert]]
 name      = "high-load"
-metric    = "load_5m"
+metric    = "load_5m_percent"
 operator  = ">="
-threshold = 4
+threshold = 100
 webhook   = "https://ntfy.sh/my-server"
 cooldown  = "30m"
 
