@@ -285,7 +285,7 @@ static int zone_read(const char *dir, int zone, const char *file, char *buf, siz
     return 0;
 }
 
-/* The millidegrees in a zone's file, as degrees C. Returns 0, or -1 when it holds no number. */
+/* The millidegrees in a zone's file, as °C. Returns 0, or -1 when it holds no number. */
 static int zone_celsius(const char *dir, int zone, const char *file, double *celsius)
 {
     char buf[32];
@@ -334,7 +334,7 @@ static int temp_zone(const char *dir, char *type, size_t cap)
     return best_zone;
 }
 
-/* A zone's critical trip point, in degrees C. Returns 0, or -1 when it has none. */
+/* A zone's critical trip point, in °C. Returns 0, or -1 when it has none. */
 static int zone_critical(const char *dir, int zone, double *celsius)
 {
     for (int i = 0; i < 16; i++) {

@@ -202,7 +202,7 @@ check_rc "serve shuts down cleanly on SIGTERM" 0 "$rc"
 # real binary. Unit tests cover each converter; this covers the wiring from the
 # database to the response, which is where a mismatched key or a dropped call
 # would hide. The row: 1748/2048 MB memory, 512/2048 MB swap, 1 MiB/s swapped in
-# and 2 MiB/s out, 20/100 GB disk, 50 C, 5 MiB/s down and 1 MiB/s up, load 2.
+# and 2 MiB/s out, 20/100 GB disk, 50 °C, 5 MiB/s down and 1 MiB/s up, load 2.
 #
 # Its own database, seeded and nothing else: the magnitude comes from the
 # largest value in the window, so rows collected from the host would hand the

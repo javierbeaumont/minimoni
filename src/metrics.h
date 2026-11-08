@@ -86,7 +86,7 @@ void metrics_run_note(metrics_run_t *run, int rc);
  * leaving the caller to fall back to config. */
 int metrics_link_speed_mbit(void);
 
-/* The critical trip point, in degrees C, of the thermal zone collect reads: the 100% reference for
+/* The critical trip point, in °C, of the thermal zone collect reads: the 100% reference for
  * temperature percent mode. Returns 0, or -1 when there is no zone or it has no critical trip. */
 int metrics_temp_critical(double *celsius);
 
