@@ -26,7 +26,9 @@ typedef struct {
     /* CPU load averages: always valid */
     double load_1m, load_5m, load_15m;
 
-    /* CPU usage: invalid (0) on the first collect call (no previous snapshot) */
+    /* CPU usage in percents of the time since the previous sample, steal (the time a hypervisor
+     * took) included: cpu_valid=0 on the first sample, after a failed read, when user, system,
+     * idle or steal went back and when no time passed */
     int    cpu_valid;
     double cpu_user_percent, cpu_system_percent, cpu_idle_percent;
 
@@ -65,8 +67,8 @@ typedef struct {
 /* Collect all metrics into m. disk_path is the filesystem to measure (e.g. "/").
  *
  * CPU usage, network throughput and swap I/O use a static snapshot for delta computation. On
- * the first call, their valid flags are set to 0 and the snapshot is saved. On subsequent calls the
- * delta is computed and the corresponding valid flag is set to 1.
+ * the first call, their valid flags are set to 0 and the snapshot is saved. The fields' comments
+ * say when a valid flag stays 0.
  *
  * Returns 0 on success. On non-fatal errors (missing temperature sensor, unreadable network stats)
  * the affected fields are zeroed and collection continues. Returns -1 only if a required metric

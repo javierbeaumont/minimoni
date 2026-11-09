@@ -113,7 +113,7 @@ static int retention_days(const config_t *cfg)
     return max > 0 ? max : 90;
 }
 
-/* --- collect: oneshot, seed CPU snapshot, sleep 250 ms, collect, insert --- */
+/* --- collect: oneshot, seed the snapshots, sleep 250 ms, collect, insert --- */
 
 static int run_collect(const char *config_path)
 {
@@ -126,21 +126,20 @@ static int run_collect(const char *config_path)
         return 1;
 
     metrics_t m;
-
-    /* First call seeds the static CPU snapshot; cpu_valid will be 0. */
     if (metrics_collect(&m, cfg.disk_path) != 0) {
         fprintf(stderr, "minimoni: metrics_collect failed\n");
         db_close(&db);
+
         return 1;
     }
 
     struct timespec ts = {0, 250000000L};
     nanosleep(&ts, NULL);
 
-    /* Second call computes the CPU delta; cpu_valid is now 1. */
     if (metrics_collect(&m, cfg.disk_path) != 0) {
         fprintf(stderr, "minimoni: metrics_collect failed\n");
         db_close(&db);
+
         return 1;
     }
 
@@ -155,12 +154,14 @@ static int run_collect(const char *config_path)
     } else {
         db_consolidate(&db);
         db_prune(&db, retention_days(&cfg));
+
         db_row_t row;
         if (db_current(&db, &row) == 0)
             alerts_evaluate(&db, &cfg, &row, temp_critical, net_ref, metrics_num_cores());
     }
 
     db_close(&db);
+
     return ret;
 }
 

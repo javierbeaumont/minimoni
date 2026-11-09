@@ -37,12 +37,40 @@
 
 /* --- CPU helpers --- */
 
+/* /proc/stat's counters summed in groups. iowait goes with idle because it can fall while idle
+ * rises by at least as much. */
 typedef struct {
-    unsigned long long user, nice, system, idle, iowait, irq, softirq;
+    unsigned long long user, system, idle, steal;
 } cpu_raw_t;
 
 static int       s_prev_cpu_valid = 0;
 static cpu_raw_t s_prev_cpu;
+
+/* /proc/stat's first line, every CPU summed. Returns -1 unless it is "cpu" followed by at least 8
+ * counters. */
+static int parse_cpu_line(const char *line, cpu_raw_t *c)
+{
+    if (strncmp(line, "cpu ", 4) != 0)
+        return -1;
+
+    *c = (cpu_raw_t){0};
+    /* user, nice, system, idle, iowait, irq, softirq and steal, in the kernel's order; the guest
+     * and guest_nice that follow are already in user and nice */
+    unsigned long long *group[] = {&c->user, &c->user,   &c->system, &c->idle,
+                                   &c->idle, &c->system, &c->system, &c->steal};
+    const char         *p = line + 3; /* past the "cpu" label */
+    for (size_t i = 0; i < sizeof(group) / sizeof(group[0]); i++) {
+        char *end;
+        errno = 0;
+        unsigned long long v = strtoull(p, &end, 10);
+        if (end == p || errno != 0)
+            return -1;
+        *group[i] += v;
+        p = end;
+    }
+
+    return 0;
+}
 
 static int read_cpu_raw(cpu_raw_t *c)
 {
@@ -53,22 +81,10 @@ static int read_cpu_raw(cpu_raw_t *c)
     char  line[256];
     char *got = fgets(line, sizeof(line), f);
     fclose(f);
-    if (!got || strncmp(line, "cpu ", 4) != 0)
+    if (!got)
         return -1;
 
-    unsigned long long *fields[] = {&c->user,   &c->nice, &c->system, &c->idle,
-                                    &c->iowait, &c->irq,  &c->softirq};
-    char               *p = line + 3; /* past the "cpu" label */
-    for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); i++) {
-        char *end;
-        errno = 0;
-        unsigned long long v = strtoull(p, &end, 10);
-        if (end == p || errno != 0)
-            return -1;
-        *fields[i] = v;
-        p = end;
-    }
-    return 0;
+    return parse_cpu_line(line, c);
 }
 
 /* --- Load average --- */
@@ -100,6 +116,29 @@ static int collect_load(metrics_t *m)
 
 /* --- CPU usage --- */
 
+/* User, system and idle in percents of the time from `prev` to `cur`, steal included. Returns 0
+ * when a group went back or no time passed. */
+static int cpu_percents(const cpu_raw_t *prev, const cpu_raw_t *cur, metrics_t *m)
+{
+    if (cur->user < prev->user || cur->system < prev->system || cur->idle < prev->idle ||
+        cur->steal < prev->steal)
+        return 0;
+
+    unsigned long long d_user = cur->user - prev->user;
+    unsigned long long d_system = cur->system - prev->system;
+    unsigned long long d_idle = cur->idle - prev->idle;
+    unsigned long long total = d_user + d_system + d_idle + (cur->steal - prev->steal);
+
+    if (total == 0)
+        return 0;
+
+    m->cpu_user_percent = (double)d_user * 100.0 / (double)total;
+    m->cpu_system_percent = (double)d_system * 100.0 / (double)total;
+    m->cpu_idle_percent = (double)d_idle * 100.0 / (double)total;
+
+    return 1;
+}
+
 static void collect_cpu(metrics_t *m)
 {
     cpu_raw_t cur;
@@ -108,34 +147,9 @@ static void collect_cpu(metrics_t *m)
         return;
     }
 
-    if (!s_prev_cpu_valid) {
-        s_prev_cpu = cur;
-        s_prev_cpu_valid = 1;
-        m->cpu_valid = 0;
-        return;
-    }
-
-    unsigned long long d_user = cur.user - s_prev_cpu.user;
-    unsigned long long d_nice = cur.nice - s_prev_cpu.nice;
-    unsigned long long d_system = cur.system - s_prev_cpu.system;
-    unsigned long long d_idle = cur.idle - s_prev_cpu.idle;
-    unsigned long long d_iowait = cur.iowait - s_prev_cpu.iowait;
-    unsigned long long d_irq = cur.irq - s_prev_cpu.irq;
-    unsigned long long d_softirq = cur.softirq - s_prev_cpu.softirq;
-
-    unsigned long long total = d_user + d_nice + d_system + d_idle + d_iowait + d_irq + d_softirq;
-
+    m->cpu_valid = s_prev_cpu_valid && cpu_percents(&s_prev_cpu, &cur, m);
     s_prev_cpu = cur;
-
-    if (total == 0) {
-        m->cpu_valid = 0;
-        return;
-    }
-
-    m->cpu_user_percent = (double)(d_user + d_nice) * 100.0 / (double)total;
-    m->cpu_system_percent = (double)(d_system + d_irq + d_softirq) * 100.0 / (double)total;
-    m->cpu_idle_percent = (double)(d_idle + d_iowait) * 100.0 / (double)total;
-    m->cpu_valid = 1;
+    s_prev_cpu_valid = 1;
 }
 
 /* --- Memory and swap --- */

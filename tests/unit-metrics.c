@@ -19,9 +19,9 @@
  * along with minimoni. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Unit tests for src/metrics.c: the pure rate computation, the /proc/meminfo, /proc/vmstat and
- * /proc/net/dev readers fed synthetic text, and the thermal zone and network interface readers fed
- * a synthetic sysfs tree.
+/* Unit tests for src/metrics.c: the pure rate computation, the /proc/stat, /proc/meminfo,
+ * /proc/vmstat and /proc/net/dev readers fed synthetic text, and the thermal zone and network
+ * interface readers fed a synthetic sysfs tree.
  * Zero-dependency, no framework; build with `make test`. metrics.c is #included directly so the
  * static helpers are exercisable without reading /proc or /sys. */
 
@@ -982,6 +982,102 @@ static int test_link_speed_without_sysfs_is_0(void)
     return speed == 0 ? 0 : 1;
 }
 
+/* --- CPU usage --- */
+
+/* The percents from one /proc/stat cpu line to the next. Returns 1 for a sample, 0 for none, -1
+ * when a line does not parse. */
+static int cpu_between(const char *was, const char *now, metrics_t *m)
+{
+    cpu_raw_t prev, cur;
+    if (parse_cpu_line(was, &prev) != 0 || parse_cpu_line(now, &cur) != 0)
+        return -1;
+
+    return cpu_percents(&prev, &cur, m);
+}
+
+/* User takes nice, system takes irq and softirq, idle takes iowait; guest and guest_nice are
+ * already in user and nice. */
+static int test_cpu_groups_the_counters(void)
+{
+    metrics_t m;
+
+    int got = cpu_between("cpu  0 0 0 0 0 0 0 0 0 0\n", "cpu  10 10 10 30 10 15 15 0 5 5\n", &m);
+
+    return got == 1 && approx(m.cpu_user_percent, 20.0) && approx(m.cpu_system_percent, 40.0) &&
+                   approx(m.cpu_idle_percent, 40.0)
+               ? 0
+               : 1;
+}
+
+/* With 300 of 1000 ticks stolen, user's 600 ticks are 60 %. */
+static int test_cpu_counts_the_stolen_time(void)
+{
+    metrics_t m;
+
+    int got = cpu_between("cpu  0 0 0 0 0 0 0 0 0 0\n", "cpu  600 0 50 50 0 0 0 300 0 0\n", &m);
+
+    return got == 1 && approx(m.cpu_user_percent, 60.0) && approx(m.cpu_system_percent, 5.0) &&
+                   approx(m.cpu_idle_percent, 5.0)
+               ? 0
+               : 1;
+}
+
+/* One pair per group: user, system, idle and steal. */
+static int test_cpu_group_gone_back_is_a_gap(void)
+{
+    static const char *const lines[][2] = {
+        {"cpu  100 0 0 0 0 0 0 0 0 0\n", "cpu  90 0 0 50 0 0 0 0 0 0\n"},
+        {"cpu  0 0 100 0 0 0 0 0 0 0\n", "cpu  50 0 90 0 0 0 0 0 0 0\n"},
+        {"cpu  0 0 0 1000 0 0 0 0 0 0\n", "cpu  50 0 0 990 0 0 0 0 0 0\n"},
+        {"cpu  0 0 0 0 0 0 0 100 0 0\n", "cpu  50 0 0 0 0 0 0 90 0 0\n"},
+    };
+
+    for (size_t i = 0; i < sizeof(lines) / sizeof(lines[0]); i++) {
+        metrics_t m;
+        if (cpu_between(lines[i][0], lines[i][1], &m) != 0)
+            return 1;
+    }
+
+    return 0;
+}
+
+static int test_cpu_iowait_drop_made_up_by_idle(void)
+{
+    metrics_t m;
+
+    int got = cpu_between("cpu  0 0 0 100 20 0 0 0 0 0\n", "cpu  60 0 0 130 10 0 0 0 0 0\n", &m);
+
+    return got == 1 && approx(m.cpu_user_percent, 75.0) && approx(m.cpu_idle_percent, 25.0) ? 0 : 1;
+}
+
+static int test_cpu_no_time_is_a_gap(void)
+{
+    metrics_t   m;
+    const char *line = "cpu  10 0 10 10 0 0 0 0 0 0\n";
+
+    return cpu_between(line, line, &m) == 0 ? 0 : 1;
+}
+
+static int test_cpu_line_malformed_refused(void)
+{
+    static const char *const bad[] = {
+        "",
+        "intr 1 2 3 4 5 6 7 8\n",
+        "cpu0 1 2 3 4 5 6 7 8\n",
+        "cpu  1 2 3 4 5 6 7\n",
+        "cpu  1 2 3 x 5 6 7 8\n",
+        "cpu  1 2 3 99999999999999999999 5 6 7 8\n",
+    };
+
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        cpu_raw_t c;
+        if (parse_cpu_line(bad[i], &c) != -1)
+            return 1;
+    }
+
+    return 0;
+}
+
 /* --- CPU count --- */
 
 /* The CPU count once took only the first span: "0-3,8-11" gave 4 and "0,2" gave 1. */
@@ -1131,6 +1227,12 @@ static const test_t ALL_TESTS[] = {
     T(link_speed_without_a_physical_sums_all_but_lo),
     T(net_without_sysfs_sums_all_but_lo),
     T(link_speed_without_sysfs_is_0),
+    T(cpu_groups_the_counters),
+    T(cpu_counts_the_stolen_time),
+    T(cpu_group_gone_back_is_a_gap),
+    T(cpu_iowait_drop_made_up_by_idle),
+    T(cpu_no_time_is_a_gap),
+    T(cpu_line_malformed_refused),
     T(cpulist_counts_every_span),
     T(cpulist_malformed_refused),
     T(cores_counted_from_the_online_list),
