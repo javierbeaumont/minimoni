@@ -1712,6 +1712,21 @@ static int test_old_temp_alert_metric_fails(void)
     return strstr(err, "config: alert 'hot': unknown metric 'temp_celsius'") ? 0 : 1;
 }
 
+/* The old name fails the load: cpu_idle_percent, now 100 minus cpu_total_percent. */
+static int test_cpu_idle_alert_metric_fails(void)
+{
+    config_t cfg;
+    char     err[512];
+
+    if (load_cfg_err(&cfg,
+                     "[[alert]]\nname = \"busy\"\nmetric = \"cpu_idle_percent\"\noperator = \"<\"\n"
+                     "threshold = 10\nwebhook = \"w\"\n",
+                     err, sizeof(err)) != -1)
+        return 1;
+
+    return strstr(err, "config: alert 'busy': unknown metric 'cpu_idle_percent'") ? 0 : 1;
+}
+
 static int test_swap_alert_metrics_accepted(void)
 {
     static const char *const names[] = {"swap_free_mb",      "swap_used_mb", "swap_free_percent",
@@ -1741,6 +1756,26 @@ static int test_load_alert_metrics_accepted(void)
         char toml[256];
         snprintf(toml, sizeof(toml),
                  "[[alert]]\nname = \"load\"\nmetric = \"%s\"\noperator = \">\"\n"
+                 "threshold = 1\nwebhook = \"w\"\n",
+                 names[i]);
+
+        config_t cfg;
+        if (load_cfg(&cfg, toml) != 0 || cfg.alert_count != 1 ||
+            strcmp(cfg.alerts[0].metric, names[i]))
+            return 1;
+    }
+
+    return 0;
+}
+
+static int test_cpu_alert_metrics_accepted(void)
+{
+    static const char *const names[] = {"cpu_total_percent", "cpu_user_percent",
+                                        "cpu_system_percent", "cpu_steal_percent"};
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        char toml[256];
+        snprintf(toml, sizeof(toml),
+                 "[[alert]]\nname = \"cpu\"\nmetric = \"%s\"\noperator = \">\"\n"
                  "threshold = 1\nwebhook = \"w\"\n",
                  names[i]);
 
@@ -1967,8 +2002,10 @@ static const test_t ALL_TESTS[] = {
     T(old_disk_alert_metrics_fail),
     T(temp_alert_metrics_accepted),
     T(old_temp_alert_metric_fails),
+    T(cpu_idle_alert_metric_fails),
     T(swap_alert_metrics_accepted),
     T(load_alert_metrics_accepted),
+    T(cpu_alert_metrics_accepted),
     T(net_alert_metrics_accepted),
     T(missing_disk_path_fails),
 };

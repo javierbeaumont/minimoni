@@ -410,6 +410,83 @@ static int test_load_percents_of_the_cpus(void)
     return near(l1, 25.0) && near(l5, 50.0) && near(l15, 150.0) && v1 && v5 && v15 ? 0 : 1;
 }
 
+static int test_cpu_steal_is_what_user_system_and_idle_leave(void)
+{
+    db_row_t row;
+    memset(&row, 0, sizeof(row));
+    row.cpu_valid = 1;
+    row.cpu_user_percent = 25.0;
+    row.cpu_system_percent = 5.0;
+    row.cpu_idle_percent = 67.5;
+
+    int    valid = 0;
+    double steal = get_metric_value(&row, "cpu_steal_percent", &valid);
+
+    return near(steal, 2.5) && valid ? 0 : 1;
+}
+
+/* In doubles, taking 100/3 from 100 three times leaves a hair below 0, and taking 500/6 and 100/6
+ * a hair above. */
+static int test_cpu_steal_reads_0_when_rounding_leaves_a_hair(void)
+{
+    db_row_t row;
+    memset(&row, 0, sizeof(row));
+    row.cpu_valid = 1;
+    row.cpu_user_percent = row.cpu_system_percent = row.cpu_idle_percent = 100.0 / 3.0;
+
+    int    below = 0, above = 0;
+    double from_below = get_metric_value(&row, "cpu_steal_percent", &below);
+
+    row.cpu_user_percent = 500.0 / 6.0;
+    row.cpu_system_percent = 0.0;
+    row.cpu_idle_percent = 100.0 / 6.0;
+    double from_above = get_metric_value(&row, "cpu_steal_percent", &above);
+
+    return from_below == 0.0 && from_above == 0.0 && below && above ? 0 : 1;
+}
+
+/* The zeroed fields would give a steal of 100. */
+static int test_cpu_steal_has_a_value_only_with_a_sample(void)
+{
+    db_row_t row;
+    memset(&row, 0, sizeof(row));
+
+    int without = 1, with = 0;
+    get_metric_value(&row, "cpu_steal_percent", &without);
+    row.cpu_valid = 1;
+    get_metric_value(&row, "cpu_steal_percent", &with);
+
+    return !without && with ? 0 : 1;
+}
+
+static int test_cpu_total_is_user_system_and_steal(void)
+{
+    db_row_t row;
+    memset(&row, 0, sizeof(row));
+    row.cpu_valid = 1;
+    row.cpu_user_percent = 25.0;
+    row.cpu_system_percent = 5.0;
+    row.cpu_idle_percent = 67.5;
+
+    int    valid = 0;
+    double total = get_metric_value(&row, "cpu_total_percent", &valid);
+
+    return near(total, 32.5) && valid ? 0 : 1;
+}
+
+static int test_cpu_total_has_a_value_only_with_a_sample(void)
+{
+    db_row_t row;
+    memset(&row, 0, sizeof(row));
+
+    int without = 1, with = 0;
+    get_metric_value(&row, "cpu_total_percent", &without);
+    row.cpu_valid = 1;
+    get_metric_value(&row, "cpu_total_percent", &with);
+
+    return !without && with ? 0 : 1;
+}
+
 static const char *const SWAP_METRICS[] = {"swap_free_mb",      "swap_used_mb", "swap_free_percent",
                                            "swap_used_percent", "swap_in_bps",  "swap_out_bps",
                                            "swap_in_ram",       "swap_out_ram"};
@@ -583,6 +660,11 @@ static const test_t ALL_TESTS[] = {
     T(net_percents_without_a_rate_have_no_value),
     T(load_metrics_read_their_fields),
     T(load_percents_of_the_cpus),
+    T(cpu_steal_is_what_user_system_and_idle_leave),
+    T(cpu_steal_reads_0_when_rounding_leaves_a_hair),
+    T(cpu_steal_has_a_value_only_with_a_sample),
+    T(cpu_total_is_user_system_and_steal),
+    T(cpu_total_has_a_value_only_with_a_sample),
     T(swap_metrics_read_their_fields),
     T(swap_metrics_without_swap_have_no_value),
     T(swap_io_metrics_without_a_sample_have_no_value),

@@ -570,9 +570,10 @@ cooldown  = "1h"                # minimum time between repeated firings
 | `load_1m_percent`        | %         | 1-minute load as percent of the CPUs online       |
 | `load_5m_percent`        | %         | 5-minute load as percent of the CPUs online       |
 | `load_15m_percent`       | %         | 15-minute load as percent of the CPUs online      |
-| `cpu_user_percent`       | %         | User-space CPU usage                              |
-| `cpu_system_percent`     | %         | Kernel CPU usage                                  |
-| `cpu_idle_percent`       | %         | Idle CPU                                          |
+| `cpu_total_percent`      | %         | User, system and steal, I/O wait excluded         |
+| `cpu_user_percent`       | %         | User-space CPU time, nice included                |
+| `cpu_system_percent`     | %         | Kernel CPU time, interrupts included              |
+| `cpu_steal_percent`      | %         | CPU time the hypervisor gave to other machines    |
 | `mem_used_mb`            | MB        | Used memory (total minus available)               |
 | `mem_available_mb`       | MB        | Memory available without swapping                 |
 | `mem_used_percent`       | %         | Used memory as percent of total                   |
@@ -600,14 +601,16 @@ cooldown  = "1h"                # minimum time between repeated firings
 Thresholds are compared against the raw metric value, in the unit named by its suffix: `_mb` is
 megabytes, `_gb` is gigabytes, `_percent` is a percentage, `_degrees` is degrees in
 `collect.temp_scale`, `_bps` is bytes per second, `_ram` is swap I/O as a percent of the RAM per
-minute (past 100 when the same pages go back and forth). `_bps`, `_ram` and `net_*_percent` are
-averages over the collect interval: a longer interval smooths out short bursts. `load_1m`,
-`load_5m` and `load_15m` are raw load averages, and `load_*_percent` are the same averages as a
-percent of the CPUs online, so a threshold of 75 or 100 matches the load semaphore's yellow or red
-(see `cpu_load_card_unit`); `uptime_seconds` is in seconds. `temp_percent` counts from the scale's
-zero (0 °C or 0 °F) up to the critical trip point (see `collect.temp_critical`). `net_rx_percent`
-and `net_tx_percent` are measured against the link ceiling the dashboard's net semaphore uses (see
-`collect.net_max_speed`), so a threshold of 85 or 98 matches its yellow or its red.
+minute (past 100 when the same pages go back and forth). `_bps`, `_ram`, `net_*_percent` and
+`cpu_*_percent` are averages over the collect interval: a longer interval smooths out short bursts.
+`cpu_steal_percent` stays at 0 unless the hypervisor reports it (KVM, Xen and VMware can; Hyper-V
+does not). `load_1m`, `load_5m` and `load_15m` are raw load averages, and `load_*_percent` are the
+same averages as a percent of the CPUs online, so a threshold of 75 or 100 matches the load
+semaphore's yellow or red (see `cpu_load_card_unit`); `uptime_seconds` is in seconds. `temp_percent`
+counts from the scale's zero (0 °C or 0 °F) up to the critical trip point (see
+`collect.temp_critical`). `net_rx_percent` and `net_tx_percent` are measured against the link
+ceiling the dashboard's net semaphore uses (see `collect.net_max_speed`), so a threshold of 85 or 98
+matches its yellow or its red.
 Dashboard unit settings do not affect alert thresholds: alerts work from the database, never in the
 dashboard's units. The `swap_*` metrics are skipped on a host without swap.
 
