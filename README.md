@@ -503,7 +503,8 @@ that order with 45-day retention). Sub-day ranges round up to 1 day for retentio
 reports it; `"%"` shows it as a percent of the CPUs online, counted again every `interval`. The
 load counts the tasks waiting on disk or NFS as well as those running or ready to run, so a load
 above the CPU count can be I/O with the CPUs idle. In a container, both the load and the CPU count
-are the host's.
+are the host's. The semaphore turns yellow at 0.75 per CPU and red at 1, the same in both units: 75
+and 100 % in `"%"`. The card takes the color of the value it shows large, the other two their own.
 
 **`memory_card_unit`** / **`memory_chart_unit`** / **`swap_card_unit`** / **`swap_chart_unit`** /
 **`disk_card_unit`** / **`disk_chart_unit`**: `"%"` shows the share of capacity in use; `"auto"`
@@ -602,11 +603,11 @@ megabytes, `_gb` is gigabytes, `_percent` is a percentage, `_degrees` is degrees
 minute (past 100 when the same pages go back and forth). `_bps`, `_ram` and `net_*_percent` are
 averages over the collect interval: a longer interval smooths out short bursts. `load_1m`,
 `load_5m` and `load_15m` are raw load averages, and `load_*_percent` are the same averages as a
-percent of the CPUs online (see `cpu_load_card_unit`); `uptime_seconds` is in seconds.
-`temp_percent` counts from the scale's zero (0 °C or 0 °F) up to the critical trip point (see
-`collect.temp_critical`). `net_rx_percent` and `net_tx_percent` are measured against the link
-ceiling the dashboard's net semaphore uses (see `collect.net_max_speed`), so a threshold of 85 or
-98 matches its yellow or its red.
+percent of the CPUs online, so a threshold of 75 or 100 matches the load semaphore's yellow or red
+(see `cpu_load_card_unit`); `uptime_seconds` is in seconds. `temp_percent` counts from the scale's
+zero (0 °C or 0 °F) up to the critical trip point (see `collect.temp_critical`). `net_rx_percent`
+and `net_tx_percent` are measured against the link ceiling the dashboard's net semaphore uses (see
+`collect.net_max_speed`), so a threshold of 85 or 98 matches its yellow or its red.
 Dashboard unit settings do not affect alert thresholds: alerts work from the database, never in the
 dashboard's units. The `swap_*` metrics are skipped on a host without swap.
 

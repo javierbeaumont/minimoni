@@ -305,7 +305,7 @@ check_has "units %: disk is the available share alone" "$current" '"disk_availab
 check_has "units %: net is a share of the link" "$current" '"net_rx":41.9'
 check_has "units ram: swap I/O in % of the RAM per minute" "$current" '"swap_in":2.93'
 check_has "units ram: thresholds in % of the RAM per minute" "$current" '"thresh_swap_io":[1,5]'
-check_has "units %: load is normalised by cores" "$current" '"thresh_load":[70,90]'
+check_has "units %: load is normalised by cores" "$current" '"thresh_load":[75,100]'
 
 # Everything absolute: values travel in their base unit, untouched, and the
 # envelope carries the magnitude the dashboard should read them in.

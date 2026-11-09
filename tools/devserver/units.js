@@ -208,7 +208,8 @@ function toCurrent(raw, f, configured, netMaxSpeed = 0) {
 
   /* Thresholds, computed server-side ([warn, crit]). */
   if (configHas(cards, 'cpu_load')) {
-    out.thresh_load = lu[0] === '%' ? [70.0, 90.0] : [0.75 * CORES, 1.0 * CORES];
+    const cpu = lu[0] === '%' ? 100.0 : CORES; /* one CPU's load in the card unit */
+    out.thresh_load = [0.75 * cpu, cpu];
   }
 
   if (configHas(cards, 'cpu_usage'))

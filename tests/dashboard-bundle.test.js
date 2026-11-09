@@ -168,6 +168,26 @@ test('the network card and chart say sent and received', () => {
   assert.match(chart, /k: 'net-rx'.*label: 'received'/);
 });
 
+/* With 15m shown, the load card takes 15m's level, red, while 1m is green. */
+test('the load card takes the level of the value it shows', () => {
+  const cval = { textContent: '' };
+  const card = {
+    className: '',
+    classList: { toggle() {} },
+    querySelectorAll: () => [],
+    querySelector: (sel) => (sel === '.cval' ? cval : null),
+  };
+  ctx.document = { getElementById: (id) => (id === 'c-load' ? card : null) };
+
+  ctx.swapCard('load', 2);
+  ctx.updateCards({ load_1m: 0.5, load_5m: 1.0, load_15m: 4.5, thresh_load: [3, 4] });
+  const shown = [card.className, cval.textContent];
+  ctx.swapCard('load', 0);
+  delete ctx.document;
+
+  assert.deepStrictEqual(shown, ['card r', '4.50']);
+});
+
 /* Until the first /api/current brings the config, the dashboard assumes the server's defaults. */
 test("the dashboard starts with the server's default units", () => {
   const config = fs.readFileSync(path.join(__dirname, '..', 'src', 'config.c'), 'utf8');

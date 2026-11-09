@@ -190,6 +190,14 @@ test('toCurrent: emits thresholds', () => {
   assert.ok(Array.isArray(out.thresh_load) && out.thresh_load.length === 2);
 });
 
+test('toCurrent: the load levels are the same load in both units', () => {
+  const abs = toCurrent(currentSnapshot('normal'), configFields({}), null);
+  const pct = toCurrent(currentSnapshot('normal'), configFields({ cpu_load_card_unit: '%' }), null);
+
+  assert.deepStrictEqual(abs.thresh_load, [3, 4]); /* 0.75 and 1.0 per CPU, 4 CPUs */
+  assert.deepStrictEqual(pct.thresh_load, [75, 100]);
+});
+
 test('toCurrent: gates excluded cards', () => {
   const f = configFields({ cards: ['cpu_load'] });
   const out = toCurrent(currentSnapshot('normal'), f, null);

@@ -261,15 +261,15 @@ function updateCards(d) {
     el.classList.toggle('hide', excluded || !present);
   });
 
-  /* CPU Load (per-sub colour): each load value gets its own threshold level */
+  /* CPU Load: the card takes the level of the value it shows, each sub its own. */
   if ('load_1m' in d) {
+    const loads   = [d.load_1m, d.load_5m, d.load_15m];
     const loadFmt = cfgCardUnits.load === '%'
       ? (v) => v.toFixed(1) + '%'
       : (v) => v.toFixed(2);
 
-    updateNumericCard('c-load', 'load',
-      [d.load_1m, d.load_5m, d.load_15m], loadFmt,
-      cardLevel(d.load_1m, THRESH.load),
+    updateNumericCard('c-load', 'load', loads, loadFmt,
+      cardLevel(loads[cardPrimary.load], THRESH.load),
       (v) => cardLevel(v, THRESH.load));
   }
 

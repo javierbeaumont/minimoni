@@ -379,7 +379,7 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
     /* Thresholds. Computed server-side so the dashboard needs no unit-conversion
      * logic and adapts to the machine's hardware (core count, thermal trip point)
      * and configured display units.
-     *   load : [0.75*cores, 1.0*cores] for abs; [70, 90] for %
+     *   load : 0.75 and 1.0 per CPU, [0.75*cores, cores] for abs and [75, 100] for %
      *   cpu  : [70, 90]   (always %)
      *   mem  : [70, 90]   (compared against the used share)
      *   swap : [80, 95]   (compared against the used share)
@@ -388,15 +388,8 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
      *   temp : [80%, 90%] of the critical, counted from the zero of temp_scale
      *   net  : [85%, 98%] of the link ceiling, converted to the card unit */
     if (config_has(cfg->cards, cfg->card_count, "cpu_load")) {
-        double lw, lc;
-        if (lu[0] == '%') {
-            lw = 70.0;
-            lc = 90.0;
-        } else {
-            lw = 0.75 * num_cores;
-            lc = 1.0 * num_cores;
-        }
-        jbuf_pair(j, "thresh_load", lw, lc);
+        double cpu = lu[0] == '%' ? 100.0 : num_cores; /* one CPU's load in the card unit */
+        jbuf_pair(j, "thresh_load", 0.75 * cpu, cpu);
     }
     if (config_has(cfg->cards, cfg->card_count, "cpu_usage"))
         jbuf_pair(j, "thresh_cpu", 70.0, 90.0);

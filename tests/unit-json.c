@@ -341,14 +341,15 @@ static int test_thresh_load_abs_eight_cores(void)
     return has(b, "\"thresh_load\":[6,8]") ? 0 : 1;
 }
 
-static int test_thresh_load_percent_fixed(void)
+/* In "%" the levels are the same load as in "abs": 0.75 and 1.0 per CPU. */
+static int test_thresh_load_percent_same_load_as_abs(void)
 {
     char     b[2048];
     db_row_t r = sample_row();
     config_t c = base_cfg();
     strcpy(c.cpu_load_card_unit, "%");
     emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
-    return has(b, "\"thresh_load\":[70,90]") ? 0 : 1;
+    return has(b, "\"thresh_load\":[75,100]") ? 0 : 1;
 }
 
 static int test_thresh_cpu_mem_disk_fixed(void)
@@ -1471,7 +1472,7 @@ static const test_t ALL_TESTS[] = {
     T(hide_all_emits_no_metrics),
     T(thresh_load_abs_scales_with_cores),
     T(thresh_load_abs_eight_cores),
-    T(thresh_load_percent_fixed),
+    T(thresh_load_percent_same_load_as_abs),
     T(thresh_cpu_mem_disk_fixed),
     T(thresh_swap_fixed),
     T(thresh_swap_io_in_ram_or_bytes),
