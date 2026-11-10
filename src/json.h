@@ -71,12 +71,13 @@ void json_serialize_units(jbuf_t *j, const db_row_t *rows, int cnt, const config
 
 /* --- Serializers --- */
 
-/* Serialize the latest snapshot (for /api/current and /stream) into `j`,
- * applying the configured display units and emitting per-card status
- * thresholds. The hardware context (core count, at least 1; sysfs critical trip point) is
- * passed in explicitly so this layer needs no dependency on the HTTP server. */
+/* Serialize the latest snapshot (for /api/current and /stream) into `j`, applying the configured
+ * display units and emitting per-card status thresholds. The host context (core count, at least 1;
+ * sysfs critical trip point; uptime, sent as null with uptime_valid 0) is passed in so this layer
+ * needs no dependency on the HTTP server. */
 void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, int num_cores,
-                            int temp_critical_valid, double temp_critical, int detected_speed_mbit);
+                            int temp_critical_valid, double temp_critical, int detected_speed_mbit,
+                            int uptime_valid, long uptime);
 
 /* Serialize one history point (for /api/metrics) into `j` using the configured chart units and
  * short keys; a chart that is not configured sends no fields. */

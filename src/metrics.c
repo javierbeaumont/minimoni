@@ -734,21 +734,35 @@ static void collect_swap_io(metrics_t *m)
 
 /* --- Uptime --- */
 
-static int collect_uptime(metrics_t *m)
+/* Puts the whole seconds of the first number of `f` (/proc/uptime, or NULL when it did not open) in
+ * `seconds`. Returns 0, or -1 when that number is missing, negative or too big for a long. */
+static int read_uptime(FILE *f, long *seconds)
 {
-    FILE *f = fopen("/proc/uptime", "r");
-    if (!f)
-        return -1;
-
-    char  line[64];
-    char *got = fgets(line, sizeof(line), f);
-    fclose(f);
-    if (!got)
+    char line[64];
+    if (!f || !fgets(line, sizeof(line), f))
         return -1;
 
     char *end;
-    m->uptime_seconds = strtod(line, &end);
-    return (end == line) ? -1 : 0;
+    errno = 0;
+    long s = strtol(line, &end, 10);
+
+    if (end == line || errno == ERANGE || s < 0)
+        return -1;
+
+    *seconds = s;
+
+    return 0;
+}
+
+int metrics_uptime(long *seconds)
+{
+    FILE *f = fopen("/proc/uptime", "r");
+    int   rc = read_uptime(f, seconds);
+
+    if (f)
+        fclose(f);
+
+    return rc;
 }
 
 /* --- Public API --- */
@@ -762,9 +776,6 @@ int metrics_collect(metrics_t *m, const char *disk_path)
         return -1;
 
     if (collect_disk(m, disk_path) != 0)
-        return -1;
-
-    if (collect_uptime(m) != 0)
         return -1;
 
     collect_cpu(m);

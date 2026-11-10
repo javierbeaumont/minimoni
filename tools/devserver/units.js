@@ -381,7 +381,6 @@ function toPoint(raw, f, configured, netMaxSpeed = 0) {
 
   out.nr = round(netConvert(m.net_rx_bps, nu, nref), 2);
   out.nt = round(netConvert(m.net_tx_bps, nu, nref), 2);
-  out.up = raw.uptime;
 
   return out;
 }

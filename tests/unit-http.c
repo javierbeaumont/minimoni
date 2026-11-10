@@ -200,7 +200,6 @@ static void insert_sample(void)
     m.mem_available_mb = 500.0;
     m.disk_total_gb = 100.0;
     m.disk_available_gb = 60.0;
-    m.uptime_seconds = 3600.0;
     (void)db_insert(&g_db, &m);
 }
 
@@ -255,6 +254,23 @@ static int test_current_serializes_the_latest_row(void)
     int rc = handler_current(NULL, ctx);
     return fixture_done(rc == 200 && has("\"mem_available\":50") && has("\"thresh_cpu\"") &&
                         strcmp(g_mime, "application/json") == 0);
+}
+
+/* The row holds no uptime: it is read as the request is answered. */
+static int test_current_sends_the_live_uptime(void)
+{
+    http_ctx_t *ctx = fixture_ctx();
+    insert_sample();
+    request(NULL);
+    long before = 0, after = 0;
+    int  read = metrics_uptime(&before) == 0;
+    int  rc = handler_current(NULL, ctx);
+    read = read && metrics_uptime(&after) == 0;
+
+    const char *at = strstr(g_resp, "\"uptime_seconds\":");
+    long        sent = at ? strtol(at + strlen("\"uptime_seconds\":"), NULL, 10) : -1;
+
+    return fixture_done(rc == 200 && read && sent >= before && sent <= after);
 }
 
 /* --- /api/metrics: range and points handling --- */
@@ -509,6 +525,7 @@ static const test_t ALL_TESTS[] = {
     T(root_serves_the_embedded_dashboard),
     T(current_503_without_data),
     T(current_serializes_the_latest_row),
+    T(current_sends_the_live_uptime),
     T(metrics_serializes_a_configured_range),
     T(metrics_falls_back_to_the_first_range),
     T(metrics_handles_every_range_unit),

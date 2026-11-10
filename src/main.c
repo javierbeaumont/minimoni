@@ -147,6 +147,8 @@ static int run_collect(const char *config_path)
     int    has_critical = metrics_temp_critical(&critical) == 0;
     double temp_critical = temp_ref(cfg.temp_critical, has_critical, critical);
     double net_ref = net_ref_bps(cfg.net_max_speed, metrics_link_speed_mbit());
+    long   uptime = 0;
+    int    uptime_valid = metrics_uptime(&uptime) == 0;
 
     int ret = 0;
     if (db_insert(&db, &m) != 0) {
@@ -157,7 +159,8 @@ static int run_collect(const char *config_path)
 
         db_row_t row;
         if (db_current(&db, &row) == 0)
-            alerts_evaluate(&db, &cfg, &row, temp_critical, net_ref, metrics_num_cores());
+            alerts_evaluate(&db, &cfg, &row, temp_critical, net_ref, metrics_num_cores(),
+                            uptime_valid, uptime);
     }
 
     db_close(&db);
@@ -190,10 +193,11 @@ static int run_serve(const char *config_path)
     if (http_start(&http, &cfg, &db_ro) != 0) {
         db_close(&db_ro);
         db_close(&db);
+
         return 1;
     }
 
-    /* Seed the CPU delta snapshot before the first timed cycle. */
+    /* Seed the delta snapshots before the first timed cycle. */
     metrics_t m;
     metrics_collect(&m, cfg.disk_path);
 
@@ -219,6 +223,7 @@ static int run_serve(const char *config_path)
 
         int rc = metrics_collect(&m, cfg.disk_path);
         metrics_run_note(&run, rc);
+
         /* A link can come up after start or renegotiate, and a CPU go online or offline. Read here
          * once a cycle, not per request: every open dashboard sends one each refresh seconds. */
         int link_mbit = metrics_link_speed_mbit();
@@ -235,10 +240,13 @@ static int run_serve(const char *config_path)
         db_consolidate(&db);
         db_prune(&db, days);
 
+        long uptime = 0;
+        int  uptime_valid = metrics_uptime(&uptime) == 0;
+
         db_row_t row;
         if (db_current(&db, &row) == 0)
             alerts_evaluate(&db, &cfg, &row, temp_critical,
-                            net_ref_bps(cfg.net_max_speed, link_mbit), cores);
+                            net_ref_bps(cfg.net_max_speed, link_mbit), cores, uptime_valid, uptime);
     }
 
     http_stop(&http);

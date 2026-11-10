@@ -29,13 +29,15 @@
  * For each alert whose condition is met and whose cooldown has expired:
  *   - POSTs the webhook (if configured)
  *   - executes the command via system() with MINIMONI_ALERT_* env vars set
- *   - logs the fire event in alert_log
+ *   - when the webhook or the command succeeded, logs the fire in alert_log, which starts the
+ *     cooldown
  * `temp_critical` is the critical trip point in °C that temp_ref resolves: `temp_percent` is
  * measured against it. `net_ref` is the link ceiling in bytes/s that net_ref_bps resolves:
  * `net_rx_percent` and `net_tx_percent` are measured against it. `cores` is the CPUs online that
- * metrics_num_cores counts, at least 1: the `load_*_percent` are measured against them.
- * Individual failures are logged to stderr; the function always returns 0. */
+ * metrics_num_cores counts, at least 1: the `load_*_percent` are measured against them. `uptime`
+ * is what metrics_uptime reads, and `uptime_valid` 0 when that read fails: `uptime_seconds` then
+ * does not fire. Individual failures are logged to stderr; the function always returns 0. */
 int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double temp_critical,
-                    double net_ref, int cores);
+                    double net_ref, int cores, int uptime_valid, long uptime);
 
 #endif /* MINIMONI_ALERTS_H */

@@ -215,7 +215,8 @@ static void jbuf_array_str(jbuf_t *j, const char *s, int *emitted)
 }
 
 void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, int num_cores,
-                            int temp_critical_valid, double temp_critical, int detected_speed_mbit)
+                            int temp_critical_valid, double temp_critical, int detected_speed_mbit,
+                            int uptime_valid, long uptime)
 {
     const char *lu = cfg->cpu_load_card_unit;
     const char *mu = cfg->memory_card_unit;
@@ -314,8 +315,12 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
         }
     }
 
-    if (config_has(cfg->cards, cfg->card_count, "uptime"))
-        jbuf_real(j, "uptime_seconds", r->uptime_seconds);
+    if (config_has(cfg->cards, cfg->card_count, "uptime")) {
+        if (uptime_valid)
+            jbuf_long(j, "uptime_seconds", uptime);
+        else
+            jbuf_null(j, "uptime_seconds");
+    }
 
     jbuf_str(j, "mem_card_unit", cfg->memory_card_unit);
     jbuf_str(j, "mem_chart_unit", cfg->memory_chart_unit);
@@ -565,6 +570,4 @@ void json_serialize_point(jbuf_t *j, const db_row_t *r, const config_t *cfg, int
             jbuf_null(j, "nt");
         }
     }
-
-    jbuf_real(j, "up", r->uptime_seconds);
 }

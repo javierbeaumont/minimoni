@@ -478,8 +478,8 @@ those metrics in the listed order, e.g. `charts = ["memory", "disk"]` shows only
 with Memory first. A name not in the example above (`uptime` is a card only) is reported at startup
 and skipped; if none is left, the list counts as not set. The API follows the same lists:
 `/api/current` and `/stream` send only the fields of the listed cards, `/api/metrics` only those of
-the listed charts (plus each point's time and uptime). Every metric is still collected, stored and
-available to alerts.
+the listed charts (plus each point's time). Every metric is still collected and available to
+alerts, and every chart's metrics are still stored.
 
 **On a host without a temperature sensor or without swap**, those cards and charts are still shown
 when `cards` and `charts` include them, as they do by default. The API sends `null` for them: the
@@ -588,7 +588,7 @@ cooldown  = "1h"                # minimum time between repeated firings
 | `net_tx_bps`             | bytes/s   | Transmit throughput                               |
 | `net_rx_percent`         | %         | Receive throughput as percent of link ceiling     |
 | `net_tx_percent`         | %         | Transmit throughput as percent of link ceiling    |
-| `uptime_seconds`         | s         | Seconds since boot                                |
+| `uptime_seconds`         | s         | Seconds since boot, time suspended included       |
 | `swap_free_mb`           | MB        | Free swap                                         |
 | `swap_used_mb`           | MB        | Used swap                                         |
 | `swap_free_percent`      | %         | Free swap as percent of total                     |

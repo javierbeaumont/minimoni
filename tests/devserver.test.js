@@ -401,8 +401,12 @@ test('unitsFor: swap takes the larger of used and free, from rows with swap', ()
 test('toPoint: emits short keys', () => {
   const out = toPoint(point(), configFields({}), null);
 
-  for (const k of ['t', 'l1', 'cu', 'ma', 'da', 'nr', 'up'])
+  for (const k of ['t', 'l1', 'cu', 'ma', 'da', 'nr'])
     assert.ok(k in out, `missing key ${k}`);
+});
+
+test('toPoint: sends no uptime', () => {
+  assert.ok(!('up' in toPoint(point(), configFields({}), null)));
 });
 
 test('toPoint: memory gated by charts', () => {

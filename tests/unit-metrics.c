@@ -322,6 +322,57 @@ static int test_link_speed_sum_is_sane(void)
     return metrics_link_speed_mbit() >= 0 ? 0 : 1;
 }
 
+/* --- Uptime --- */
+
+/* read_uptime over `text`, with `seconds` set to 7 first. */
+static int uptime_of(const char *text, long *seconds)
+{
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%s", text);
+    FILE *f = reading(buf);
+    *seconds = 7;
+    int rc = f ? read_uptime(f, seconds) : -2;
+
+    if (f)
+        fclose(f);
+
+    return rc;
+}
+
+static int test_uptime_reads_whole_seconds(void)
+{
+    long s;
+    int  rc = uptime_of("12345.67 45678.90\n", &s);
+
+    return rc == 0 && s == 12345 ? 0 : 1;
+}
+
+/* No number, a negative one or one too big for a long fails and leaves `seconds` as it was. */
+static int test_uptime_unreadable_fails(void)
+{
+    long s;
+    int  word = uptime_of("uptime\n", &s) == -1 && s == 7;
+    int  negative = uptime_of("-5.00 1.00\n", &s) == -1 && s == 7;
+    int  huge = uptime_of("99999999999999999999.00 1.00\n", &s) == -1 && s == 7;
+
+    return word && negative && huge ? 0 : 1;
+}
+
+/* No file and a file at its end fail too. */
+static int test_uptime_without_a_line_fails(void)
+{
+    char  ended[] = "1";
+    FILE *e = reading(ended);
+    long  s = 7;
+    int   ok =
+        read_uptime(NULL, &s) == -1 && e && fgetc(e) == '1' && read_uptime(e, &s) == -1 && s == 7;
+
+    if (e)
+        fclose(e);
+
+    return ok ? 0 : 1;
+}
+
 /* --- metrics_collect against the real /proc (the suite runs on Linux) --- */
 
 static int test_collect_fills_plausible_values(void)
@@ -345,7 +396,14 @@ static int test_collect_fills_plausible_values(void)
         (!(m.swap_total_mb > 0) || m.swap_free_mb < 0 || m.swap_free_mb > m.swap_total_mb))
         return 1;
 
-    return m.uptime_seconds > 0 ? 0 : 1;
+    return 0;
+}
+
+static int test_uptime_reads_the_live_host(void)
+{
+    long s = 0;
+
+    return metrics_uptime(&s) == 0 && s > 0 ? 0 : 1;
 }
 
 static int test_collect_second_pass_yields_rates(void)
@@ -1238,7 +1296,11 @@ static const test_t ALL_TESTS[] = {
     T(cores_counted_from_the_online_list),
     T(cores_without_the_list_count_one_logged_once),
     T(cores_list_longer_than_the_buffer_counts_one),
+    T(uptime_reads_whole_seconds),
+    T(uptime_unreadable_fails),
+    T(uptime_without_a_line_fails),
     T(collect_fills_plausible_values),
+    T(uptime_reads_the_live_host),
     T(collect_second_pass_yields_rates),
     T(collect_bad_disk_path_fails),
     T(failure_run_reported_once),

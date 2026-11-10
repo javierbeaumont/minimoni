@@ -93,8 +93,6 @@ static double get_metric_value(const db_row_t *row, const char *m, int *valid)
         *valid = row->net_valid;
         return row->net_tx_bps;
     }
-    if (!strcmp(m, "uptime_seconds"))
-        return row->uptime_seconds;
     if (!strcmp(m, "swap_free_mb")) {
         *valid = row->swap_valid;
         return row->swap_free_mb;
@@ -187,10 +185,15 @@ static double load_metric_value(const db_row_t *row, const char *m, int cores, i
 }
 
 /* The temperature metrics also need the scale and the critical trip point, the network's percents
- * the link ceiling, and the load's the CPUs online. */
+ * the link ceiling, and the load's the CPUs online. The uptime is not in the row. */
 static double metric_value(const db_row_t *row, const char *m, const config_t *cfg,
-                           double temp_critical, double net_ref, int cores, int *valid)
+                           double temp_critical, double net_ref, int cores, int uptime_valid,
+                           long uptime, int *valid)
 {
+    if (!strcmp(m, "uptime_seconds")) {
+        *valid = uptime_valid;
+        return (double)uptime;
+    }
     if (strncmp(m, "load_", 5) == 0 && strstr(m, "_percent"))
         return load_metric_value(row, m, cores, valid);
     if (strncmp(m, "temp_", 5) == 0)
@@ -638,7 +641,7 @@ static int run_command(const alert_cfg_t *a, double value)
 /* --- Public API --- */
 
 int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double temp_critical,
-                    double net_ref, int cores)
+                    double net_ref, int cores, int uptime_valid, long uptime)
 {
     if (cfg->alert_count == 0)
         return 0;
@@ -653,7 +656,8 @@ int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double t
         const alert_cfg_t *a = &cfg->alerts[i];
 
         int    valid;
-        double value = metric_value(row, a->metric, cfg, temp_critical, net_ref, cores, &valid);
+        double value = metric_value(row, a->metric, cfg, temp_critical, net_ref, cores,
+                                    uptime_valid, uptime, &valid);
         if (!valid)
             continue;
 

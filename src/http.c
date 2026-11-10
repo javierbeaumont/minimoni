@@ -134,13 +134,16 @@ static int handler_current(struct mg_connection *conn, void *cbdata)
         return 500;
     }
 
+    long uptime = 0;
+    int  uptime_valid = metrics_uptime(&uptime) == 0;
+
     char   buf[JSON_CURRENT_CAP];
     jbuf_t j;
     jbuf_init(&j, buf, sizeof(buf));
     jbuf_begin(&j);
     json_serialize_current(&j, &row, ctx->cfg, atomic_load(&ctx->num_cores),
                            ctx->temp_critical_valid, ctx->temp_critical,
-                           atomic_load(&ctx->net_speed_mbit));
+                           atomic_load(&ctx->net_speed_mbit), uptime_valid, uptime);
     jbuf_end(&j);
 
     return send_json(conn, &j, "/api/current");
@@ -305,13 +308,16 @@ static void stream_loop(struct mg_connection *conn, const http_ctx_t *ctx)
     for (;;) {
         db_row_t row;
         if (db_current(ctx->db, &row) == 0) {
+            long uptime = 0;
+            int  uptime_valid = metrics_uptime(&uptime) == 0;
+
             char   buf[JSON_CURRENT_CAP];
             jbuf_t j;
             jbuf_init(&j, buf, sizeof(buf));
             jbuf_begin(&j);
             json_serialize_current(&j, &row, ctx->cfg, atomic_load(&ctx->num_cores),
                                    ctx->temp_critical_valid, ctx->temp_critical,
-                                   atomic_load(&ctx->net_speed_mbit));
+                                   atomic_load(&ctx->net_speed_mbit), uptime_valid, uptime);
             jbuf_end(&j);
 
             if (stream_frame(conn, &j) < 0)

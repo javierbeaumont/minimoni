@@ -236,12 +236,36 @@ static int test_every_config_metric_has_a_value(void)
 
     for (int i = 0; names[i]; i++) {
         int valid = 0;
-        metric_value(&row, names[i], &cfg, 100.0, 12.5e6, 4, &valid);
+        metric_value(&row, names[i], &cfg, 100.0, 12.5e6, 4, 1, 3600, &valid);
         if (!valid)
             return 1;
     }
 
     return 0;
+}
+
+/* The uptime is the one given: the row holds none. */
+static int test_uptime_is_the_one_given(void)
+{
+    config_t cfg = {0};
+    db_row_t row;
+    memset(&row, 0, sizeof(row));
+    int    valid = 0;
+    double up = metric_value(&row, "uptime_seconds", &cfg, 100.0, 12.5e6, 4, 1, 7260, &valid);
+
+    return valid && up == 7260.0 ? 0 : 1;
+}
+
+/* An uptime that could not be read does not fire. */
+static int test_uptime_unreadable_is_not_valid(void)
+{
+    config_t cfg = {0};
+    db_row_t row;
+    memset(&row, 0, sizeof(row));
+    int valid = 1;
+    metric_value(&row, "uptime_seconds", &cfg, 100.0, 12.5e6, 4, 0, 7260, &valid);
+
+    return valid ? 1 : 0;
 }
 
 /* Each memory metric reads its own field. */
@@ -296,7 +320,7 @@ static double temp_metric(const char *scale, const char *m, int *valid)
     row.temp_celsius = 55.0;
     snprintf(cfg.temp_scale, sizeof(cfg.temp_scale), "%s", scale);
 
-    return metric_value(&row, m, &cfg, 110.0, 12.5e6, 4, valid);
+    return metric_value(&row, m, &cfg, 110.0, 12.5e6, 4, 1, 3600, valid);
 }
 
 static int near(double a, double b) { return a - b < 1e-9 && b - a < 1e-9; }
@@ -333,7 +357,7 @@ static int test_temp_metrics_without_a_sensor_have_no_value(void)
 
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
         int valid = 1;
-        metric_value(&row, names[i], &cfg, 110.0, 12.5e6, 4, &valid);
+        metric_value(&row, names[i], &cfg, 110.0, 12.5e6, 4, 1, 3600, &valid);
         if (valid)
             return 1;
     }
@@ -352,8 +376,8 @@ static int test_net_percents_of_the_link(void)
     row.net_tx_bps = 10e6;
 
     int    rx, tx;
-    double r = metric_value(&row, "net_rx_percent", &cfg, 100.0, 12.5e6, 4, &rx);
-    double t = metric_value(&row, "net_tx_percent", &cfg, 100.0, 12.5e6, 4, &tx);
+    double r = metric_value(&row, "net_rx_percent", &cfg, 100.0, 12.5e6, 4, 1, 3600, &rx);
+    double t = metric_value(&row, "net_tx_percent", &cfg, 100.0, 12.5e6, 4, 1, 3600, &tx);
 
     return near(r, 20.0) && near(t, 80.0) && rx && tx ? 0 : 1;
 }
@@ -366,8 +390,8 @@ static int test_net_percents_without_a_rate_have_no_value(void)
     memset(&row, 0, sizeof(row));
 
     int rx = 1, tx = 1;
-    metric_value(&row, "net_rx_percent", &cfg, 100.0, 12.5e6, 4, &rx);
-    metric_value(&row, "net_tx_percent", &cfg, 100.0, 12.5e6, 4, &tx);
+    metric_value(&row, "net_rx_percent", &cfg, 100.0, 12.5e6, 4, 1, 3600, &rx);
+    metric_value(&row, "net_tx_percent", &cfg, 100.0, 12.5e6, 4, 1, 3600, &tx);
 
     return !rx && !tx ? 0 : 1;
 }
@@ -385,7 +409,8 @@ static int test_load_metrics_read_their_fields(void)
 
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
         int valid = 0;
-        if (metric_value(&row, names[i], &cfg, 100.0, 12.5e6, 4, &valid) != i + 1.0 || !valid)
+        if (metric_value(&row, names[i], &cfg, 100.0, 12.5e6, 4, 1, 3600, &valid) != i + 1.0 ||
+            !valid)
             return 1;
     }
 
@@ -403,9 +428,9 @@ static int test_load_percents_of_the_cpus(void)
     row.load_15m = 6.0;
 
     int    v1, v5, v15;
-    double l1 = metric_value(&row, "load_1m_percent", &cfg, 100.0, 12.5e6, 4, &v1);
-    double l5 = metric_value(&row, "load_5m_percent", &cfg, 100.0, 12.5e6, 4, &v5);
-    double l15 = metric_value(&row, "load_15m_percent", &cfg, 100.0, 12.5e6, 4, &v15);
+    double l1 = metric_value(&row, "load_1m_percent", &cfg, 100.0, 12.5e6, 4, 1, 3600, &v1);
+    double l5 = metric_value(&row, "load_5m_percent", &cfg, 100.0, 12.5e6, 4, 1, 3600, &v5);
+    double l15 = metric_value(&row, "load_15m_percent", &cfg, 100.0, 12.5e6, 4, 1, 3600, &v15);
 
     return near(l1, 25.0) && near(l5, 50.0) && near(l15, 150.0) && v1 && v5 && v15 ? 0 : 1;
 }
@@ -628,6 +653,8 @@ static const test_t ALL_TESTS[] = {
     T(propagates_empty_chain),
     T(drops_the_server_name),
     T(every_config_metric_has_a_value),
+    T(uptime_is_the_one_given),
+    T(uptime_unreadable_is_not_valid),
     T(mem_metrics_read_their_fields),
     T(disk_metrics_read_their_fields),
     T(temp_metrics_in_celsius),

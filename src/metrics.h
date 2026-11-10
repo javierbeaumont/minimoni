@@ -27,7 +27,7 @@ typedef struct {
     double load_1m, load_5m, load_15m;
 
     /* CPU usage in percents of the time since the previous sample, steal (the time a hypervisor
-     * took) included: cpu_valid=0 on the first sample, after a failed read, when user, system,
+     * took) included: cpu_valid=0 on the first sample, when the read fails, when user, system,
      * idle or steal went back and when no time passed */
     int    cpu_valid;
     double cpu_user_percent, cpu_system_percent, cpu_idle_percent;
@@ -59,9 +59,6 @@ typedef struct {
      * those sets to the other. */
     int    net_valid;
     double net_rx_bps, net_tx_bps;
-
-    /* Uptime */
-    double uptime_seconds;
 } metrics_t;
 
 /* Collect all metrics into m. disk_path is the filesystem to measure (e.g. "/").
@@ -91,6 +88,10 @@ int metrics_link_speed_mbit(void);
 /* The CPUs online, for the load's percent and levels. Returns 1 when they cannot be counted, logged
  * the first time. */
 int metrics_num_cores(void);
+
+/* Whole seconds since boot, time suspended included, from /proc/uptime. Returns 0, or -1 when it
+ * cannot be read. */
+int metrics_uptime(long *seconds);
 
 /* The critical trip point, in °C, of the thermal zone collect reads. Returns 0, or -1 when there
  * is no zone or it has no critical trip. */

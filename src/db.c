@@ -46,7 +46,6 @@ static const char SQL_CREATE[] =
     "  disk_total_gb    REAL, disk_available_gb REAL,"
     "  temp_celsius     REAL,"
     "  net_rx_bps       REAL, net_tx_bps REAL,"
-    "  uptime_seconds   REAL,"
     "  bucket_sec       INTEGER,"
     "  swap_total_mb    REAL, swap_free_mb REAL,"
     "  swap_in_bps      REAL, swap_out_bps REAL"
@@ -63,10 +62,10 @@ static const char SQL_INSERT[] = "INSERT INTO metrics ("
                                  "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
                                  "  mem_total_mb, mem_available_mb,"
                                  "  disk_total_gb, disk_available_gb,"
-                                 "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds,"
+                                 "  temp_celsius, net_rx_bps, net_tx_bps,"
                                  "  bucket_sec, swap_total_mb, swap_free_mb,"
                                  "  swap_in_bps, swap_out_bps"
-                                 ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                                 ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
 static const char SQL_PRUNE_METRICS[] = "DELETE FROM metrics WHERE timestamp < ?";
 
@@ -338,23 +337,22 @@ int db_insert(db_t *db, const metrics_t *m)
         sqlite3_bind_null(s, 14);
     }
 
-    sqlite3_bind_double(s, 15, m->uptime_seconds);
-    sqlite3_bind_int64(s, 16, db->interval_sec);
+    sqlite3_bind_int64(s, 15, db->interval_sec);
 
     if (m->swap_valid) {
-        sqlite3_bind_double(s, 17, m->swap_total_mb);
-        sqlite3_bind_double(s, 18, m->swap_free_mb);
+        sqlite3_bind_double(s, 16, m->swap_total_mb);
+        sqlite3_bind_double(s, 17, m->swap_free_mb);
     } else {
+        sqlite3_bind_null(s, 16);
         sqlite3_bind_null(s, 17);
-        sqlite3_bind_null(s, 18);
     }
 
     if (m->swap_io_valid) {
-        sqlite3_bind_double(s, 19, m->swap_in_bps);
-        sqlite3_bind_double(s, 20, m->swap_out_bps);
+        sqlite3_bind_double(s, 18, m->swap_in_bps);
+        sqlite3_bind_double(s, 19, m->swap_out_bps);
     } else {
+        sqlite3_bind_null(s, 18);
         sqlite3_bind_null(s, 19);
-        sqlite3_bind_null(s, 20);
     }
 
     int rc = step_with_retry(s);
@@ -507,12 +505,10 @@ static void read_row(sqlite3_stmt *s, db_row_t *r)
         r->net_tx_bps = sqlite3_column_double(s, 14);
     }
 
-    r->uptime_seconds = sqlite3_column_double(s, 15);
-
-    r->swap_valid = (sqlite3_column_type(s, 16) != SQLITE_NULL);
+    r->swap_valid = (sqlite3_column_type(s, 15) != SQLITE_NULL);
     if (r->swap_valid) {
-        r->swap_total_mb = sqlite3_column_double(s, 16);
-        r->swap_free_mb = sqlite3_column_double(s, 17);
+        r->swap_total_mb = sqlite3_column_double(s, 15);
+        r->swap_free_mb = sqlite3_column_double(s, 16);
 
         double swap_used = r->swap_total_mb - r->swap_free_mb;
         r->swap_used_mb = swap_used > 0.0 ? swap_used : 0.0;
@@ -521,10 +517,10 @@ static void read_row(sqlite3_stmt *s, db_row_t *r)
         r->swap_free_percent = 100.0 - r->swap_used_percent;
     }
 
-    r->swap_io_valid = (sqlite3_column_type(s, 18) != SQLITE_NULL);
+    r->swap_io_valid = (sqlite3_column_type(s, 17) != SQLITE_NULL);
     if (r->swap_io_valid) {
-        r->swap_in_bps = sqlite3_column_double(s, 18);
-        r->swap_out_bps = sqlite3_column_double(s, 19);
+        r->swap_in_bps = sqlite3_column_double(s, 17);
+        r->swap_out_bps = sqlite3_column_double(s, 18);
 
         /* % of the RAM per minute: a minute's bytes over the RAM's */
         double ram_bytes = r->mem_total_mb * 1024.0 * 1024.0;
@@ -548,7 +544,7 @@ int db_current(db_t *db, db_row_t *row)
                               "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
                               "  mem_total_mb, mem_available_mb,"
                               "  disk_total_gb, disk_available_gb,"
-                              "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds,"
+                              "  temp_celsius, net_rx_bps, net_tx_bps,"
                               "  swap_total_mb, swap_free_mb, swap_in_bps, swap_out_bps"
                               " FROM metrics ORDER BY timestamp DESC LIMIT 1";
 
@@ -601,9 +597,8 @@ int db_count_range(db_t *db, long range_seconds)
  * 12  temp_celsius (nullable)
  * 13  net_rx_bps   (nullable, bytes/s)
  * 14  net_tx_bps   (nullable, bytes/s)
- * 15  uptime_seconds
- * 16  swap_total_mb (nullable) 17 swap_free_mb
- * 18  swap_in_bps   (nullable, bytes/s) 19 swap_out_bps */
+ * 15  swap_total_mb (nullable) 16 swap_free_mb
+ * 17  swap_in_bps   (nullable, bytes/s) 18 swap_out_bps */
 
 static const char SQL_RAW[] = "SELECT timestamp,"
                               "  CAST(strftime('%s',timestamp) AS INTEGER) AS ts,"
@@ -611,7 +606,7 @@ static const char SQL_RAW[] = "SELECT timestamp,"
                               "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
                               "  mem_total_mb, mem_available_mb,"
                               "  disk_total_gb, disk_available_gb,"
-                              "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds,"
+                              "  temp_celsius, net_rx_bps, net_tx_bps,"
                               "  swap_total_mb, swap_free_mb, swap_in_bps, swap_out_bps"
                               " FROM metrics WHERE timestamp >= ? ORDER BY ts";
 
@@ -641,7 +636,7 @@ int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_
                  "  AVG(cpu_user_percent), AVG(cpu_system_percent), AVG(cpu_idle_percent),"
                  "  AVG(mem_total_mb), AVG(mem_available_mb),"
                  "  AVG(disk_total_gb), AVG(disk_available_gb),"
-                 "  AVG(temp_celsius), AVG(net_rx_bps), AVG(net_tx_bps), AVG(uptime_seconds),"
+                 "  AVG(temp_celsius), AVG(net_rx_bps), AVG(net_tx_bps),"
                  "  AVG(swap_total_mb), AVG(swap_free_mb), AVG(swap_in_bps), AVG(swap_out_bps)"
                  " FROM ("
                  "  SELECT (CAST(strftime('%%s',timestamp) AS INTEGER)/%d)*%d AS bkt,"
@@ -649,7 +644,7 @@ int db_query_range(db_t *db, long range_seconds, int bucket_sec, db_row_t **out_
                  "    cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
                  "    mem_total_mb, mem_available_mb,"
                  "    disk_total_gb, disk_available_gb,"
-                 "    temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds,"
+                 "    temp_celsius, net_rx_bps, net_tx_bps,"
                  "    swap_total_mb, swap_free_mb, swap_in_bps, swap_out_bps"
                  "  FROM metrics WHERE timestamp >= ?"
                  ") GROUP BY bkt ORDER BY bkt",
@@ -774,7 +769,7 @@ static int build_consolidate_sql(char *sql, size_t cap, long now)
                      "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
                      "  mem_total_mb, mem_available_mb,"
                      "  disk_total_gb, disk_available_gb,"
-                     "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds, bucket_sec,"
+                     "  temp_celsius, net_rx_bps, net_tx_bps, bucket_sec,"
                      "  swap_total_mb, swap_free_mb, swap_in_bps, swap_out_bps"
                      ") SELECT"
                      "  strftime('%%Y-%%m-%%dT%%H:%%M:%%SZ',"
@@ -783,7 +778,7 @@ static int build_consolidate_sql(char *sql, size_t cap, long now)
                      "  AVG(cpu_user_percent), AVG(cpu_system_percent), AVG(cpu_idle_percent),"
                      "  AVG(mem_total_mb), AVG(mem_available_mb),"
                      "  AVG(disk_total_gb), AVG(disk_available_gb),"
-                     "  AVG(temp_celsius), AVG(net_rx_bps), AVG(net_tx_bps), AVG(uptime_seconds),"
+                     "  AVG(temp_celsius), AVG(net_rx_bps), AVG(net_tx_bps),"
                      "  %d,"
                      "  AVG(swap_total_mb), AVG(swap_free_mb), AVG(swap_in_bps), AVG(swap_out_bps)"
                      " FROM metrics"

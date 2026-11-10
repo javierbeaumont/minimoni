@@ -235,7 +235,7 @@ t_schema_after_migration() {
 
     # What the migrations drop is gone.
     for col in net_rx_bytes net_tx_bytes mem_used_mb mem_percent disk_used_gb disk_free_gb \
-        disk_percent; do
+        disk_percent uptime_seconds; do
         case ",$cols," in
             *",$col,"*)
                 report "post-migration columns present" "dropped $col still there: $cols"

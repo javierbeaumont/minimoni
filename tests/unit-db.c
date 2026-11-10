@@ -87,7 +87,7 @@ static int insert_raw_row(sqlite3 *h, long unix_ts)
              "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
              "  mem_total_mb, mem_available_mb,"
              "  disk_total_gb, disk_available_gb,"
-             "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds,"
+             "  temp_celsius, net_rx_bps, net_tx_bps,"
              "  swap_total_mb, swap_free_mb, swap_in_bps, swap_out_bps"
              ") VALUES ("
              "  strftime('%%Y-%%m-%%dT%%H:%%M:%%SZ',%ld,'unixepoch'),"
@@ -95,7 +95,7 @@ static int insert_raw_row(sqlite3 *h, long unix_ts)
              "  50.0,5.0,45.0,"
              "  1000.0,500.0,"
              "  10.0,5.0,"
-             "  42.0,100.0,200.0,1000.0,"
+             "  42.0,100.0,200.0,"
              "  400.0,300.0,300.0,600.0"
              ");",
              unix_ts);
@@ -115,14 +115,14 @@ static int insert_tier_row(sqlite3 *h, long unix_ts, int bucket_sec_value)
              "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
              "  mem_total_mb, mem_available_mb,"
              "  disk_total_gb, disk_available_gb,"
-             "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds, bucket_sec"
+             "  temp_celsius, net_rx_bps, net_tx_bps, bucket_sec"
              ") VALUES ("
              "  strftime('%%Y-%%m-%%dT%%H:%%M:%%SZ',%ld,'unixepoch'),"
              "  1.0,1.0,1.0,"
              "  50.0,5.0,45.0,"
              "  1000.0,500.0,"
              "  10.0,5.0,"
-             "  42.0,100.0,200.0,1000.0,%d"
+             "  42.0,100.0,200.0,%d"
              ");",
              unix_ts, bucket_sec_value);
     return sqlite3_exec(h, sql, NULL, NULL, NULL);
@@ -170,7 +170,6 @@ static metrics_t sample_metrics(int cpu_valid, int temp_valid, int net_valid)
     m.net_valid = net_valid;
     m.net_rx_bps = 1000.0;
     m.net_tx_bps = 2000.0;
-    m.uptime_seconds = 123456.0;
     return m;
 }
 
@@ -185,14 +184,14 @@ static int insert_valued_row(sqlite3 *h, long unix_ts, double load_1m, int cpu_n
              "  cpu_user_percent, cpu_system_percent, cpu_idle_percent,"
              "  mem_total_mb, mem_available_mb,"
              "  disk_total_gb, disk_available_gb,"
-             "  temp_celsius, net_rx_bps, net_tx_bps, uptime_seconds, bucket_sec"
+             "  temp_celsius, net_rx_bps, net_tx_bps, bucket_sec"
              ") VALUES ("
              "  strftime('%%Y-%%m-%%dT%%H:%%M:%%SZ',%ld,'unixepoch'),"
              "  %f,1.0,1.0,"
              "  %s,"
              "  1000.0,500.0,"
              "  10.0,5.0,"
-             "  42.0,100.0,200.0,1000.0,60"
+             "  42.0,100.0,200.0,60"
              ");",
              unix_ts, load_1m, cpu_null ? "NULL,NULL,NULL" : "50.0,5.0,45.0");
     return sqlite3_exec(h, sql, NULL, NULL, NULL);
@@ -229,7 +228,6 @@ static int test_db_insert_roundtrip(void)
          approx(row.disk_available_percent, 75.0);
     ok = ok && row.temp_valid && approx(row.temp_celsius, 42.5);
     ok = ok && row.net_valid && approx(row.net_rx_bps, 1000.0) && approx(row.net_tx_bps, 2000.0);
-    ok = ok && approx(row.uptime_seconds, 123456.0);
     ok = ok && row.swap_valid && approx(row.swap_total_mb, 512.0) &&
          approx(row.swap_free_mb, 384.0) && approx(row.swap_used_mb, 128.0) &&
          approx(row.swap_used_percent, 25.0) && approx(row.swap_free_percent, 75.0);
@@ -290,7 +288,8 @@ static int test_db_query_range_bucketed_avg(void)
     return ok ? 0 : 1;
 }
 
-/* Whether the metrics columns whose name starts with `prefix` are `expected`, in table order. */
+/* Whether the metrics columns whose name starts with `prefix` are `expected` ("" for none), in
+ * table order. */
 static int columns_are(sqlite3 *h, const char *prefix, const char *expected)
 {
     sqlite3_stmt *s;
@@ -302,7 +301,7 @@ static int columns_are(sqlite3 *h, const char *prefix, const char *expected)
     ok = ok && sqlite3_step(s) == SQLITE_ROW;
 
     const char *cols = ok ? (const char *)sqlite3_column_text(s, 0) : NULL;
-    ok = ok && cols != NULL && strcmp(cols, expected) == 0;
+    ok = ok && strcmp(cols ? cols : "", expected) == 0;
     sqlite3_finalize(s);
 
     return ok;
@@ -464,6 +463,19 @@ static int test_db_query_range_bucketed_disk(void)
          approx(rows[0].disk_used_gb, 6.0) && approx(rows[0].disk_used_percent, 60.0) &&
          approx(rows[0].disk_available_percent, 40.0);
     free(rows);
+
+    close_test_db(&db);
+
+    return ok ? 0 : 1;
+}
+
+static int test_db_stores_no_uptime(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    int ok = columns_are(db.handle, "uptime", "");
 
     close_test_db(&db);
 
@@ -980,11 +992,12 @@ static int make_db_v01(const char *path)
     return sql_exec(path, sql);
 }
 
-/* A database with v0.2's tables at user_version `version`, its memory, disk and swap columns given
- * by `columns`: V02_COLUMNS for v0.2's, CURRENT_COLUMNS for the current schema's. */
+/* A database with v0.2's tables at user_version `version`, its memory, disk, swap and uptime
+ * columns given by `columns`: V02_COLUMNS for v0.2's, CURRENT_COLUMNS for the current schema's. */
 #define V02_COLUMNS                                                                                \
     "mem_total_mb REAL, mem_used_mb REAL, mem_available_mb REAL, mem_percent REAL,"                \
-    " disk_total_gb REAL, disk_used_gb REAL, disk_free_gb REAL, disk_percent REAL"
+    " disk_total_gb REAL, disk_used_gb REAL, disk_free_gb REAL, disk_percent REAL,"                \
+    " uptime_seconds REAL"
 #define CURRENT_COLUMNS                                                                            \
     "mem_total_mb REAL, mem_available_mb REAL, disk_total_gb REAL, disk_available_gb REAL,"        \
     " swap_total_mb REAL, swap_free_mb REAL, swap_in_bps REAL, swap_out_bps REAL"
@@ -1002,7 +1015,6 @@ static int make_db_at(const char *path, int version, const char *columns)
              "  %s,"
              "  temp_celsius REAL,"
              "  net_rx_bps REAL, net_tx_bps REAL,"
-             "  uptime_seconds REAL,"
              "  bucket_sec INTEGER"
              ");"
              "CREATE INDEX idx_metrics_ts ON metrics(timestamp);"
@@ -1600,6 +1612,7 @@ static const test_t ALL_TESTS[] = {
     T(db_stores_disk_as_the_kernel_gives_it),
     T(db_disk_available_above_total_reads_as_unused),
     T(db_query_range_bucketed_disk),
+    T(db_stores_no_uptime),
     T(db_insert_swap_without_rates),
     T(db_swap_io_reads_in_ram_per_minute),
     T(db_swap_free_above_total_reads_as_unused),

@@ -107,8 +107,6 @@ typedef struct {
     int    net_valid;
     double net_rx_bps;
     double net_tx_bps;
-    /* uptime */
-    double uptime_seconds;
     /* swap (swap_valid=0 when the host has none): total and free as stored, the rest worked out
      * from them as the row is read */
     int    swap_valid;

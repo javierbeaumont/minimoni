@@ -28,6 +28,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <limits.h>
 #include <math.h>
 #include <string.h>
 
@@ -67,7 +68,6 @@ static db_row_t sample_row(void)
     r.net_valid = 1;
     r.net_rx_bps = 1024.0;
     r.net_tx_bps = 2048.0;
-    r.uptime_seconds = 3600.0;
     return r;
 }
 
@@ -105,15 +105,15 @@ static void only_card(config_t *c, const char *name)
     c->card_count = 1;
 }
 
-/* Serialize row+cfg into buf exactly as the HTTP handlers do (begin/end wrap).
- * net_speed_mbit is 0 here, so net percent mode falls back to the config value. */
+/* Serialize row+cfg into buf exactly as the HTTP handlers do (begin/end wrap). net_speed_mbit is 0
+ * here, so net percent mode falls back to the config value; the uptime is an hour. */
 static void emit(char *buf, size_t cap, const db_row_t *r, const config_t *cfg, int num_cores,
                  int tc_valid, double tc)
 {
     jbuf_t j;
     jbuf_init(&j, buf, cap);
     jbuf_begin(&j);
-    json_serialize_current(&j, r, cfg, num_cores, tc_valid, tc, 0);
+    json_serialize_current(&j, r, cfg, num_cores, tc_valid, tc, 0, 1, 3600);
     jbuf_end(&j);
 }
 
@@ -123,7 +123,19 @@ static void emit_link(char *buf, size_t cap, const db_row_t *r, const config_t *
     jbuf_t j;
     jbuf_init(&j, buf, cap);
     jbuf_begin(&j);
-    json_serialize_current(&j, r, cfg, 4, 0, 0.0, mbit);
+    json_serialize_current(&j, r, cfg, 4, 0, 0.0, mbit, 1, 3600);
+    jbuf_end(&j);
+}
+
+/* Same, with the uptime given: `uptime_valid` 0 when it could not be read. */
+static void emit_uptime(char *buf, size_t cap, int uptime_valid, long uptime)
+{
+    db_row_t r = sample_row();
+    config_t c = base_cfg();
+    jbuf_t   j;
+    jbuf_init(&j, buf, cap);
+    jbuf_begin(&j);
+    json_serialize_current(&j, &r, &c, 4, 0, 0.0, 0, uptime_valid, uptime);
     jbuf_end(&j);
 }
 
@@ -475,6 +487,23 @@ static int test_temp_null_when_sensor_invalid(void)
     config_t c = base_cfg();
     emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
     return has(b, "\"temp\":null") ? 0 : 1;
+}
+
+/* Every digit of a large uptime: 4 significant digits would send 9.006e+04. */
+static int test_uptime_in_whole_seconds(void)
+{
+    char b[2048];
+    emit_uptime(b, sizeof(b), 1, 90061);
+
+    return has(b, "\"uptime_seconds\":90061,") ? 0 : 1;
+}
+
+static int test_uptime_null_when_unreadable(void)
+{
+    char b[2048];
+    emit_uptime(b, sizeof(b), 0, 90061);
+
+    return has(b, "\"uptime_seconds\":null") ? 0 : 1;
 }
 
 static int test_net_null_when_invalid(void)
@@ -1107,7 +1136,7 @@ static int test_point_emits_short_keys(void)
     config_t c = base_cfg();
     emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
     return (has(b, "\"t\":") && has(b, "\"l1\":") && has(b, "\"cu\":") && has(b, "\"ma\":") &&
-            has(b, "\"da\":") && has(b, "\"nr\":") && has(b, "\"up\":"))
+            has(b, "\"da\":") && has(b, "\"nr\":"))
                ? 0
                : 1;
 }
@@ -1156,7 +1185,7 @@ static int test_point_hides_all_charts(void)
                    !has(b, "\"sf\"") && !has(b, "\"si\"") && !has(b, "\"da\"") &&
                    !has(b, "\"tp\"") && !has(b, "\"nr\"");
 
-    return no_chart && has(b, "\"t\":") && has(b, "\"up\":") ? 0 : 1;
+    return no_chart && has(b, "\"t\":") && !has(b, "\"up\"") ? 0 : 1;
 }
 
 static int test_point_gates_net_only(void)
@@ -1368,7 +1397,7 @@ static int test_largest_point_fits_its_buffer(void)
     r.swap_total_mb = r.swap_free_mb = r.swap_in_bps = r.swap_out_bps = w;
     r.disk_total_gb = r.disk_available_gb = r.disk_used_gb = w;
     r.disk_used_percent = r.disk_available_percent = w;
-    r.temp_celsius = r.net_rx_bps = r.net_tx_bps = r.uptime_seconds = w;
+    r.temp_celsius = r.net_rx_bps = r.net_tx_bps = w;
     config_t c = base_cfg();
 
     char   buf[JSON_POINT_CAP];
@@ -1448,13 +1477,13 @@ static int current_overflows(const char *toml)
     r.swap_in_bps = r.swap_out_bps = w;
     r.disk_total_gb = r.disk_available_gb = r.disk_used_gb = w;
     r.disk_used_percent = r.disk_available_percent = w;
-    r.temp_celsius = r.net_rx_bps = r.net_tx_bps = r.uptime_seconds = w;
+    r.temp_celsius = r.net_rx_bps = r.net_tx_bps = w;
 
     char   buf[JSON_CURRENT_CAP];
     jbuf_t j;
     jbuf_init(&j, buf, sizeof(buf));
     jbuf_begin(&j);
-    json_serialize_current(&j, &r, &cfg, 1 << 20, 1, w, 1000000);
+    json_serialize_current(&j, &r, &cfg, 1 << 20, 1, w, 1000000, 1, LONG_MIN);
     jbuf_end(&j);
 
     return j.overflow;
@@ -1503,6 +1532,8 @@ static const test_t ALL_TESTS[] = {
     T(temp_configured_critical_wins),
     T(temp_in_fahrenheit),
     T(temp_null_when_sensor_invalid),
+    T(uptime_in_whole_seconds),
+    T(uptime_null_when_unreadable),
     T(net_null_when_invalid),
     T(net_percent_uses_detected_link),
     T(net_percent_defaults_to_gbe),
