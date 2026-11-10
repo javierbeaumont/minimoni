@@ -106,14 +106,14 @@ static void only_card(config_t *c, const char *name)
 }
 
 /* Serialize row+cfg into buf exactly as the HTTP handlers do (begin/end wrap). net_speed_mbit is 0
- * here, so net percent mode falls back to the config value; the uptime is an hour. */
+ * here, so net percent mode falls back to the config value. */
 static void emit(char *buf, size_t cap, const db_row_t *r, const config_t *cfg, int num_cores,
                  int tc_valid, double tc)
 {
     jbuf_t j;
     jbuf_init(&j, buf, cap);
     jbuf_begin(&j);
-    json_serialize_current(&j, r, cfg, num_cores, tc_valid, tc, 0, 1, 3600);
+    json_serialize_current(&j, r, cfg, num_cores, tc_valid, tc, 0);
     jbuf_end(&j);
 }
 
@@ -123,19 +123,17 @@ static void emit_link(char *buf, size_t cap, const db_row_t *r, const config_t *
     jbuf_t j;
     jbuf_init(&j, buf, cap);
     jbuf_begin(&j);
-    json_serialize_current(&j, r, cfg, 4, 0, 0.0, mbit, 1, 3600);
+    json_serialize_current(&j, r, cfg, 4, 0, 0.0, mbit);
     jbuf_end(&j);
 }
 
-/* Same, with the uptime given: `uptime_valid` 0 when it could not be read. */
-static void emit_uptime(char *buf, size_t cap, int uptime_valid, long uptime)
+/* json_serialize_uptime in an object of its own. */
+static void emit_uptime(char *buf, size_t cap, const config_t *cfg, int uptime_valid, long uptime)
 {
-    db_row_t r = sample_row();
-    config_t c = base_cfg();
-    jbuf_t   j;
+    jbuf_t j;
     jbuf_init(&j, buf, cap);
     jbuf_begin(&j);
-    json_serialize_current(&j, &r, &c, 4, 0, 0.0, 0, uptime_valid, uptime);
+    json_serialize_uptime(&j, cfg, uptime_valid, uptime);
     jbuf_end(&j);
 }
 
@@ -297,8 +295,7 @@ static int test_show_all_emits_every_group(void)
 
     int cpu = has(b, "\"load_1m\"") && has(b, "\"cpu_user_percent\"");
     int memory = has(b, "\"mem_available\"") && has(b, "\"swap_free\"") && has(b, "\"swap_in\"");
-    int others = has(b, "\"disk_available\"") && has(b, "\"temp\"") && has(b, "\"net_rx\"") &&
-                 has(b, "\"uptime_seconds\"");
+    int others = has(b, "\"disk_available\"") && has(b, "\"temp\"") && has(b, "\"net_rx\"");
 
     return cpu && memory && others ? 0 : 1;
 }
@@ -489,21 +486,44 @@ static int test_temp_null_when_sensor_invalid(void)
     return has(b, "\"temp\":null") ? 0 : 1;
 }
 
+/* The uptime has its own serializer, which /stream calls for a connection's first frame only. */
+static int test_current_sends_no_uptime(void)
+{
+    char     b[2048];
+    db_row_t r = sample_row();
+    config_t c = base_cfg();
+    emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    return !has(b, "\"uptime_seconds\"") ? 0 : 1;
+}
+
 /* Every digit of a large uptime: 4 significant digits would send 9.006e+04. */
 static int test_uptime_in_whole_seconds(void)
 {
-    char b[2048];
-    emit_uptime(b, sizeof(b), 1, 90061);
+    char     b[256];
+    config_t c = base_cfg();
+    emit_uptime(b, sizeof(b), &c, 1, 90061);
 
-    return has(b, "\"uptime_seconds\":90061,") ? 0 : 1;
+    return strcmp(b, "{\"uptime_seconds\":90061}") == 0 ? 0 : 1;
 }
 
 static int test_uptime_null_when_unreadable(void)
 {
-    char b[2048];
-    emit_uptime(b, sizeof(b), 0, 90061);
+    char     b[256];
+    config_t c = base_cfg();
+    emit_uptime(b, sizeof(b), &c, 0, 90061);
 
-    return has(b, "\"uptime_seconds\":null") ? 0 : 1;
+    return strcmp(b, "{\"uptime_seconds\":null}") == 0 ? 0 : 1;
+}
+
+static int test_uptime_gated_by_cards(void)
+{
+    char     b[256];
+    config_t c = base_cfg();
+    only_card(&c, "cpu_load");
+    emit_uptime(b, sizeof(b), &c, 1, 90061);
+
+    return strcmp(b, "{}") == 0 ? 0 : 1;
 }
 
 static int test_net_null_when_invalid(void)
@@ -1483,7 +1503,8 @@ static int current_overflows(const char *toml)
     jbuf_t j;
     jbuf_init(&j, buf, sizeof(buf));
     jbuf_begin(&j);
-    json_serialize_current(&j, &r, &cfg, 1 << 20, 1, w, 1000000, 1, LONG_MIN);
+    json_serialize_current(&j, &r, &cfg, 1 << 20, 1, w, 1000000);
+    json_serialize_uptime(&j, &cfg, 1, LONG_MIN);
     jbuf_end(&j);
 
     return j.overflow;
@@ -1532,8 +1553,10 @@ static const test_t ALL_TESTS[] = {
     T(temp_configured_critical_wins),
     T(temp_in_fahrenheit),
     T(temp_null_when_sensor_invalid),
+    T(current_sends_no_uptime),
     T(uptime_in_whole_seconds),
     T(uptime_null_when_unreadable),
+    T(uptime_gated_by_cards),
     T(net_null_when_invalid),
     T(net_percent_uses_detected_link),
     T(net_percent_defaults_to_gbe),

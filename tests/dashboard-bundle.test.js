@@ -80,6 +80,69 @@ test('the bundle loads as one scope and wires the cross-file interface', () => {
     assert.strictEqual(typeof ctx[fn], 'function', fn);
 });
 
+/* Run `run(upt)` with the browser's clock at `now` ms (ctx.clockNow moves it) and `upt` as the
+ * header's uptime element; both undone after. */
+function withClock(now, run) {
+  const upt = { textContent: '' };
+  const realNow = vm.runInContext('Date.now', ctx);
+
+  ctx.clockNow = now;
+  vm.runInContext('Date.now = () => clockNow', ctx);
+  ctx.document = { getElementById: (id) => (id === 'upt' ? upt : null) };
+
+  try {
+    run(upt);
+  } finally {
+    ctx.realNow = realNow;
+    vm.runInContext('Date.now = realNow', ctx);
+    delete ctx.document;
+  }
+}
+
+test('the uptime keeps counting from the one the server sent', () => {
+  const seen = [];
+
+  withClock(1e12, (upt) => {
+    ctx.updateCards({ uptime_seconds: 7200 });
+    seen.push(upt.textContent);
+    ctx.clockNow += 61000;
+    ctx.updateCards({});
+    ctx.renderUptime();
+    seen.push(upt.textContent);
+  });
+
+  assert.deepStrictEqual(seen, ['up 2h 0m', 'up 2h 1m']);
+});
+
+test('an unreadable uptime stops the count and leaves the text', () => {
+  const seen = [];
+
+  withClock(1e12, (upt) => {
+    ctx.updateCards({ uptime_seconds: 7200 });
+    ctx.updateCards({ uptime_seconds: null });
+    ctx.clockNow += 61000;
+    ctx.renderUptime();
+    seen.push(upt.textContent);
+  });
+
+  assert.deepStrictEqual(seen, ['up 2h 0m']);
+});
+
+test('a replay does not set the uptime back', () => {
+  const seen = [];
+
+  withClock(1e12, (upt) => {
+    ctx.updateCards({ uptime_seconds: 7200 });
+    ctx.clockNow += 61000;
+    ctx.replayCards();
+    seen.push(upt.textContent);
+    ctx.renderUptime();
+    seen.push(upt.textContent);
+  });
+
+  assert.deepStrictEqual(seen, ['up 2h 0m', 'up 2h 1m']);
+});
+
 test('refreshLockedIdx pins the closest point and drops stale locks', () => {
   const run = (code) => vm.runInContext(code, ctx);
 
@@ -421,6 +484,11 @@ test("the dashboard starts with the server's default units", () => {
   assert.strictEqual(Object.keys(server.card).length, Object.keys(name).length);
   assert.deepStrictEqual(defaults('cfgCardUnits'), server.card);
   assert.deepStrictEqual(defaults('cfgChartUnits'), server.chart);
+
+  const uptime = config.match(/snprintf\(cfg->uptime_unit, [^;]*"%s", "([^"]*)"\);/);
+
+  assert.ok(uptime, 'no uptime_unit default in config.c');
+  assert.strictEqual(cards.match(/let cfgUptimeUnit = '([^']*)';/)[1], uptime[1]);
 });
 
 test('every chart legend has one hidden flag per series', () => {

@@ -24,7 +24,7 @@
  * bundle.sh inlines them in that order before this file (one shared global scope). */
 /* global metricsUrl, clampPoints */
 /* global renderAll, buildLegends, attachHover, clearAllHovers, canHover, invalidateCssCache */
-/* global updateCards, wireCards, replayCards, cfgRanges */
+/* global updateCards, wireCards, replayCards, renderUptime, cfgRanges */
 /* exported pts, srvUnits */
 
 /* --- State --- */
@@ -181,6 +181,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   loadCurrent();
   loadMetrics();
   connectSSE();
+  setInterval(renderUptime, 60000);
 
   /* Debounce canvas redraws on window resize to avoid per-pixel storms */
   let resizeTimer;

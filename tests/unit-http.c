@@ -376,6 +376,24 @@ static int test_stream_sends_keepalive_comments(void)
     return fixture_done(rc == 200 && has(": keepalive"));
 }
 
+/* It needs two frames, so it takes two seconds. */
+static int test_stream_sends_the_uptime_in_its_first_frame_only(void)
+{
+    http_ctx_t *ctx = fixture_ctx();
+    insert_sample();
+    g_cfg.refresh_seconds = 1;
+    request(NULL);
+    g_printf_fails_at = 3; /* headers, two frames, then the third fails */
+    int rc = handler_stream(NULL, ctx);
+
+    const char *first = strstr(g_resp, "data: ");
+    const char *second = first ? strstr(first + 1, "data: ") : NULL;
+    const char *uptime = first ? strstr(first, "\"uptime_seconds\"") : NULL;
+
+    return fixture_done(rc == 200 && second && uptime && uptime < second &&
+                        !strstr(second, "\"uptime_seconds\""));
+}
+
 /* --- SSE slot cap ---
  *
  * A stream holds its civetweb worker until the client leaves, so without a cap
@@ -533,6 +551,7 @@ static const test_t ALL_TESTS[] = {
     T(stream_sends_a_frame_then_stops),
     T(stream_stops_when_the_client_hangs_up),
     T(stream_sends_keepalive_comments),
+    T(stream_sends_the_uptime_in_its_first_frame_only),
     T(stream_returns_its_slot),
     T(stream_refuses_when_the_cap_is_full),
     T(stream_cap_leaves_workers_for_the_rest),

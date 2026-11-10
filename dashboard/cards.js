@@ -25,8 +25,8 @@
  * bundle.sh inlines format.js, chart.js, this, then app.js (one shared scope). */
 /* global fmtUptime, fmtTempVal, cardLevel, pairLevel, fmtUnit, usedOf, srvUnits */
 /* global buildTabs */
-/* exported updateCards, wireCards, replayCards, THRESH, cfgCardUnits, cfgChartUnits */
-/* exported cfgTempScale, cfgVisCharts, cfgRanges */
+/* exported updateCards, wireCards, replayCards, renderUptime, THRESH, cfgCardUnits */
+/* exported cfgChartUnits, cfgTempScale, cfgVisCharts, cfgRanges */
 
 /* Fallback [warn, critical] card thresholds, used only until the first payload:
  * the server sends per-metric thresh_* in /api/current and updateCards overwrites these. */
@@ -50,6 +50,8 @@ const cfgChartUnits = {
 let cfgTempScale = 'celsius';
 let cfgUptimeUnit = 'auto';
 let cfgRanges     = ['1d', '7d', '30d', '90d'];
+/* When the host booted, in the browser's clock, from the uptime the server sends on connecting */
+let bootAt        = null;
 /* Three-state visibility: null = show all, [] = hide all, [...] = listed only */
 let cfgVisCharts  = null;
 let cfgVisCards   = null;
@@ -61,8 +63,15 @@ let lastCurrent  = null;    /* last /current snapshot; replayed on swapCard */
 
 /* --- Card helpers --- */
 
+/* Leave the uptime out: an old reading would set the count back. */
 function replayCards() {
-  if (lastCurrent) updateCards(lastCurrent);
+  if (!lastCurrent)
+    return;
+
+  const d = { ...lastCurrent };
+
+  delete d.uptime_seconds;
+  updateCards(d);
 }
 
 function swapCard(id, idx) {
@@ -359,7 +368,18 @@ function updateCards(d) {
       pairLevel(d.net_tx, d.net_rx, THRESH.net), (v) => cardLevel(v, THRESH.net));
   }
 
-  if (d.uptime_seconds != null) {
-    document.getElementById('upt').textContent = fmtUptime(d.uptime_seconds, cfgUptimeUnit);
+  if ('uptime_seconds' in d) {
+    bootAt = d.uptime_seconds == null ? null : Date.now() - d.uptime_seconds * 1000;
+    renderUptime();
   }
+}
+
+/* Show the uptime from bootAt and the browser's clock; with none read, the text stays as it is. */
+function renderUptime() {
+  if (bootAt == null)
+    return;
+
+  const seconds = (Date.now() - bootAt) / 1000;
+
+  document.getElementById('upt').textContent = fmtUptime(seconds, cfgUptimeUnit);
 }

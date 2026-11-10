@@ -36,7 +36,7 @@ const {
   configFields, parseTable, parseDashboard, collectTempCritical, collectNetMaxSpeed, loadConfig,
 } = require(path.join(dev, 'config'));
 
-const { streamShouldDrop } = require(path.join(dev, 'handler'));
+const { streamMessage, streamShouldDrop } = require(path.join(dev, 'handler'));
 const {
   rangeSeconds, clampPointsParam, currentSnapshot, makePoints,
 } = require(path.join(dev, 'mock-data'));
@@ -90,6 +90,13 @@ test('clampPointsParam: non-numeric defaults', () => {
 test('streamShouldDrop: off by default', () => {
   assert.strictEqual(streamShouldDrop(false, 0), false);
   assert.strictEqual(streamShouldDrop(false, 1), false);
+});
+
+test('streamMessage: the uptime goes in the first message only', () => {
+  const first = streamMessage({ load_1m: 1, uptime_seconds: 60 }, 0);
+  const later = streamMessage({ load_1m: 1, uptime_seconds: 60 }, 1);
+
+  assert.deepStrictEqual([first, later], [{ load_1m: 1, uptime_seconds: 60 }, { load_1m: 1 }]);
 });
 
 test('streamShouldDrop: every other when flaky', () => {

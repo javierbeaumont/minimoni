@@ -215,8 +215,7 @@ static void jbuf_array_str(jbuf_t *j, const char *s, int *emitted)
 }
 
 void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, int num_cores,
-                            int temp_critical_valid, double temp_critical, int detected_speed_mbit,
-                            int uptime_valid, long uptime)
+                            int temp_critical_valid, double temp_critical, int detected_speed_mbit)
 {
     const char *lu = cfg->cpu_load_card_unit;
     const char *mu = cfg->memory_card_unit;
@@ -315,13 +314,6 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
         }
     }
 
-    if (config_has(cfg->cards, cfg->card_count, "uptime")) {
-        if (uptime_valid)
-            jbuf_long(j, "uptime_seconds", uptime);
-        else
-            jbuf_null(j, "uptime_seconds");
-    }
-
     jbuf_str(j, "mem_card_unit", cfg->memory_card_unit);
     jbuf_str(j, "mem_chart_unit", cfg->memory_chart_unit);
     jbuf_str(j, "swap_card_unit", cfg->swap_card_unit);
@@ -418,6 +410,17 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
     if (config_has(cfg->cards, cfg->card_count, "net"))
         jbuf_pair(j, "thresh_net", net_convert(0.85 * nref, nu, nref),
                   net_convert(0.98 * nref, nu, nref));
+}
+
+void json_serialize_uptime(jbuf_t *j, const config_t *cfg, int uptime_valid, long uptime)
+{
+    if (!config_has(cfg->cards, cfg->card_count, "uptime"))
+        return;
+
+    if (uptime_valid)
+        jbuf_long(j, "uptime_seconds", uptime);
+    else
+        jbuf_null(j, "uptime_seconds");
 }
 
 static const char *const MB_LADDER[] = {"MB", "GB", "TB"};

@@ -52,6 +52,15 @@ function streamShouldDrop(flaky, seq) {
   return flaky && seq % 2 === 1;
 }
 
+/* The `n`th message of a /stream connection, from 0: as in minimoni, only the first carries the
+ * uptime. */
+function streamMessage(payload, n) {
+  if (n > 0)
+    delete payload.uptime_seconds;
+
+  return payload;
+}
+
 function send(res, code, ctype, body) {
   const buf = Buffer.isBuffer(body) ? body : Buffer.from(body);
 
@@ -135,7 +144,7 @@ function makeHandler(state, log = NOOP_LOG) {
       if (res.writableEnded)
         return;
 
-      res.write(`data: ${JSON.stringify(current())}\n\n`);
+      res.write(`data: ${JSON.stringify(streamMessage(current(), n))}\n\n`);
 
       n += 1;
       timer = n < 3 ? setTimeout(tick, 5000) : setTimeout(() => res.end(), 5000);
@@ -217,4 +226,4 @@ function makeHandler(state, log = NOOP_LOG) {
   };
 }
 
-module.exports = { makeHandler, streamShouldDrop };
+module.exports = { makeHandler, streamMessage, streamShouldDrop };

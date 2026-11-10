@@ -478,8 +478,9 @@ those metrics in the listed order, e.g. `charts = ["memory", "disk"]` shows only
 with Memory first. A name not in the example above (`uptime` is a card only) is reported at startup
 and skipped; if none is left, the list counts as not set. The API follows the same lists:
 `/api/current` and `/stream` send only the fields of the listed cards, `/api/metrics` only those of
-the listed charts (plus each point's time). Every metric is still collected and available to
-alerts, and every chart's metrics are still stored.
+the listed charts (plus each point's time). `/stream` sends the uptime only in each connection's
+first message, and the dashboard keeps counting from it. Every metric is still collected and
+available to alerts, and every chart's metrics are still stored.
 
 **On a host without a temperature sensor or without swap**, those cards and charts are still shown
 when `cards` and `charts` include them, as they do by default. The API sends `null` for them: the

@@ -143,7 +143,8 @@ static int handler_current(struct mg_connection *conn, void *cbdata)
     jbuf_begin(&j);
     json_serialize_current(&j, &row, ctx->cfg, atomic_load(&ctx->num_cores),
                            ctx->temp_critical_valid, ctx->temp_critical,
-                           atomic_load(&ctx->net_speed_mbit), uptime_valid, uptime);
+                           atomic_load(&ctx->net_speed_mbit));
+    json_serialize_uptime(&j, ctx->cfg, uptime_valid, uptime);
     jbuf_end(&j);
 
     return send_json(conn, &j, "/api/current");
@@ -300,42 +301,48 @@ static int sse_acquire(http_ctx_t *ctx)
     return 1;
 }
 
-/* Push a snapshot every cfg->refresh_seconds until the client goes away or the
- * server stops. Split out of handler_stream so that however this loop ends, the
- * slot is given back in one place instead of at every exit. */
+/* Push a snapshot every cfg->refresh_seconds until the client goes away or the server stops. Split
+ * out of handler_stream so that however this loop ends, the slot is given back in one place. The
+ * uptime goes in the first frame only: the client keeps counting it with its own clock. */
 static void stream_loop(struct mg_connection *conn, const http_ctx_t *ctx)
 {
+    int first = 1;
+
     for (;;) {
         db_row_t row;
         if (db_current(ctx->db, &row) == 0) {
-            long uptime = 0;
-            int  uptime_valid = metrics_uptime(&uptime) == 0;
-
             char   buf[JSON_CURRENT_CAP];
             jbuf_t j;
             jbuf_init(&j, buf, sizeof(buf));
             jbuf_begin(&j);
             json_serialize_current(&j, &row, ctx->cfg, atomic_load(&ctx->num_cores),
                                    ctx->temp_critical_valid, ctx->temp_critical,
-                                   atomic_load(&ctx->net_speed_mbit), uptime_valid, uptime);
+                                   atomic_load(&ctx->net_speed_mbit));
+
+            if (first) {
+                long uptime = 0;
+                int  uptime_valid = metrics_uptime(&uptime) == 0;
+                json_serialize_uptime(&j, ctx->cfg, uptime_valid, uptime);
+            }
+
             jbuf_end(&j);
 
             if (stream_frame(conn, &j) < 0)
                 break; /* client disconnected */
+
+            first = 0;
         }
 
-        /* Wait refresh_seconds in 1-second ticks. Send SSE keepalive comments
-         * at the configured interval to detect client disconnection early.
-         * Keepalive is inactive when sse_keepalive_seconds >= refresh_seconds. */
+        /* Keepalive comments find a client gone between frames. */
         struct timespec ts = {1, 0};
         int             ka = ctx->cfg->sse_keepalive_seconds;
         int             ka_active = ka > 0 && ka < ctx->cfg->refresh_seconds;
+
         for (int i = 1; i <= ctx->cfg->refresh_seconds && !ctx->stopping; i++) {
             nanosleep(&ts, NULL);
-            if (ka_active && i % ka == 0) {
-                if (mg_printf(conn, ": keepalive\n\n") <= 0)
-                    return;
-            }
+
+            if (ka_active && i % ka == 0 && mg_printf(conn, ": keepalive\n\n") <= 0)
+                return;
         }
 
         if (ctx->stopping)
