@@ -54,9 +54,8 @@ let cfgRanges     = ['1d', '7d', '30d', '90d'];
 let cfgVisCharts  = null;
 let cfgVisCards   = null;
 
-/* Which sub-metric is shown as the primary value in each card, as a 0-based
- * index into that card's series (load has three, the others two); toggled by
- * clicking a sub-value. */
+/* Which sub-metric is shown as the primary value in each card, as a 0-based index into that
+ * card's series; toggled by clicking a sub-value. */
 const cardPrimary  = { load: 0, cpu: 0, mem: 0, swap: 0, swap_io: 0, disk: 0, net: 0 };
 let lastCurrent  = null;    /* last /current snapshot; replayed on swapCard */
 
@@ -95,33 +94,37 @@ function wireCards() {
   });
 }
 
-/* Render a numeric card from N values; shared by Load/CPU/Memory/Disk/Network,
- * which share the DOM shape (.clabel .card-unit / .cval / .csub
- * .card-sub[data-idx] .card-sub-val). Args:
+/* Render a numeric card whose DOM has the shape
+ * (.clabel .card-unit / .cval / .csub .card-sub[data-idx] .card-sub-val). Args:
  *   cardId:      DOM id of the .card ('c-load', 'c-cpu', ...)
- *   primaryKey:  key into cardPrimary ('load', 'cpu', 'mem', 'disk', 'net')
+ *   primaryKey:  key into cardPrimary
  *   values:      one numeric value per data-idx; null renders as the dash
  *   fmt:         formatter, only called with non-null values
  *   cardLvl:     'g'|'y'|'r'|'' for the overall .card class
- *   subLvl:      '' (none), a level string for every sub, or a
- *                function(value) -> level for per-value colouring. Optional */
-function updateNumericCard(cardId, primaryKey, values, fmt, cardLvl, subLvl) {
+ *   subLvl:      '' (none), a level string for every sub, or a function(value) -> level. Optional
+ *   subFmt:      formatter for the subs; defaults to fmt */
+function updateNumericCard(cardId, primaryKey, values, fmt, cardLvl, subLvl, subFmt) {
   const card = document.getElementById(cardId);
   if (!card) return;
+
   const pi = cardPrimary[primaryKey];
   card.className = 'card' + (cardLvl ? ' ' + cardLvl : '');
   card.querySelectorAll('.card-unit').forEach((u, i) => {
     u.classList.toggle('hide', i !== pi);
   });
+
   const pv = values[pi];
   card.querySelector('.cval').textContent = pv != null ? fmt(pv) : '—';
+
   values.forEach((v, i) => {
     const sub = card.querySelector('.card-sub[data-idx="' + i + '"]');
     if (!sub) return;
-    const valEl = sub.querySelector('.card-sub-val');
+
     sub.classList.toggle('hide', i === pi);
     sub.setAttribute('tabindex', i === pi ? '-1' : '0');
-    valEl.textContent = v != null ? fmt(v) : '—';
+
+    const valEl = sub.querySelector('.card-sub-val');
+    valEl.textContent = v != null ? (subFmt || fmt)(v) : '—';
     const lvl = typeof subLvl === 'function' ? subLvl(v) : (subLvl || '');
     valEl.className = 'card-sub-val' + (lvl ? ' ' + lvl : '');
   });
@@ -159,7 +162,6 @@ function updateCards(d) {
   if (d.thresh_temp)    THRESH.temp    = d.thresh_temp;
   if (d.thresh_net)     THRESH.net     = d.thresh_net;
 
-  /* Title, footer, theme */
   if (d.title) {
     document.title = d.title;
     document.getElementById('ttl').textContent = d.title;
@@ -170,7 +172,6 @@ function updateCards(d) {
     ftr.classList.toggle('hide', !d.show_footer);
   }
 
-  /* When theme is fixed server-side, apply it and hide the toggle button */
   if (d.theme && d.theme !== 'auto') {
     document.documentElement.dataset.theme = d.theme;
     document.getElementById('thm').classList.add('hide');
@@ -178,13 +179,11 @@ function updateCards(d) {
 
   if (d.uptime_unit) cfgUptimeUnit = d.uptime_unit;
 
-  /* Rebuild range tabs only when the server list differs from current */
   if (d.ranges && d.ranges.join(',') !== cfgRanges.join(',')) {
     cfgRanges = d.ranges;
     buildTabs();
   }
 
-  /* Chart visibility & ordering */
   if (d.charts !== undefined) {
     cfgVisCharts = d.charts === null ? null : d.charts;
 
@@ -205,14 +204,13 @@ function updateCards(d) {
 
       const idx = cfgVisCharts !== null ? cfgVisCharts.indexOf(nm) : -1;
 
-      /* Hide when excluded; CSS order drives the configured sequence */
+      /* CSS order gives the configured sequence. */
       el.classList.toggle('hide', cfgVisCharts !== null && idx === -1);
       el.style.order = (cfgVisCharts !== null && idx !== -1) ? idx : '';
     });
   }
 
-  /* Card ordering: visibility is the per-field-presence pass below. This runs
-   * on every tick the payload carries `d.cards`, and only sets flex `order`. */
+  /* Card order only; visibility is the pass below. */
   if (d.cards !== undefined) {
     cfgVisCards = d.cards === null ? null : d.cards;
 
@@ -238,10 +236,8 @@ function updateCards(d) {
     });
   }
 
-  /* Per-card visibility pass: a card shows when it is not excluded by
-   * cfgVisCards AND its primary field is present in the payload (null counts
-   * as present). Cards start display:none in the HTML, so first paint shows
-   * nothing until the first payload confirms which cards have data. */
+  /* A null field counts as present. Cards start hidden in the HTML, so the first paint shows none
+   * until a payload says which have data. */
   [
     ['c-load',    'cpu_load',  'load_1m'],
     ['c-cpu',     'cpu_usage', 'cpu_user_percent'],
@@ -273,14 +269,16 @@ function updateCards(d) {
       (v) => cardLevel(v, THRESH.load));
   }
 
-  /* CPU Usage: card and each sub coloured by its own value vs the cpu threshold */
+  /* CPU Usage: the card takes the level of the value it shows, each sub its own. */
   if ('cpu_user_percent' in d) {
     const pctFmt = (v) => v.toFixed(1) + '%';
+    const parts = [d.cpu_user_percent, d.cpu_system_percent, d.cpu_steal_percent];
+    const total = parts.every((v) => v != null) ? parts[0] + parts[1] + parts[2] : null;
+    const cpu = [total, ...parts];
 
-    updateNumericCard('c-cpu', 'cpu',
-      [d.cpu_user_percent, d.cpu_system_percent], pctFmt,
-      cardLevel(d.cpu_user_percent, THRESH.cpu),
-      (v) => cardLevel(v, THRESH.cpu));
+    updateNumericCard('c-cpu', 'cpu', cpu, pctFmt,
+      cardLevel(cpu[cardPrimary.cpu], THRESH.cpu),
+      (v) => cardLevel(v, THRESH.cpu), (v) => v.toFixed(1));
   }
 
   /* Memory: used and available, both coloured by the level of the used share. The server sends
@@ -319,7 +317,7 @@ function updateCards(d) {
    * bytes/s, or % of the RAM per minute; only the formatter scales. */
   if ('swap_in' in d) {
     const swapIoFmt = cfgCardUnits.swap_io === 'ram'
-      ? (v) => (v == null ? '—' : v.toFixed(1) + '%')
+      ? (v) => v.toFixed(1) + '%'
       : (v) => fmtUnit(v, srvUnits.swap_io);
 
     updateNumericCard('c-swap-io', 'swap_io', [d.swap_in, d.swap_out], swapIoFmt,
@@ -341,9 +339,7 @@ function updateCards(d) {
     updateNumericCard('c-disk', 'disk', [diskUsed, d.disk_available], diskFmt, diskLvl, diskLvl);
   }
 
-  /* Temperature: shown whenever the server includes the temp field (it emits
-   * it only when "temp" is configured). A null value (transient read failure)
-   * still shows the card with the dash rather than hiding it. */
+  /* Temperature: null (no reading) shows the dash. */
   if ('temp' in d && (cfgVisCards === null || cfgVisCards.indexOf('temp') !== -1)) {
     const tc      = document.getElementById('c-temp');
     const tempLvl = cardLevel(d.temp, THRESH.temp);
@@ -352,20 +348,17 @@ function updateCards(d) {
     tc.className = 'card' + (tempLvl ? ' ' + tempLvl : '');
   }
 
-  /* Network: netV[0]=tx, netV[1]=rx, matching the HTML card-sub order. Both
-   * may be null on the first collect before a delta exists (rendered as the
-   * dash). Values and thresholds stay in base bytes/s here; only the formatter
-   * scales, so the semaphore compares like with like. */
+  /* Network: tx first, as in the HTML. Both are null without a rate. Values and thresholds share
+   * one unit, bytes/s or %; only the formatter scales. */
   if ('net_rx' in d) {
     const netFmt = cfgCardUnits.net === '%'
-      ? (v) => (v == null ? '—' : v.toFixed(1) + '%')
+      ? (v) => v.toFixed(1) + '%'
       : (v) => fmtUnit(v, srvUnits.net);
 
     updateNumericCard('c-net', 'net', [d.net_tx, d.net_rx], netFmt,
       pairLevel(d.net_tx, d.net_rx, THRESH.net), (v) => cardLevel(v, THRESH.net));
   }
 
-  /* Uptime subtitle */
   if (d.uptime_seconds != null) {
     document.getElementById('upt').textContent = fmtUptime(d.uptime_seconds, cfgUptimeUnit);
   }

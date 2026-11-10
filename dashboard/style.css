@@ -52,6 +52,7 @@
   --clr-load15: var(--slate-9);
   --clr-cpu-user: var(--cyan-9);
   --clr-cpu-sys: var(--violet-9);
+  --clr-cpu-steal: var(--slate-9);
   --clr-mem-used: var(--cyan-9);
   --clr-mem-avail: var(--violet-9);
   --clr-swap-used: var(--cyan-9);
@@ -79,7 +80,7 @@
   --text-2xl: 34px;
   /* Theme-independent black overlay (Radix blackA3), used by the tooltip shadow. */
   --black-a3: rgba(0, 0, 0, 0.15);
-  /* One shadow for both tooltips: with the borders gone it does the separating. */
+  /* One shadow for every tooltip. */
   --shadow: 0 2px 8px var(--black-a3);
 }
 
@@ -113,6 +114,7 @@
   --clr-load15: var(--slate-11);
   --clr-cpu-user: var(--cyan-11);
   --clr-cpu-sys: var(--violet-11);
+  --clr-cpu-steal: var(--slate-11);
   --clr-mem-used: var(--cyan-11);
   --clr-mem-avail: var(--violet-11);
   --clr-swap-used: var(--cyan-11);
@@ -157,6 +159,7 @@
     --clr-load15: var(--slate-11);
     --clr-cpu-user: var(--cyan-11);
     --clr-cpu-sys: var(--violet-11);
+    --clr-cpu-steal: var(--slate-11);
     --clr-mem-used: var(--cyan-11);
     --clr-mem-avail: var(--violet-11);
     --clr-swap-used: var(--cyan-11);
@@ -352,6 +355,7 @@ button:hover {
 /* Each clickable secondary metric inside .csub. Negative margin compensates the
  * padding so the layout does not shift; on hover a subtle chip appears. */
 .card-sub {
+  position: relative;
   display: inline-flex;
   gap: var(--space-1);
   align-items: baseline;
@@ -616,12 +620,20 @@ canvas {
   --c: var(--clr-load15);
 }
 
+.s-cpu-total {
+  --c: var(--txt);
+}
+
 .s-cpu-user {
   --c: var(--clr-cpu-user);
 }
 
 .s-cpu-sys {
   --c: var(--clr-cpu-sys);
+}
+
+.s-cpu-steal {
+  --c: var(--clr-cpu-steal);
 }
 
 .s-mem-used {
@@ -713,10 +725,9 @@ canvas {
   }
 }
 
-/* Immediate tooltip on hover: the native title attribute has a ~1s delay that
- * made users wonder if the dot was interactive at all. Content comes from
- * aria-label so screen readers and sighted users share one source of truth. */
-.conn::after {
+/* Tooltip without the native title delay; screen readers read the aria-label it shows. */
+.conn::after,
+.card-sub .leg-dot::after {
   content: attr(aria-label);
   position: absolute;
   top: 50%;
@@ -736,8 +747,19 @@ canvas {
   box-shadow: var(--shadow);
 }
 
+/* Below its sub-value's hover chip, flush right. */
+.card-sub .leg-dot::after {
+  top: calc(100% + 1px);
+  right: 0;
+  left: auto;
+  transform: none;
+  color: var(--c);
+}
+
 .conn:hover::after,
-.conn:focus-visible::after {
+.conn:focus-visible::after,
+.card-sub:hover .leg-dot::after,
+.card-sub:focus-visible .leg-dot::after {
   opacity: 1;
 }
 
@@ -796,12 +818,20 @@ canvas {
   background: var(--clr-load15);
 }
 
+.tt-dot--cpu-total {
+  background: var(--txt);
+}
+
 .tt-dot--cpu-user {
   background: var(--clr-cpu-user);
 }
 
 .tt-dot--cpu-sys {
   background: var(--clr-cpu-sys);
+}
+
+.tt-dot--cpu-steal {
+  background: var(--clr-cpu-steal);
 }
 
 .tt-dot--mem-used {

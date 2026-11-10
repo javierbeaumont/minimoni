@@ -473,6 +473,11 @@ static void read_row(sqlite3_stmt *s, db_row_t *r)
         r->cpu_user_percent = sqlite3_column_double(s, 5);
         r->cpu_system_percent = sqlite3_column_double(s, 6);
         r->cpu_idle_percent = sqlite3_column_double(s, 7);
+
+        /* With no steal, rounding leaves a few 1e-14 either side of 0. One tick of steal over the
+         * longest bucket, a day, is at least 1.41e-9: 100 / (8192 CPUs x 86400 s x 100 ticks/s). */
+        double steal = 100.0 - r->cpu_user_percent - r->cpu_system_percent - r->cpu_idle_percent;
+        r->cpu_steal_percent = steal > 1e-10 ? steal : 0.0;
     }
 
     r->mem_total_mb = sqlite3_column_double(s, 8);

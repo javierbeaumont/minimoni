@@ -188,6 +188,216 @@ test('the load card takes the level of the value it shows', () => {
   assert.deepStrictEqual(shown, ['card r', '4.50']);
 });
 
+/* The legend has no total: the stack's top edge shows it. */
+test('the CPU card shows the total and the chart stacks user, system and steal', () => {
+  const card = html.match(
+    /<div class="card hide" id="c-cpu">[\s\S]*?<div class="csub">[\s\S]*?<\/div>/);
+  const legend = html.match(/<div class="legend" id="leg-g-cpu"[^>]*>([\s\S]*?)<\/div>/);
+  const names = ['total', 'user', 'system', 'steal'];
+
+  assert.ok(card, 'index.html has no CPU card');
+  assert.deepStrictEqual([...card[0].matchAll(/s-cpu-\w+"[^>]*>(\w+)<\/span>/g)].map((m) => m[1]),
+    names);
+  assert.deepStrictEqual([...card[0].matchAll(/aria-label="(\w+) \(%\)"/g)].map((m) => m[1]),
+    names);
+  assert.ok(legend, 'the CPU chart has no legend');
+  assert.deepStrictEqual([...legend[1].matchAll(/<\/span>(\w+)<\/span>/g)].map((m) => m[1]),
+    names.slice(1));
+  assert.match(read('chart.js'), /drawChart\('g-cpu'[\s\S]*?stacked: true/);
+});
+
+/* A gap in one series is a gap in every one above it. */
+test('a stacked chart puts each series on the sum of the ones before it', () => {
+  const tops = ctx.stackTops([{ v: [10, 20, null] }, { v: [5, null, 1] }, { v: [1, 2, 3] }]);
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(tops)),
+    [[10, 20, null], [15, null, null], [16, null, null]]);
+});
+
+/* A card with n subs; `subs` are their value elements. */
+function fakeCard(n) {
+  const el = () => ({ textContent: '', className: '' });
+  const cval = el();
+  const subs = Array.from({ length: n }, el);
+  const card = {
+    className: '',
+    classList: { toggle() {} },
+    querySelectorAll: () => [],
+    querySelector: (sel) => {
+      if (sel === '.cval') return cval;
+
+      const val = subs[Number((sel.match(/data-idx="(\d)"/) || [])[1])];
+
+      return val && { classList: { toggle() {} }, setAttribute() {}, querySelector: () => val };
+    },
+  };
+
+  return { card, cval, subs };
+}
+
+/* Without the name and the unit, three subs fit the narrowest card. */
+test('the CPU card subs show the bare value', () => {
+  const { card, subs } = fakeCard(4);
+  ctx.document = { getElementById: (id) => (id === 'c-cpu' ? card : null) };
+
+  ctx.updateCards({
+    cpu_user_percent: 60, cpu_system_percent: 5, cpu_steal_percent: 30, thresh_cpu: [70, 90],
+  });
+  delete ctx.document;
+
+  assert.deepStrictEqual(subs.map((s) => s.textContent), ['95.0', '60.0', '5.0', '30.0']);
+});
+
+/* Only the CPU card gives its subs a formatter of their own. */
+test('the other cards format their subs like their value', () => {
+  const { card, subs } = fakeCard(3);
+  ctx.document = { getElementById: (id) => (id === 'c-load' ? card : null) };
+
+  ctx.updateCards({ load_1m: 0.5, load_5m: 1.0, load_15m: 4.5, thresh_load: [3, 4] });
+  delete ctx.document;
+
+  assert.deepStrictEqual(subs.map((s) => s.textContent), ['0.50', '1.00', '4.50']);
+});
+
+/* Without one of the three there is no total to show or to colour. */
+test('the CPU card shows the dash and no level when a part is missing', () => {
+  const { card, cval } = fakeCard(4);
+  ctx.document = { getElementById: (id) => (id === 'c-cpu' ? card : null) };
+
+  ctx.updateCards({
+    cpu_user_percent: 95, cpu_system_percent: 2, cpu_steal_percent: null, thresh_cpu: [70, 90],
+  });
+  delete ctx.document;
+
+  assert.deepStrictEqual([card.className, cval.textContent], ['card', '\u2014']);
+});
+
+/* drawChart with stacked: true on a fake 2D context: the y-axis labels, the colour of each stroke
+ * and the number of fills. */
+function drawStacked(series, opts) {
+  const drawn = { labels: [], strokes: [], fills: 0 };
+  const g = {
+    arc() {}, beginPath() {}, closePath() {}, lineTo() {}, moveTo() {}, restore() {}, save() {},
+    scale() {}, setLineDash() {},
+    fill() { drawn.fills++; },
+    fillText(text) { drawn.labels.push(text); },
+    stroke() { drawn.strokes.push(this.strokeStyle); },
+  };
+  const cv = {
+    clientHeight: 160, parentElement: { clientWidth: 424 }, style: {}, getContext: () => g,
+  };
+  ctx.document = { documentElement: {}, getElementById: () => cv };
+  ctx.getComputedStyle = () => ({ getPropertyValue: (name) => name });
+  ctx.devicePixelRatio = 1;
+
+  ctx.drawChart('g-test', series, Object.assign({ stacked: true }, opts));
+  vm.runInContext('delete chartCache["g-test"]', ctx);
+  ctx.invalidateCssCache();
+  delete ctx.document;
+  delete ctx.getComputedStyle;
+  delete ctx.devicePixelRatio;
+
+  return drawn;
+}
+
+/* No series reaches 70 alone; their total, 95, reaches both levels. */
+test('a stacked chart scales to its total and draws the levels the total reaches', () => {
+  const drawn = drawStacked(
+    [{ c: 'u', v: [60, 60] }, { c: 's', v: [5, 5] }, { c: 't', v: [30, 30] }],
+    { thresh: [70, 90] });
+
+  assert.ok(Math.max(...drawn.labels.map(Number)) >= 95, drawn.labels.join(' '));
+  assert.ok(drawn.strokes.includes('--ylw') && drawn.strokes.includes('--red'), drawn.strokes);
+});
+
+/* The gap splits each of the three bands in two. */
+test('a gap in the bottom series breaks every band of a stacked chart', () => {
+  const drawn = drawStacked([
+    { c: 'u', v: [60, 60, null, 60, 60] },
+    { c: 's', v: [5, 5, 5, 5, 5] },
+    { c: 't', v: [30, 30, 30, 30, 30] },
+  ], {});
+
+  assert.strictEqual(drawn.fills, 6);
+});
+
+/* showTooltip on fake elements; each row as [series, label, value]. */
+function tooltipRows(cached, idx) {
+  const rows = [];
+  const tt = {
+    set textContent(_) { rows.length = 0; },
+    appendChild: (row) => rows.push(row),
+    hasChildNodes: () => rows.length > 0,
+    classList: { add() {}, remove() {} },
+    style: {},
+    offsetWidth: 100,
+    offsetHeight: 50,
+  };
+  const newRow = () => {
+    const parts = { '.tt-dot': {}, '.tt-lbl': { remove() {} }, '.tt-val': {} };
+
+    return { parts, querySelector: (sel) => parts[sel] };
+  };
+  ctx.document = {
+    getElementById: (id) => (id === 'tt' ? tt : { content: { cloneNode: newRow } }),
+  };
+  ctx.window = { innerWidth: 1000, innerHeight: 800, scrollX: 0, scrollY: 0 };
+
+  ctx.showTooltip(idx, 10, 10, cached);
+  delete ctx.document;
+  delete ctx.window;
+
+  return rows.map(({ parts }) => [parts['.tt-dot'].className.replace('tt-dot tt-dot--', ''),
+    parts['.tt-lbl'].textContent, parts['.tt-val'].textContent]);
+}
+
+const cpuStack = {
+  opts: { unit: '%', total: { k: 'cpu-total', label: 'total' } },
+  series: [
+    { k: 'cpu-user', label: 'user', v: [60, 60] },
+    { k: 'cpu-sys', label: 'system', v: [5, null] },
+    { k: 'cpu-steal', label: 'steal', v: [30, 30] },
+  ],
+};
+
+test('the tooltip shows the total above its parts: the sum, or the dash if one is missing', () => {
+  const full = tooltipRows(cpuStack, 0);
+  const gap = tooltipRows(cpuStack, 1);
+
+  assert.deepStrictEqual(full, [
+    ['cpu-total', 'total', '95.0%'],
+    ['cpu-user', 'user', '60.0%'],
+    ['cpu-sys', 'system', '5.0%'],
+    ['cpu-steal', 'steal', '30.0%'],
+  ]);
+  assert.deepStrictEqual(gap[0], ['cpu-total', 'total', '\u2014']);
+});
+
+test('a chart without a total has no total row in its tooltip', () => {
+  const rows = tooltipRows({ opts: { unit: '%' }, series: cpuStack.series }, 0);
+
+  assert.deepStrictEqual(rows.map((row) => row[0]), ['cpu-user', 'cpu-sys', 'cpu-steal']);
+});
+
+/* User at 50 is green, but the card shows the total, 95, in red. */
+test('the CPU card takes the level of the value it shows', () => {
+  const cval = { textContent: '' };
+  const card = {
+    className: '',
+    classList: { toggle() {} },
+    querySelectorAll: () => [],
+    querySelector: (sel) => (sel === '.cval' ? cval : null),
+  };
+  ctx.document = { getElementById: (id) => (id === 'c-cpu' ? card : null) };
+
+  ctx.updateCards({
+    cpu_user_percent: 50, cpu_system_percent: 25, cpu_steal_percent: 20, thresh_cpu: [70, 90],
+  });
+  delete ctx.document;
+
+  assert.deepStrictEqual([card.className, cval.textContent], ['card r', '95.0%']);
+});
+
 /* Until the first /api/current brings the config, the dashboard assumes the server's defaults. */
 test("the dashboard starts with the server's default units", () => {
   const config = fs.readFileSync(path.join(__dirname, '..', 'src', 'config.c'), 'utf8');

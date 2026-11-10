@@ -90,9 +90,10 @@ typedef struct {
     long unix_time;
     /* load (always valid) */
     double load_1m, load_5m, load_15m;
-    /* cpu (cpu_valid=0 like net_valid) */
+    /* cpu (cpu_valid=0 like net_valid): user, system and idle as stored, steal worked out from them
+     * as the row is read */
     int    cpu_valid;
-    double cpu_user_percent, cpu_system_percent, cpu_idle_percent;
+    double cpu_user_percent, cpu_system_percent, cpu_idle_percent, cpu_steal_percent;
     /* memory: total and available as stored, the rest worked out from them as the row is read */
     double mem_total_mb, mem_available_mb, mem_used_mb, mem_used_percent, mem_available_percent;
     /* disk: total and available as stored, the rest worked out from them as the row is read */

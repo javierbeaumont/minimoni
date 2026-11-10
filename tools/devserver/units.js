@@ -150,7 +150,7 @@ function toCurrent(raw, f, configured, netMaxSpeed = 0) {
   if (configHas(cards, 'cpu_usage')) {
     out.cpu_user_percent = round(m.cpu_user, 1);
     out.cpu_system_percent = round(m.cpu_system, 1);
-    out.cpu_idle_percent = round(m.cpu_idle, 1);
+    out.cpu_steal_percent = round(m.cpu_steal, 1);
   }
 
   if (configHas(cards, 'memory')) {
@@ -206,7 +206,6 @@ function toCurrent(raw, f, configured, netMaxSpeed = 0) {
     out.uptime_seconds = raw.uptime;
   }
 
-  /* Thresholds, computed server-side ([warn, crit]). */
   if (configHas(cards, 'cpu_load')) {
     const cpu = lu[0] === '%' ? 100.0 : CORES; /* one CPU's load in the card unit */
     out.thresh_load = [0.75 * cpu, cpu];
@@ -332,7 +331,7 @@ function toPoint(raw, f, configured, netMaxSpeed = 0) {
     l15: round(loadConvert(m.load_15m, CORES, lu), 2),
     cu: round(m.cpu_user, 1),
     cs: round(m.cpu_system, 1),
-    ci: round(m.cpu_idle, 1),
+    ct: round(m.cpu_steal, 1),
   };
 
   if (configHas(f.charts, 'memory')) {

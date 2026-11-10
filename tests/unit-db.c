@@ -322,6 +322,46 @@ static int test_db_stores_memory_as_the_kernel_gives_it(void)
     return ok ? 0 : 1;
 }
 
+/* Store user, system and idle, and read the row's steal back. */
+static int steal_read(double user, double system, double idle, double *steal)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    metrics_t m = sample_metrics(1, 1, 1);
+    m.cpu_user_percent = user;
+    m.cpu_system_percent = system;
+    m.cpu_idle_percent = idle;
+    int ok = (db_insert(&db, &m) == 0);
+
+    db_row_t row;
+    ok = ok && (db_current(&db, &row) == 0) && row.cpu_valid;
+    *steal = row.cpu_steal_percent;
+
+    close_test_db(&db);
+
+    return ok ? 0 : 1;
+}
+
+static int test_db_cpu_steal_is_what_the_other_three_leave(void)
+{
+    double steal = -1.0;
+
+    return steal_read(25.0, 5.0, 67.5, &steal) == 0 && approx(steal, 2.5) ? 0 : 1;
+}
+
+/* In doubles, taking 100/3 from 100 three times leaves a hair below 0, and taking 500/6 and 100/6
+ * a hair above. */
+static int test_db_cpu_steal_reads_0_when_rounding_leaves_a_hair(void)
+{
+    double from_below = -1.0, from_above = -1.0;
+    int    rc = steal_read(100.0 / 3.0, 100.0 / 3.0, 100.0 / 3.0, &from_below) |
+                steal_read(500.0 / 6.0, 0.0, 100.0 / 6.0, &from_above);
+
+    return rc == 0 && from_below == 0.0 && from_above == 0.0 ? 0 : 1;
+}
+
 /* Should the kernel ever report more available memory than the total, none reads as used. */
 static int test_db_mem_available_above_total_reads_as_unused(void)
 {
@@ -1553,6 +1593,8 @@ static const test_t ALL_TESTS[] = {
     T(db_insert_null_gating),
     T(db_query_range_bucketed_avg),
     T(db_stores_memory_as_the_kernel_gives_it),
+    T(db_cpu_steal_is_what_the_other_three_leave),
+    T(db_cpu_steal_reads_0_when_rounding_leaves_a_hair),
     T(db_mem_available_above_total_reads_as_unused),
     T(db_query_range_bucketed_memory),
     T(db_stores_disk_as_the_kernel_gives_it),

@@ -66,13 +66,17 @@
     </div>
     <div class="card hide" id="c-cpu">
       <div class="clabel">CPU Usage
-        <span class="card-unit s-cpu-user" data-series="0">user</span>
-        <span class="card-unit hide s-cpu-sys" data-series="1">system</span>
+        <span class="card-unit s-cpu-total" data-series="0">total</span>
+        <span class="card-unit hide s-cpu-user" data-series="1">user</span>
+        <span class="card-unit hide s-cpu-sys" data-series="2">system</span>
+        <span class="card-unit hide s-cpu-steal" data-series="3">steal</span>
       </div>
       <div class="cval">&#8212;</div>
       <div class="csub">
-        <span class="card-sub hide" data-card="cpu" data-idx="0"><span class="card-sub-lbl s-cpu-user">user</span> <span class="card-sub-val"></span></span>
-        <span class="card-sub" data-card="cpu" data-idx="1"><span class="card-sub-lbl s-cpu-sys">system</span> <span class="card-sub-val"></span></span>
+        <span class="card-sub hide" data-card="cpu" data-idx="0"><span class="leg-dot s-cpu-total" role="img" aria-label="total (%)"></span> <span class="card-sub-val"></span></span>
+        <span class="card-sub" data-card="cpu" data-idx="1"><span class="leg-dot s-cpu-user" role="img" aria-label="user (%)"></span> <span class="card-sub-val"></span></span>
+        <span class="card-sub" data-card="cpu" data-idx="2"><span class="leg-dot s-cpu-sys" role="img" aria-label="system (%)"></span> <span class="card-sub-val"></span></span>
+        <span class="card-sub" data-card="cpu" data-idx="3"><span class="leg-dot s-cpu-steal" role="img" aria-label="steal (%)"></span> <span class="card-sub-val"></span></span>
       </div>
     </div>
     <div class="card hide" id="c-mem">
@@ -159,6 +163,7 @@
         <div class="legend" id="leg-g-cpu" data-chart="g-cpu">
           <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="user series" data-series="0"><span class="leg-dot s-cpu-user"></span>user</span>
           <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="system series" data-series="1"><span class="leg-dot s-cpu-sys"></span>system</span>
+          <span class="leg-item" tabindex="0" role="checkbox" aria-checked="true" aria-label="steal series" data-series="2"><span class="leg-dot s-cpu-steal"></span>steal</span>
         </div>
       </div>
       <canvas id="g-cpu" role="img" aria-label="CPU Usage history chart"></canvas>

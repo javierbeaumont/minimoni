@@ -90,8 +90,9 @@ function metrics(s, ripple) {
   const swapInRam = band(s, ripple, 0.2, 7.5, 0.1);
   const diskPercent = Math.min(99.0, band(s, ripple, 8.0, 95.0, 1.0));
   const load1m = band(s, ripple, 0.35, 4.6, 0.2);
-  const cpuUser = Math.min(99.0, band(s, ripple, 12.0, 95.0, 4.0));
   const cpuSystem = band(s, ripple, 2.0, 4.0, 0.5);
+  const cpuSteal = band(s, ripple, 0.0, 3.0, 0.3);
+  const cpuUser = Math.min(100.0 - cpuSystem - cpuSteal, band(s, ripple, 12.0, 95.0, 4.0));
 
   return {
     load_1m: load1m,
@@ -99,7 +100,7 @@ function metrics(s, ripple) {
     load_15m: load1m * 0.7,
     cpu_user: cpuUser,
     cpu_system: cpuSystem,
-    cpu_idle: Math.max(0.0, 100.0 - cpuUser - cpuSystem),
+    cpu_steal: cpuSteal,
     mem_avail_mb: (MEM_TOTAL_MB * (100.0 - memPercent)) / 100.0,
     mem_total_mb: MEM_TOTAL_MB,
     swap_total_mb: SWAP_TOTAL_MB,

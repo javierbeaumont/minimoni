@@ -897,7 +897,18 @@ static int test_cpu_null_when_invalid(void)
     r.cpu_valid = 0;
     config_t c = base_cfg();
     emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
-    return has(b, "\"cpu_user_percent\":null") ? 0 : 1;
+    return has(b, "\"cpu_user_percent\":null") && has(b, "\"cpu_steal_percent\":null") ? 0 : 1;
+}
+
+/* The card shows user, system, steal and their total. */
+static int test_cpu_sends_steal_not_idle(void)
+{
+    char     b[2048];
+    db_row_t r = sample_row();
+    r.cpu_steal_percent = 2.5;
+    config_t c = base_cfg();
+    emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
+    return has(b, "\"cpu_steal_percent\":2.5") && !has(b, "cpu_idle_percent") ? 0 : 1;
 }
 
 /* In "%" just the available share, so a public dashboard shows no size. */
@@ -1179,7 +1190,17 @@ static int test_point_cpu_null_when_invalid(void)
     r.cpu_valid = 0;
     config_t c = base_cfg();
     emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
-    return (has(b, "\"cu\":null") && has(b, "\"ci\":null")) ? 0 : 1;
+    return (has(b, "\"cu\":null") && has(b, "\"ct\":null")) ? 0 : 1;
+}
+
+static int test_point_cpu_sends_steal_not_idle(void)
+{
+    char     b[1024];
+    db_row_t r = sample_row();
+    r.cpu_steal_percent = 2.5;
+    config_t c = base_cfg();
+    emit_point(b, sizeof(b), &r, &c, 4, 1, 100.0);
+    return has(b, "\"ct\":2.5") && !has(b, "\"ci\"") ? 0 : 1;
 }
 
 static int test_point_net_null_when_invalid(void)
@@ -1340,7 +1361,7 @@ static int test_largest_point_fits_its_buffer(void)
     db_row_t r = sample_row();
     double   w = -1.797e308;
     r.load_1m = r.load_5m = r.load_15m = w;
-    r.cpu_user_percent = r.cpu_system_percent = r.cpu_idle_percent = w;
+    r.cpu_user_percent = r.cpu_system_percent = r.cpu_idle_percent = r.cpu_steal_percent = w;
     r.mem_total_mb = r.mem_used_mb = r.mem_available_mb = w;
     r.mem_used_percent = r.mem_available_percent = w;
     r.swap_valid = r.swap_io_valid = 1;
@@ -1419,7 +1440,7 @@ static int current_overflows(const char *toml)
     db_row_t r = sample_row();
     double   w = -1.797e308;
     r.load_1m = r.load_5m = r.load_15m = w;
-    r.cpu_user_percent = r.cpu_system_percent = r.cpu_idle_percent = w;
+    r.cpu_user_percent = r.cpu_system_percent = r.cpu_idle_percent = r.cpu_steal_percent = w;
     r.mem_total_mb = r.mem_used_mb = r.mem_available_mb = w;
     r.mem_used_percent = r.mem_available_percent = w;
     r.swap_valid = r.swap_io_valid = 1;
@@ -1514,6 +1535,7 @@ static const test_t ALL_TESTS[] = {
     T(charts_echo_empty_when_hidden),
     T(charts_echo_list),
     T(cpu_null_when_invalid),
+    T(cpu_sends_steal_not_idle),
     T(mem_card_pct_sends_the_available_share_alone),
     T(mem_card_auto_sends_total_and_available),
     T(disk_card_pct_sends_the_available_share_alone),
@@ -1536,6 +1558,7 @@ static const test_t ALL_TESTS[] = {
     T(point_gates_net_only),
     T(point_temp_null_when_invalid),
     T(point_cpu_null_when_invalid),
+    T(point_cpu_sends_steal_not_idle),
     T(point_net_null_when_invalid),
     T(point_mem_pct_sends_the_available_share_alone),
     T(point_mem_auto_sends_total_and_available),

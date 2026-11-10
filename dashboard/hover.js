@@ -29,8 +29,7 @@
 
 /* --- Hover crosshair + tooltip --- */
 
-/* Position the tooltip near the cursor, reading the values at `idx` from the
- * cached chart's series. Flips to the opposite side if it would clip the edge. */
+/* Fill the tooltip with the cached chart's values at `idx` and place it by the cursor. */
 function showTooltip(idx, mx, my, cached) {
   const tt   = document.getElementById('tt');
   const ts   = (cached.opts.ts || [])[idx];
@@ -39,6 +38,7 @@ function showTooltip(idx, mx, my, cached) {
     : 0;
   const fmt  = cached.opts.fmtFn || ((v) => fmtTip(v, cached.opts.unit));
   const tpl = document.getElementById('tt-row');
+
   tt.textContent = '';
   if (ts) {
     const time = document.createElement('div');
@@ -46,28 +46,45 @@ function showTooltip(idx, mx, my, cached) {
     time.textContent = fmtXFull(ts, span);
     tt.appendChild(time);
   }
-  cached.series.forEach((s) => {
-    const v = s.v[idx];
-    /* Show every series, falling back to the em dash placeholder when a point
-     * has no value (e.g. a temp chart with no sensor), matching the cards. */
+
+  /* No value (e.g. a temp chart with no sensor) shows an em dash, like the cards. */
+  const addRow = (k, label, v) => {
     const row = tpl.content.cloneNode(true);
-    row.querySelector('.tt-dot').className = 'tt-dot tt-dot--' + s.k;
+    row.querySelector('.tt-dot').className = 'tt-dot tt-dot--' + k;
+
     const lbl = row.querySelector('.tt-lbl');
-    if (s.label) lbl.textContent = s.label;
+    if (label) lbl.textContent = label;
     else lbl.remove();
+
     row.querySelector('.tt-val').textContent = v == null ? '—' : fmt(v);
     tt.appendChild(row);
-  });
+  };
+
+  /* A stacked chart's top edge, the sum of its series, comes first. */
+  const total = cached.opts.total;
+  if (total) {
+    const vals = cached.series.map((s) => s.v[idx]);
+    const sum = vals.length && vals.every((v) => v != null)
+      ? vals.reduce((a, b) => a + b, 0)
+      : null;
+
+    addRow(total.k, total.label, sum);
+  }
+  cached.series.forEach((s) => addRow(s.k, s.label, s.v[idx]));
+
   if (!tt.hasChildNodes()) { tt.classList.add('hide'); return; }
+
   /* Measure first so we can flip sides if the tip would clip the viewport */
   tt.style.visibility = 'hidden';
   tt.classList.remove('hide');
   const tw = tt.offsetWidth;
   const th = tt.offsetHeight;
+
   let x = mx + 14;
   let y = my - 14;
   if (x + tw > window.innerWidth  - 8) x = mx - tw - 14;
   if (y + th > window.innerHeight - 8) y = my - th - 14;
+
   /* Flip is computed in viewport coords; offset by the scroll so the absolutely
    * positioned tip anchors to the page and travels with its point on scroll. */
   tt.style.left       = (x + window.scrollX) + 'px';

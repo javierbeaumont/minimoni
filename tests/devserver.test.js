@@ -190,6 +190,14 @@ test('toCurrent: emits thresholds', () => {
   assert.ok(Array.isArray(out.thresh_load) && out.thresh_load.length === 2);
 });
 
+test('toCurrent / toPoint send CPU steal, not idle, like the C server', () => {
+  const cur = toCurrent(currentSnapshot('normal'), configFields({}), null);
+  const pt = toPoint(point(), configFields({}), null);
+
+  assert.ok('cpu_steal_percent' in cur && !('cpu_idle_percent' in cur));
+  assert.ok('ct' in pt && !('ci' in pt));
+});
+
 test('toCurrent: the load levels are the same load in both units', () => {
   const abs = toCurrent(currentSnapshot('normal'), configFields({}), null);
   const pct = toCurrent(currentSnapshot('normal'), configFields({ cpu_load_card_unit: '%' }), null);
@@ -449,6 +457,14 @@ test('cycle scenario: cards tick with time, charts sweep low-high-low', () => {
 
   assert.ok(p[4].cpu_user > p[0].cpu_user + 20); /* mid-sweep well above the edges */
   assert.ok(p[4].cpu_user > p[8].cpu_user + 20);
+});
+
+/* Uncapped, the three would add up past 100 under stress. */
+test('mock CPU: user, system and steal never add up past 100', () => {
+  const p = [...makePoints('1d', 'critical', 50), ...makePoints('1d', 'cycle', 50)];
+
+  for (const m of p)
+    assert.ok(m.cpu_user <= 100 - m.cpu_system - m.cpu_steal, `at ${m.t}`);
 });
 
 test('makePoints: n ascending points spanning the range', () => {

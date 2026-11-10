@@ -43,15 +43,6 @@
 
 /* --- Metric lookup --- */
 
-/* With no steal, rounding leaves a few 1e-14 either side of 0. One tick of steal is at least
- * 3.39e-8: 100 / (8192 CPUs x 3600 s x 100 ticks/s). */
-static double cpu_steal(const db_row_t *row)
-{
-    double steal = 100.0 - row->cpu_user_percent - row->cpu_system_percent - row->cpu_idle_percent;
-
-    return steal > 1e-10 ? steal : 0.0;
-}
-
 static double get_metric_value(const db_row_t *row, const char *m, int *valid)
 {
     *valid = 1;
@@ -72,11 +63,11 @@ static double get_metric_value(const db_row_t *row, const char *m, int *valid)
     }
     if (!strcmp(m, "cpu_total_percent")) {
         *valid = row->cpu_valid;
-        return row->cpu_user_percent + row->cpu_system_percent + cpu_steal(row);
+        return row->cpu_user_percent + row->cpu_system_percent + row->cpu_steal_percent;
     }
     if (!strcmp(m, "cpu_steal_percent")) {
         *valid = row->cpu_valid;
-        return cpu_steal(row);
+        return row->cpu_steal_percent;
     }
     if (!strcmp(m, "mem_used_mb"))
         return row->mem_used_mb;

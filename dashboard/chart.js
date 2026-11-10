@@ -54,6 +54,7 @@ const CLR = {
   load15:    cssv('--clr-load15'),
   user:      cssv('--clr-cpu-user'),
   sys:       cssv('--clr-cpu-sys'),
+  steal:     cssv('--clr-cpu-steal'),
   mem:       cssv('--clr-mem-used'),
   memAvail:  cssv('--clr-mem-avail'),
   swap:      cssv('--clr-swap-used'),
@@ -74,7 +75,7 @@ const chartCache = {};
 /* Per-chart, per-series hidden state; toggled by clicking a legend item */
 const seriesHidden = {
   'g-load':    [false, false, false],
-  'g-cpu':     [false, false],
+  'g-cpu':     [false, false, false],
   'g-mem':     [false, false],
   'g-swap':    [false, false],
   'g-swap-io': [false, false],
@@ -84,16 +85,31 @@ const seriesHidden = {
 
 /* --- Canvas chart --- */
 
+/* Each series' values on top of the ones before it; null where any of them has no value. */
+function stackTops(series) {
+  const tops = [];
+  series.forEach((s, k) => {
+    tops.push(s.v.map((v, i) => {
+      if (v == null || k === 0) return v;
+
+      const below = tops[k - 1][i];
+
+      return below == null ? null : below + v;
+    }));
+  });
+
+  return tops;
+}
+
 function drawChart(id, series, opts) {
   opts = opts || {};
-  /* Cache the clean args for hover redraws (skip when this IS a hover redraw) */
+  /* Cache the clean args for hover redraws. */
   if (opts.hoverIdx == null) chartCache[id] = { series: series, opts: opts };
+
   const cv = document.getElementById(id);
   if (!cv) return;
 
-  /* Scale the canvas backing store to the device pixel ratio so the chart
-   * looks sharp on retina / HiDPI screens. Height is CSS-driven (read via
-   * clientHeight); JS only sets the width to match the panel. */
+  /* The backing store at the device pixel ratio, sharp on HiDPI screens. CSS sets the height. */
   const dpr = devicePixelRatio || 1;
   const w   = cv.parentElement.clientWidth - 24;
   const h   = cv.clientHeight || 160;
@@ -109,17 +125,19 @@ function drawChart(id, series, opts) {
   const cw = w - Pl - Pr;  /* drawable width */
   const ch = h - Pt - Pb;  /* drawable height */
 
+  /* What each series draws: its own values, or in a stacked chart the top of its band. */
+  const tops = opts.stacked ? stackTops(series) : series.map((s) => s.v);
+
   const yMn = opts.yMin != null ? opts.yMin : 0;
   let dataMax = opts.yMax != null ? opts.yMax : 0;
   if (opts.yMax == null) {
-    /* Auto-scale: the largest value across all series drives the axis bound. */
-    series.forEach((s) => {
-      s.v.forEach((v) => {
+    tops.forEach((vals) => {
+      vals.forEach((v) => {
         if (v != null && v > dataMax) dataMax = v;
       });
     });
   }
-  /* Round the axis to nice values (0, 500, 1000, ...), one label per gridline. */
+
   const yticks    = niceTicks(dataMax, 5);
   const yMx       = yticks[yticks.length - 1];
   const yStep     = yticks.length > 1 ? yticks[1] - yticks[0] : yMx || 1;
@@ -153,8 +171,7 @@ function drawChart(id, series, opts) {
     ctx.fillText(fmtY(tv, yDecimals), Pl - 3, gy + 3);
   });
 
-  /* Vertical grid lines + X-axis labels at nice, round timestamps (00:00, 04:00,
-   * ...) positioned by time within the range, not at raw sample indices. */
+  /* Vertical grid lines and X-axis labels at round times (00:00, 04:00, ...), placed by time. */
   if (ts.length > 1 && span > 0) {
     const t0 = ts[0], t1 = ts[ts.length - 1];
     timeTicks(t0, t1, lblCount).forEach((tk) => {
@@ -169,18 +186,48 @@ function drawChart(id, series, opts) {
     });
   }
 
+  /* Fill each band between its top and the one below, one shape per run of points with a value. */
+  if (opts.stacked) {
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    series.forEach((s, k) => {
+      const top = tops[k];
+      let run = [];
+      const fill = () => {
+        if (run.length > 1) {
+          ctx.beginPath();
+          run.forEach((i, j) => {
+            if (j) ctx.lineTo(tx(i), ty(top[i]));
+            else ctx.moveTo(tx(i), ty(top[i]));
+          });
+          run.slice().reverse().forEach((i) => ctx.lineTo(tx(i), ty(k ? tops[k - 1][i] : yMn)));
+          ctx.closePath();
+          ctx.fillStyle = s.c;
+          ctx.fill();
+        }
+        run = [];
+      };
+
+      top.forEach((v, i) => (v == null ? fill() : run.push(i)));
+      fill();
+    });
+    ctx.restore();
+  }
+
   /* Threshold lines, drawn only once the data crossed them. */
   if (opts.thresh) {
     let thMax = -Infinity;
-    series.forEach((s) => {
-      s.v.forEach((v) => {
+    tops.forEach((vals) => {
+      vals.forEach((v) => {
         if (v != null && v > thMax) thMax = v;
       });
     });
+
     /* No save/restore: the series below sets its own stroke and width. */
     const line = (v, colour) => {
       const ry = ty(v);
-      if (ry < Pt || ry > Pt + ch) return;  /* out of visible range */
+      if (ry < Pt || ry > Pt + ch) return;
+
       ctx.strokeStyle = colour;
       ctx.lineWidth = 0.5;
       ctx.beginPath();
@@ -188,31 +235,33 @@ function drawChart(id, series, opts) {
       ctx.lineTo(Pl + cw, ry);
       ctx.stroke();
     };
+
     if (thMax >= opts.thresh[0]) line(opts.thresh[0], cssv('--ylw'));
     if (thMax >= opts.thresh[1]) line(opts.thresh[1], cssv('--red'));
   }
 
-  /* Series: stroke only (no fill). `ok` resets on null entries so gaps in the
-   * data render as breaks instead of straight lines. */
-  series.forEach((s) => {
+  /* Series lines, broken at each null so gaps in the data show. */
+  series.forEach((s, k) => {
     if (!s.v.length) return;
+
     ctx.strokeStyle = s.c;
     ctx.lineWidth   = 1.5;
     ctx.beginPath();
     let ok = false;
-    s.v.forEach((v, i) => {
+    tops[k].forEach((v, i) => {
       if (v == null) { ok = false; return; }
+
       if (!ok) { ctx.moveTo(tx(i), ty(v)); ok = true; }
       else     { ctx.lineTo(tx(i), ty(v)); }
     });
     ctx.stroke();
   });
 
-  /* Hover crosshair + series dots, on top. The only visual difference between
-   * hover and locked: hover is dashed, locked is solid. */
+  /* Hover crosshair and series dots, drawn last to stay on top. */
   if (opts.hoverIdx != null && opts.hoverIdx >= 0 && opts.hoverIdx < n) {
     const hi = opts.hoverIdx;
     const hx = tx(hi);
+
     ctx.save();
     ctx.strokeStyle = cssv('--mut');
     ctx.lineWidth   = 0.5;
@@ -222,9 +271,11 @@ function drawChart(id, series, opts) {
     ctx.lineTo(hx, Pt + ch);
     ctx.stroke();
     ctx.setLineDash([]);
-    series.forEach((s) => {
-      const v = s.v[hi];
+
+    series.forEach((s, k) => {
+      const v = tops[k][hi];
       if (v == null) return;
+
       ctx.beginPath();
       ctx.arc(hx, ty(v), 3, 0, Math.PI * 2);
       ctx.fillStyle = s.c;
@@ -289,8 +340,7 @@ function renderAll() {
   if (cfgChartUnits.load === cfgCardUnits.load) loadOpts.thresh = THRESH.load;
 
   if (chartVisible('cpu_load', 'l1', 'b-load')) {
-    /* Load average is dimensionless in abs mode, so no unit then; only the
-     * percent mode has a unit to show. */
+    /* Load average has no unit outside percent mode. */
     document.getElementById('b-load').querySelector('.ctitle').textContent =
       cfgChartUnits.load === '%' ? 'CPU Load (%)' : 'CPU Load';
 
@@ -305,10 +355,12 @@ function renderAll() {
     document.getElementById('b-cpu').querySelector('.ctitle').textContent = 'CPU Usage (%)';
 
     drawChart('g-cpu', [
-      { c: CLR.user, k: 'cpu-user', v: pts.map((p) => p.cu), label: 'user' },
-      { c: CLR.sys,  k: 'cpu-sys',  v: pts.map((p) => p.cs), label: 'system' },
+      { c: CLR.user,  k: 'cpu-user',  v: pts.map((p) => p.cu), label: 'user' },
+      { c: CLR.sys,   k: 'cpu-sys',   v: pts.map((p) => p.cs), label: 'system' },
+      { c: CLR.steal, k: 'cpu-steal', v: pts.map((p) => p.ct), label: 'steal' },
     ].filter((_, i) => !seriesHidden['g-cpu'][i]),
-      { yMin: 0, unit: '%', ts: ts, thresh: THRESH.cpu });
+      { yMin: 0, unit: '%', ts: ts, thresh: THRESH.cpu, stacked: true,
+        total: { k: 'cpu-total', label: 'total' } });
   }
 
   /* Memory: used and available. A point has the available memory (ma) in the chart unit, % or MB,
@@ -323,7 +375,7 @@ function renderAll() {
     /* Tooltip suffix so a "512" reading does not strand the user on MB vs GB. */
     if (!memIsPct) memOpts.fmtFn = (v) => fmtTip(v, null) + ' ' + memUL;
 
-    const memScale = memIsPct ? null : memU; /* in "%" nothing to scale */
+    const memScale = memIsPct ? null : memU;
     drawChart('g-mem', [
       {
         c: CLR.mem, k: 'mem-used', label: 'used',
@@ -346,7 +398,7 @@ function renderAll() {
     if (swapIsPct) swapOpts.thresh = THRESH.swap;
     if (!swapIsPct) swapOpts.fmtFn = (v) => fmtTip(v, null) + ' ' + swpUL;
 
-    const swapScale = swapIsPct ? null : swapU; /* in "%" nothing to scale */
+    const swapScale = swapIsPct ? null : swapU;
     drawChart('g-swap', [
       {
         c: CLR.swap, k: 'swap-used', label: 'used',
@@ -391,7 +443,7 @@ function renderAll() {
     if (diskIsPct) diskOpts.thresh = THRESH.disk;
     if (!diskIsPct) diskOpts.fmtFn = (v) => fmtTip(v, null) + ' ' + dskUL;
 
-    const diskScale = diskIsPct ? null : diskU; /* in "%" nothing to scale */
+    const diskScale = diskIsPct ? null : diskU;
     drawChart('g-disk', [
       {
         c: CLR.disk, k: 'disk-used', label: 'used',
@@ -440,13 +492,19 @@ function renderAll() {
     }
 
     drawChart('g-net', [
-      { c: CLR.tx, k: 'net-tx', v: pts.map((p) => (netIsPct ? p.nt : scaleTo(p.nt, netU))), label: 'sent' },
-      { c: CLR.rx, k: 'net-rx', v: pts.map((p) => (netIsPct ? p.nr : scaleTo(p.nr, netU))), label: 'received' },
+      {
+        c: CLR.tx, k: 'net-tx', label: 'sent',
+        v: pts.map((p) => (netIsPct ? p.nt : scaleTo(p.nt, netU))),
+      },
+      {
+        c: CLR.rx, k: 'net-rx', label: 'received',
+        v: pts.map((p) => (netIsPct ? p.nr : scaleTo(p.nr, netU))),
+      },
     ].filter((_, i) => !seriesHidden['g-net'][i]), netOpts);
   }
 
-  /* Fresh drawChart calls above rewrote clean opts to the cache; without this
-   * the locked crosshair vanishes after each SSE refresh while lock is active. */
+  /* The drawChart calls above cached clean opts; without this the locked crosshair would vanish
+   * on each refresh. */
   if (lockedIdx != null) scheduleHoverDraw();
 }
 

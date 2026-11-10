@@ -242,11 +242,11 @@ void json_serialize_current(jbuf_t *j, const db_row_t *r, const config_t *cfg, i
         if (r->cpu_valid) {
             jbuf_real(j, "cpu_user_percent", r->cpu_user_percent);
             jbuf_real(j, "cpu_system_percent", r->cpu_system_percent);
-            jbuf_real(j, "cpu_idle_percent", r->cpu_idle_percent);
+            jbuf_real(j, "cpu_steal_percent", r->cpu_steal_percent);
         } else {
             jbuf_null(j, "cpu_user_percent");
             jbuf_null(j, "cpu_system_percent");
-            jbuf_null(j, "cpu_idle_percent");
+            jbuf_null(j, "cpu_steal_percent");
         }
     }
 
@@ -496,11 +496,11 @@ void json_serialize_point(jbuf_t *j, const db_row_t *r, const config_t *cfg, int
         if (r->cpu_valid) {
             jbuf_real(j, "cu", r->cpu_user_percent);
             jbuf_real(j, "cs", r->cpu_system_percent);
-            jbuf_real(j, "ci", r->cpu_idle_percent);
+            jbuf_real(j, "ct", r->cpu_steal_percent);
         } else {
             jbuf_null(j, "cu");
             jbuf_null(j, "cs");
-            jbuf_null(j, "ci");
+            jbuf_null(j, "ct");
         }
     }
 

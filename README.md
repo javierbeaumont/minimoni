@@ -603,6 +603,7 @@ megabytes, `_gb` is gigabytes, `_percent` is a percentage, `_degrees` is degrees
 `collect.temp_scale`, `_bps` is bytes per second, `_ram` is swap I/O as a percent of the RAM per
 minute (past 100 when the same pages go back and forth). `_bps`, `_ram`, `net_*_percent` and
 `cpu_*_percent` are averages over the collect interval: a longer interval smooths out short bursts.
+A threshold of 70 or 90 on any `cpu_*_percent` matches its yellow or red on the CPU Usage card.
 `cpu_steal_percent` stays at 0 unless the hypervisor reports it (KVM, Xen and VMware can; Hyper-V
 does not). `load_1m`, `load_5m` and `load_15m` are raw load averages, and `load_*_percent` are the
 same averages as a percent of the CPUs online, so a threshold of 75 or 100 matches the load
