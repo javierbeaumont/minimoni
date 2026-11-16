@@ -1595,8 +1595,7 @@ static int test_unknown_alert_metric_fails(void)
 
 static int test_mem_alert_metrics_accepted(void)
 {
-    static const char *const names[] = {"mem_used_mb", "mem_available_mb", "mem_used_percent",
-                                        "mem_available_percent"};
+    static const char *const names[] = {"mem_available_mb", "mem_available_percent"};
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
         char toml[256];
         snprintf(toml, sizeof(toml),
@@ -1613,10 +1612,11 @@ static int test_mem_alert_metrics_accepted(void)
     return 0;
 }
 
-/* The old names fail the load: mem_percent (now mem_used_percent) and mem_total_mb. */
+/* mem_used_* (the complement of mem_available_*) and the old names fail the load. */
 static int test_old_mem_alert_metrics_fail(void)
 {
-    static const char *const names[] = {"mem_percent", "mem_total_mb"};
+    static const char *const names[] = {"mem_used_mb", "mem_used_percent", "mem_percent",
+                                        "mem_total_mb"};
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
         char toml[256];
         snprintf(toml, sizeof(toml),
@@ -1637,8 +1637,7 @@ static int test_old_mem_alert_metrics_fail(void)
 
 static int test_disk_alert_metrics_accepted(void)
 {
-    static const char *const names[] = {"disk_used_gb", "disk_available_gb", "disk_used_percent",
-                                        "disk_available_percent"};
+    static const char *const names[] = {"disk_available_gb", "disk_available_percent"};
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
         char toml[256];
         snprintf(toml, sizeof(toml),
@@ -1655,11 +1654,12 @@ static int test_disk_alert_metrics_accepted(void)
     return 0;
 }
 
-/* The old names fail the load: disk_percent (now disk_used_percent), disk_free_gb (now
- * disk_available_gb) and disk_total_gb. */
+/* disk_used_* (the complement of disk_available_*) and the old names fail the load; disk_free_gb
+ * is now disk_available_gb. */
 static int test_old_disk_alert_metrics_fail(void)
 {
-    static const char *const names[] = {"disk_percent", "disk_free_gb", "disk_total_gb"};
+    static const char *const names[] = {"disk_used_gb", "disk_used_percent", "disk_percent",
+                                        "disk_free_gb", "disk_total_gb"};
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
         char toml[256];
         snprintf(toml, sizeof(toml),
@@ -1729,9 +1729,8 @@ static int test_cpu_idle_alert_metric_fails(void)
 
 static int test_swap_alert_metrics_accepted(void)
 {
-    static const char *const names[] = {"swap_free_mb",      "swap_used_mb", "swap_free_percent",
-                                        "swap_used_percent", "swap_in_bps",  "swap_out_bps",
-                                        "swap_in_ram",       "swap_out_ram"};
+    static const char *const names[] = {"swap_free_mb", "swap_free_percent", "swap_in_bps",
+                                        "swap_out_bps", "swap_in_ram",       "swap_out_ram"};
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
         char toml[256];
         snprintf(toml, sizeof(toml),
@@ -1742,6 +1741,28 @@ static int test_swap_alert_metrics_accepted(void)
         config_t cfg;
         if (load_cfg(&cfg, toml) != 0 || cfg.alert_count != 1 ||
             strcmp(cfg.alerts[0].metric, names[i]))
+            return 1;
+    }
+
+    return 0;
+}
+
+/* swap_used_* (the complement of swap_free_*) fails the load. */
+static int test_swap_used_alert_metrics_fail(void)
+{
+    static const char *const names[] = {"swap_used_mb", "swap_used_percent"};
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        char toml[256];
+        snprintf(toml, sizeof(toml),
+                 "[[alert]]\nname = \"swap\"\nmetric = \"%s\"\noperator = \">\"\n"
+                 "threshold = 1\nwebhook = \"w\"\n",
+                 names[i]);
+
+        config_t cfg;
+        char     err[512];
+        char     want[96];
+        snprintf(want, sizeof(want), "config: alert 'swap': unknown metric '%s'", names[i]);
+        if (load_cfg_err(&cfg, toml, err, sizeof(err)) != -1 || !strstr(err, want))
             return 1;
     }
 
@@ -2004,6 +2025,7 @@ static const test_t ALL_TESTS[] = {
     T(old_temp_alert_metric_fails),
     T(cpu_idle_alert_metric_fails),
     T(swap_alert_metrics_accepted),
+    T(swap_used_alert_metrics_fail),
     T(load_alert_metrics_accepted),
     T(cpu_alert_metrics_accepted),
     T(net_alert_metrics_accepted),

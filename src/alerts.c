@@ -69,20 +69,12 @@ static double get_metric_value(const db_row_t *row, const char *m, int *valid)
         *valid = row->cpu_valid;
         return row->cpu_steal_percent;
     }
-    if (!strcmp(m, "mem_used_mb"))
-        return row->mem_used_mb;
     if (!strcmp(m, "mem_available_mb"))
         return row->mem_available_mb;
-    if (!strcmp(m, "mem_used_percent"))
-        return row->mem_used_percent;
     if (!strcmp(m, "mem_available_percent"))
         return row->mem_available_percent;
-    if (!strcmp(m, "disk_used_gb"))
-        return row->disk_used_gb;
     if (!strcmp(m, "disk_available_gb"))
         return row->disk_available_gb;
-    if (!strcmp(m, "disk_used_percent"))
-        return row->disk_used_percent;
     if (!strcmp(m, "disk_available_percent"))
         return row->disk_available_percent;
     if (!strcmp(m, "net_rx_bps")) {
@@ -97,17 +89,9 @@ static double get_metric_value(const db_row_t *row, const char *m, int *valid)
         *valid = row->swap_valid;
         return row->swap_free_mb;
     }
-    if (!strcmp(m, "swap_used_mb")) {
-        *valid = row->swap_valid;
-        return row->swap_used_mb;
-    }
     if (!strcmp(m, "swap_free_percent")) {
         *valid = row->swap_valid;
         return row->swap_free_percent;
-    }
-    if (!strcmp(m, "swap_used_percent")) {
-        *valid = row->swap_valid;
-        return row->swap_used_percent;
     }
     if (!strcmp(m, "swap_in_bps")) {
         *valid = row->swap_io_valid;

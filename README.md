@@ -552,13 +552,13 @@ fails the load, and the error says which alert.
 
 ```toml
 [[alert]]
-name      = "disk-full"         # identifier shown in logs
-metric    = "disk_used_percent" # see metric table below
-operator  = ">"                 # supported: > < >= <=
-threshold = 90                  # in the metric's own unit (see below)
+name      = "disk-full"                 # identifier shown in logs
+metric    = "disk_available_percent"    # see metric table below
+operator  = "<"                         # supported: > < >= <=
+threshold = 10                          # in the metric's own unit (see below)
 webhook   = "https://ntfy.sh/my-server" # POST JSON to this URL on fire
 command   = "/usr/local/bin/notify.sh"  # execute this command on fire
-cooldown  = "1h"                # minimum time between repeated firings
+cooldown  = "1h"                        # minimum time between repeated firings
 ```
 
 **Available metrics** (any other name fails the load):
@@ -575,13 +575,9 @@ cooldown  = "1h"                # minimum time between repeated firings
 | `cpu_user_percent`       | %         | User-space CPU time, nice included                |
 | `cpu_system_percent`     | %         | Kernel CPU time, interrupts included              |
 | `cpu_steal_percent`      | %         | CPU time the hypervisor gave to other machines    |
-| `mem_used_mb`            | MB        | Used memory (total minus available)               |
 | `mem_available_mb`       | MB        | Memory available without swapping                 |
-| `mem_used_percent`       | %         | Used memory as percent of total                   |
 | `mem_available_percent`  | %         | Available memory as percent of total              |
-| `disk_used_gb`           | GB        | Used disk space (total minus available)           |
 | `disk_available_gb`      | GB        | Disk space available to users other than root     |
-| `disk_used_percent`      | %         | Used disk space as percent of total               |
 | `disk_available_percent` | %         | Available disk space as percent of total          |
 | `temp_degrees`           | °C or °F  | CPU temperature (skipped if no sensor is present) |
 | `temp_percent`           | %         | Temperature as percent of the critical trip point |
@@ -591,9 +587,7 @@ cooldown  = "1h"                # minimum time between repeated firings
 | `net_tx_percent`         | %         | Transmit throughput as percent of link ceiling    |
 | `uptime_seconds`         | s         | Seconds since boot, time suspended included       |
 | `swap_free_mb`           | MB        | Free swap                                         |
-| `swap_used_mb`           | MB        | Used swap                                         |
 | `swap_free_percent`      | %         | Free swap as percent of total                     |
-| `swap_used_percent`      | %         | Used swap as percent of total                     |
 | `swap_in_bps`            | bytes/s   | Swap I/O in, read back from swap                  |
 | `swap_out_bps`           | bytes/s   | Swap I/O out, written to swap                     |
 | `swap_in_ram`            | % RAM/min | Swap I/O in, in % of the RAM per minute           |
@@ -623,10 +617,10 @@ connect included, is given up and reported.
 ```json
 {
     "alert":     "disk-full",
-    "metric":    "disk_used_percent",
-    "value":     91.3,
-    "threshold": 90,
-    "operator":  ">",
+    "metric":    "disk_available_percent",
+    "value":     8.7,
+    "threshold": 10,
+    "operator":  "<",
     "timestamp": "2026-06-08T14:30:00Z",
     "hostname":  "my-server"
 }
@@ -712,9 +706,9 @@ listen = "127.0.0.1:8080"
 ```toml
 [[alert]]
 name      = "disk-full"
-metric    = "disk_used_percent"
-operator  = ">"
-threshold = 85
+metric    = "disk_available_percent"
+operator  = "<"
+threshold = 15
 webhook   = "https://ntfy.sh/my-server"
 cooldown  = "6h"
 

@@ -271,14 +271,11 @@ static int test_uptime_unreadable_is_not_valid(void)
 /* Each memory metric reads its own field. */
 static int test_mem_metrics_read_their_fields(void)
 {
-    static const char *const names[] = {"mem_used_mb", "mem_available_mb", "mem_used_percent",
-                                        "mem_available_percent"};
+    static const char *const names[] = {"mem_available_mb", "mem_available_percent"};
     db_row_t                 row;
     memset(&row, 0, sizeof(row));
-    row.mem_used_mb = 1.0;
-    row.mem_available_mb = 2.0;
-    row.mem_used_percent = 3.0;
-    row.mem_available_percent = 4.0;
+    row.mem_available_mb = 1.0;
+    row.mem_available_percent = 2.0;
 
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
         int valid = 0;
@@ -292,14 +289,11 @@ static int test_mem_metrics_read_their_fields(void)
 /* Each disk metric reads its own field. */
 static int test_disk_metrics_read_their_fields(void)
 {
-    static const char *const names[] = {"disk_used_gb", "disk_available_gb", "disk_used_percent",
-                                        "disk_available_percent"};
+    static const char *const names[] = {"disk_available_gb", "disk_available_percent"};
     db_row_t                 row;
     memset(&row, 0, sizeof(row));
-    row.disk_used_gb = 1.0;
-    row.disk_available_gb = 2.0;
-    row.disk_used_percent = 3.0;
-    row.disk_available_percent = 4.0;
+    row.disk_available_gb = 1.0;
+    row.disk_available_percent = 2.0;
 
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
         int valid = 0;
@@ -489,9 +483,8 @@ static int test_cpu_total_has_a_value_only_with_a_sample(void)
     return !without && with ? 0 : 1;
 }
 
-static const char *const SWAP_METRICS[] = {"swap_free_mb",      "swap_used_mb", "swap_free_percent",
-                                           "swap_used_percent", "swap_in_bps",  "swap_out_bps",
-                                           "swap_in_ram",       "swap_out_ram"};
+static const char *const SWAP_METRICS[] = {"swap_free_mb", "swap_free_percent", "swap_in_bps",
+                                           "swap_out_bps", "swap_in_ram",       "swap_out_ram"};
 
 /* Each swap metric reads its own field. */
 static int test_swap_metrics_read_their_fields(void)
@@ -500,13 +493,11 @@ static int test_swap_metrics_read_their_fields(void)
     memset(&row, 0, sizeof(row));
     row.swap_valid = row.swap_io_valid = 1;
     row.swap_free_mb = 1.0;
-    row.swap_used_mb = 2.0;
-    row.swap_free_percent = 3.0;
-    row.swap_used_percent = 4.0;
-    row.swap_in_bps = 5.0;
-    row.swap_out_bps = 6.0;
-    row.swap_in_ram = 7.0;
-    row.swap_out_ram = 8.0;
+    row.swap_free_percent = 2.0;
+    row.swap_in_bps = 3.0;
+    row.swap_out_bps = 4.0;
+    row.swap_in_ram = 5.0;
+    row.swap_out_ram = 6.0;
 
     for (size_t i = 0; i < sizeof(SWAP_METRICS) / sizeof(SWAP_METRICS[0]); i++) {
         int valid = 0;
@@ -540,14 +531,14 @@ static int test_swap_io_metrics_without_a_sample_have_no_value(void)
     memset(&row, 0, sizeof(row));
     row.swap_valid = 1;
 
-    int in = 1, out = 1, in_ram = 1, out_ram = 1, used = 0;
+    int in = 1, out = 1, in_ram = 1, out_ram = 1, free_pct = 0;
     get_metric_value(&row, "swap_in_bps", &in);
     get_metric_value(&row, "swap_out_bps", &out);
     get_metric_value(&row, "swap_in_ram", &in_ram);
     get_metric_value(&row, "swap_out_ram", &out_ram);
-    get_metric_value(&row, "swap_used_percent", &used);
+    get_metric_value(&row, "swap_free_percent", &free_pct);
 
-    return !in && !out && !in_ram && !out_ram && used ? 0 : 1;
+    return !in && !out && !in_ram && !out_ram && free_pct ? 0 : 1;
 }
 
 /* --- The request: what does not fit is not sent --- */
