@@ -44,7 +44,7 @@ CIVETWEB_FLAGS = -DNO_SSL -DNO_CGI -DNO_CACHING \
 BEARSSL_LIB = vendor/bearssl/build/libbearssl.a
 BEARSSL_INC = -Ivendor/bearssl/inc
 
-SRC = src/main.c src/alerts.c src/config.c src/db.c src/db_cmd.c \
+SRC = src/main.c src/alerts.c src/config.c src/config_alerts.c src/db.c src/db_cmd.c \
       src/downsample.c src/http.c src/json.c src/metrics.c src/trust.c src/units.c
 VENDOR = vendor/civetweb.c vendor/sqlite3.c vendor/tomlc17.c
 
@@ -127,14 +127,14 @@ tidy:
 	pre-commit run clang-tidy --all-files --hook-stage pre-push
 
 # Unit tests (Docker): the db.c <-> migrate mirror check, then one C suite per module (shared
-# tests/runner.h; unit-config/json link tomlc17; unit-http uses tests/embed.h, hence no -Ibuild),
-# plus the JS suites via node --test with a coverage gate (thresholds apply to the loaded non-DOM
-# JS: dashboard/format.js + tools/devserver; the DOM files are covered by the browser paths and the
-# e2e-cli.sh bundle check instead).
+# tests/runner.h; unit-http uses tests/embed.h, hence no -Ibuild), plus the JS suites via
+# node --test with a coverage gate (thresholds apply to the loaded non-DOM JS: dashboard/format.js
+# + tools/devserver; the DOM files are covered by the browser paths and the e2e-cli.sh bundle check
+# instead).
 test-unit: ci-image \
-      tests/unit-config.c tests/unit-db.c tests/unit-db_cmd.c tests/unit-downsample.c \
-      tests/unit-http.c tests/unit-json.c tests/unit-metrics.c tests/unit-migrate.c \
-      tests/unit-units.c tests/unit-alerts.c \
+      tests/unit-config.c tests/unit-config_alerts.c tests/config-helpers.h tests/unit-db.c \
+      tests/unit-db_cmd.c tests/unit-downsample.c tests/unit-http.c tests/unit-json.c \
+      tests/unit-metrics.c tests/unit-migrate.c tests/unit-units.c tests/unit-alerts.c \
       tests/contract-units.c tests/embed.h tests/runner.h tests/devserver.test.js \
       tests/devserver-http.test.js tests/dashboard.test.js tests/mirror-consolidate.sh
 	docker run --rm -v "$(PWD)":/work -w /work $(CI_IMAGE) \
@@ -142,6 +142,8 @@ test-unit: ci-image \
 	    sh tests/mirror-consolidate.sh && \
 	    gcc -Wall -Wextra -std=c23 -Isrc -Ivendor -Itests \
 	      tests/unit-config.c vendor/tomlc17.c -o build/unit-config-test && \
+	    gcc -Wall -Wextra -std=c23 -Isrc -Ivendor -Itests \
+	      tests/unit-config_alerts.c vendor/tomlc17.c -o build/unit-config_alerts-test && \
 	    gcc -Wall -Wextra -std=c23 -Isrc -Ivendor -Itests $(SQLITE_FLAGS) \
 	      tests/unit-db.c vendor/sqlite3.c -o build/unit-db-test -lpthread && \
 	    gcc -Wall -Wextra -std=c23 -Isrc -Ivendor -Itests $(SQLITE_FLAGS) \
@@ -151,7 +153,7 @@ test-unit: ci-image \
 	    gcc -Wall -Wextra -std=c23 -Isrc -Ivendor -Itests $(SQLITE_FLAGS) \
 	      $(CIVETWEB_FLAGS) \
 	      tests/unit-http.c src/db.c src/json.c src/units.c src/downsample.c \
-	      src/config.c src/metrics.c vendor/sqlite3.c vendor/tomlc17.c \
+	      src/config.c src/config_alerts.c src/metrics.c vendor/sqlite3.c vendor/tomlc17.c \
 	      -o build/unit-http-test -lpthread && \
 	    gcc -Wall -Wextra -std=c23 -Isrc -Ivendor -Itests \
 	      tests/unit-json.c vendor/tomlc17.c -o build/unit-json-test && \
@@ -165,9 +167,9 @@ test-unit: ci-image \
 	      tests/unit-alerts.c -o build/unit-alerts-test && \
 	    gcc -Wall -Wextra -std=c23 -Isrc -Itests \
 	      tests/contract-units.c -o build/contract-units && \
-	    ./build/unit-config-test && ./build/unit-db-test && ./build/unit-db_cmd-test && \
-	    ./build/unit-downsample-test && ./build/unit-http-test && ./build/unit-json-test && \
-	    ./build/unit-metrics-test && \
+	    ./build/unit-config-test && ./build/unit-config_alerts-test && ./build/unit-db-test && \
+	    ./build/unit-db_cmd-test && ./build/unit-downsample-test && ./build/unit-http-test && \
+	    ./build/unit-json-test && ./build/unit-metrics-test && \
 	    ./build/unit-migrate-test && ./build/unit-units-test && ./build/unit-alerts-test && \
 	    node --test --experimental-test-coverage --test-coverage-lines=97 \
       --test-coverage-branches=90 --test-coverage-functions=92 \

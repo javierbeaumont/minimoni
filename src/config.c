@@ -31,13 +31,14 @@
 #include <unistd.h>
 
 #include "config.h"
+#include "config_internal.h"
 #include "tomlc17.h"
 
 /* --- Helpers --- */
 
 /* Per-unit caps = 10 years (the same 3653d ceiling as range_in_bounds), checked
  * BEFORE the multiply so a 32-bit long cannot overflow. */
-static long parse_duration(const char *s)
+long parse_duration(const char *s)
 {
     char *end;
     long  n = strtol(s, &end, 10);
@@ -59,11 +60,7 @@ static long parse_duration(const char *s)
     }
 }
 
-/* Copy a string value into its fixed field. A value that does not fit is an error, never cut: a
- * truncated path, command or URL is a different one. A missing or non-string value copies nothing,
- * so the field keeps its default. */
-[[nodiscard]] [[gnu::format(printf, 4, 5)]] static int
-str_copy(char *dst, size_t dsize, toml_datum_t v, const char *key, ...)
+int str_copy(char *dst, size_t dsize, toml_datum_t v, const char *key, ...)
 {
     if (v.type != TOML_STRING)
         return 0;
@@ -133,12 +130,6 @@ static int range_in_bounds(const char *s)
     return 0;
 }
 
-static int valid_op(const char *s)
-{
-    return strcmp(s, ">") == 0 || strcmp(s, "<") == 0 || strcmp(s, ">=") == 0 ||
-           strcmp(s, "<=") == 0;
-}
-
 /* --- Unit validation --- */
 
 /* Allowed values per *_unit key, in the order config.example.toml documents. */
@@ -179,9 +170,7 @@ static const char *const CHART_NAMES[] = {CHARTS, NULL};
 static const char *const CARD_NAMES[] = {CHARTS, "uptime", NULL};
 #undef CHARTS
 
-static const char *const METRIC_NAMES[] = {ALERT_METRICS, NULL};
-
-static int in_list(const char *name, const char *const *list)
+int in_list(const char *name, const char *const *list)
 {
     for (int k = 0; list[k]; k++)
         if (strcmp(name, list[k]) == 0)
@@ -431,6 +420,7 @@ int config_load(config_t *cfg, const char *path)
 
     /* [collect] */
     v = toml_seek(root, "collect.interval");
+
     if (v.type == TOML_STRING) {
         fprintf(stderr,
                 "config: interval is now an integer (seconds); got string '%s'. "
@@ -467,8 +457,8 @@ int config_load(config_t *cfg, const char *path)
     v = toml_seek(root, "collect.disk_path");
     too_long |= str_copy(cfg->disk_path, sizeof(cfg->disk_path), v, "collect.disk_path") != 0;
 
-    struct statvfs sv;
-    if (v.type == TOML_STRING && statvfs(cfg->disk_path, &sv) != 0) {
+    struct statvfs disk_stat;
+    if (v.type == TOML_STRING && statvfs(cfg->disk_path, &disk_stat) != 0) {
         fprintf(stderr, "config: collect.disk_path '%s': %s; aborting\n", cfg->disk_path,
                 strerror(errno));
         toml_free(res);
@@ -527,9 +517,10 @@ int config_load(config_t *cfg, const char *path)
     if (v.type == TOML_STRING && ca_ok && cfg->insecure_skip_verify) {
         fprintf(stderr, "config: webhook.ca_file is ignored while insecure_skip_verify is true\n");
     } else if (v.type == TOML_STRING && ca_ok) {
-        int has = has_certificate(cfg->ca_file);
-        if (has <= 0) {
-            if (has < 0)
+        int found = has_certificate(cfg->ca_file);
+
+        if (found <= 0) {
+            if (found < 0)
                 fprintf(stderr, "config: webhook.ca_file '%s': %s; aborting\n", cfg->ca_file,
                         strerror(errno));
             else
@@ -602,12 +593,13 @@ int config_load(config_t *cfg, const char *path)
             cfg->chart_count = -1; /* explicit empty: hide all */
         } else {
             for (int i = 0; i < v.u.arr.size && cfg->chart_count < MAX_CHARTS; i++) {
-                toml_datum_t e = v.u.arr.elem[i];
-                if (e.type != TOML_STRING)
+                toml_datum_t entry = v.u.arr.elem[i];
+
+                if (entry.type != TOML_STRING)
                     continue;
 
                 char *dst = cfg->charts[cfg->chart_count];
-                if (str_copy(dst, sizeof(cfg->charts[0]), e, "dashboard.charts[%d]", i) != 0)
+                if (str_copy(dst, sizeof(cfg->charts[0]), entry, "dashboard.charts[%d]", i) != 0)
                     too_long = 1;
                 else if (known_name(dst, CHART_NAMES, "charts", i))
                     cfg->chart_count++;
@@ -621,12 +613,13 @@ int config_load(config_t *cfg, const char *path)
             cfg->card_count = -1; /* explicit empty: hide all */
         } else {
             for (int i = 0; i < v.u.arr.size && cfg->card_count < MAX_CARDS; i++) {
-                toml_datum_t e = v.u.arr.elem[i];
-                if (e.type != TOML_STRING)
+                toml_datum_t entry = v.u.arr.elem[i];
+
+                if (entry.type != TOML_STRING)
                     continue;
 
                 char *dst = cfg->cards[cfg->card_count];
-                if (str_copy(dst, sizeof(cfg->cards[0]), e, "dashboard.cards[%d]", i) != 0)
+                if (str_copy(dst, sizeof(cfg->cards[0]), entry, "dashboard.cards[%d]", i) != 0)
                     too_long = 1;
                 else if (known_name(dst, CARD_NAMES, "cards", i))
                     cfg->card_count++;
@@ -640,6 +633,7 @@ int config_load(config_t *cfg, const char *path)
     unit_copy(cfg->temp_chart_unit, sizeof(cfg->temp_chart_unit), v, "temp_chart_unit", TEMP_UNITS);
 
     v = toml_seek(root, "dashboard.ranges");
+
     if (v.type == TOML_ARRAY && v.u.arr.size > MAX_RANGES) {
         fprintf(stderr, "config: dashboard.ranges has %d entries; the maximum is %d; aborting\n",
                 v.u.arr.size, MAX_RANGES);
@@ -650,38 +644,40 @@ int config_load(config_t *cfg, const char *path)
 
     if (v.type == TOML_ARRAY && v.u.arr.size > 0) {
         int count = 0;
+
         for (int i = 0; i < v.u.arr.size && count < MAX_RANGES; i++) {
-            toml_datum_t e = v.u.arr.elem[i];
-            if (e.type != TOML_STRING) {
+            toml_datum_t entry = v.u.arr.elem[i];
+
+            if (entry.type != TOML_STRING) {
                 fprintf(stderr, "config: ranges[%d]: not a string, skipping\n", i);
                 continue;
             }
 
-            if (!valid_range(e.u.s)) {
+            if (!valid_range(entry.u.s)) {
                 fprintf(stderr, "config: ranges[%d]: invalid '%s' (use <n>m, <n>h or <n>d)\n", i,
-                        e.u.s);
+                        entry.u.s);
                 continue;
             }
 
-            if (!range_in_bounds(e.u.s)) {
+            if (!range_in_bounds(entry.u.s)) {
                 fprintf(stderr,
                         "config: ranges[%d]: '%s' exceeds limit "
                         "(max 120 minutes, 72 hours, or 10 years)\n",
-                        i, e.u.s);
+                        i, entry.u.s);
                 continue;
             }
 
-            long d = parse_duration(e.u.s);
+            long seconds = parse_duration(entry.u.s);
 
-            if (d < cfg->interval_seconds) {
+            if (seconds < cfg->interval_seconds) {
                 fprintf(stderr,
                         "config: ranges[%d]: '%s' is shorter than collect interval, "
                         "skipping\n",
-                        i, e.u.s);
+                        i, entry.u.s);
                 continue;
             }
 
-            too_long |= str_copy(cfg->ranges[count++], sizeof(cfg->ranges[0]), e,
+            too_long |= str_copy(cfg->ranges[count++], sizeof(cfg->ranges[0]), entry,
                                  "dashboard.ranges[%d]", i) != 0;
         }
 
@@ -697,125 +693,9 @@ int config_load(config_t *cfg, const char *path)
         }
     }
 
-    /* [[alert]] */
-    v = toml_seek(root, "alert");
-    if (v.type != TOML_ARRAY && v.type != TOML_UNKNOWN) {
-        fprintf(stderr,
-                "config: [alert] must be an array of tables, written [[alert]]; aborting\n");
+    if (load_alerts(cfg, root, &too_long) != 0) {
         toml_free(res);
-
         return -1;
-    }
-
-    if (v.type == TOML_ARRAY && v.u.arr.size > MAX_ALERTS) {
-        fprintf(stderr, "config: %d [[alert]] tables; the maximum is %d; aborting\n", v.u.arr.size,
-                MAX_ALERTS);
-        toml_free(res);
-
-        return -1;
-    }
-
-    if (v.type == TOML_ARRAY) {
-        for (int i = 0; i < v.u.arr.size && cfg->alert_count < MAX_ALERTS; i++) {
-            toml_datum_t e = v.u.arr.elem[i];
-            if (e.type != TOML_TABLE) {
-                fprintf(stderr, "config: alert[%d]: not a table; aborting\n", i);
-                toml_free(res);
-
-                return -1;
-            }
-
-            toml_datum_t dname = toml_get(e, "name");
-            toml_datum_t dmet = toml_get(e, "metric");
-            toml_datum_t dop = toml_get(e, "operator");
-            toml_datum_t dthr = toml_get(e, "threshold");
-
-            if (dname.type != TOML_STRING || dmet.type != TOML_STRING || dop.type != TOML_STRING) {
-                fprintf(stderr, "config: alert[%d]: missing name, metric or operator; aborting\n",
-                        i);
-                toml_free(res);
-
-                return -1;
-            }
-
-            /* A measured value almost never equals a threshold exactly, and no metric is below 0,
-             * so "is zero" is <= 0. */
-            if (strcmp(dop.u.s, "==") == 0) {
-                fprintf(stderr,
-                        "config: alert '%s': '==' is not supported; use '<= 0' to check for zero, "
-                        "or '>=' or '<='; aborting\n",
-                        dname.u.s);
-                toml_free(res);
-
-                return -1;
-            }
-
-            if (!valid_op(dop.u.s)) {
-                fprintf(stderr, "config: alert '%s': unknown operator '%s'; aborting\n", dname.u.s,
-                        dop.u.s);
-                toml_free(res);
-
-                return -1;
-            }
-
-            if (!in_list(dmet.u.s, METRIC_NAMES)) {
-                fprintf(stderr, "config: alert '%s': unknown metric '%s'; aborting\n", dname.u.s,
-                        dmet.u.s);
-                toml_free(res);
-
-                return -1;
-            }
-
-            double thr_val;
-            if (dthr.type == TOML_FP64)
-                thr_val = dthr.u.fp64;
-            else if (dthr.type == TOML_INT64)
-                thr_val = (double)dthr.u.int64;
-            else {
-                fprintf(stderr, "config: alert '%s': missing threshold; aborting\n", dname.u.s);
-                toml_free(res);
-
-                return -1;
-            }
-
-            alert_cfg_t *a = &cfg->alerts[cfg->alert_count];
-            memset(a, 0, sizeof(*a));
-            too_long |= str_copy(a->name, sizeof(a->name), dname, "alert[%d].name", i) != 0;
-            too_long |= str_copy(a->metric, sizeof(a->metric), dmet, "alert[%d].metric", i) != 0;
-            too_long |= str_copy(a->op, sizeof(a->op), dop, "alert[%d].operator", i) != 0;
-            a->threshold = thr_val;
-            too_long |= str_copy(a->webhook, sizeof(a->webhook), toml_get(e, "webhook"),
-                                 "alert[%d].webhook", i) != 0;
-            too_long |= str_copy(a->command, sizeof(a->command), toml_get(e, "command"),
-                                 "alert[%d].command", i) != 0;
-
-            toml_datum_t dcool = toml_get(e, "cooldown");
-            if (dcool.type == TOML_STRING) {
-                long d = parse_duration(dcool.u.s);
-                if (d > 0)
-                    a->cooldown_seconds = d;
-                else
-                    fprintf(stderr,
-                            "config: alert '%s': invalid cooldown '%s'; no cooldown, it fires "
-                            "every cycle\n",
-                            a->name, dcool.u.s);
-            } else if (dcool.type != TOML_UNKNOWN) {
-                fprintf(stderr,
-                        "config: alert '%s': cooldown is not a duration string such as \"5m\"; no "
-                        "cooldown, it fires every cycle\n",
-                        a->name);
-            }
-
-            if (!a->webhook[0] && !a->command[0]) {
-                fprintf(stderr, "config: alert '%s': needs a webhook or a command; aborting\n",
-                        a->name);
-                toml_free(res);
-
-                return -1;
-            }
-
-            cfg->alert_count++;
-        }
     }
 
     toml_free(res);

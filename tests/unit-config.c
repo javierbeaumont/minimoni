@@ -19,11 +19,11 @@
  * along with minimoni. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Unit tests for src/config.c - zero-dependency, no framework. Build with:
+/* Unit tests for src/config.c. Zero-dependency, no framework. Build with:
  *   make test
  *
- * config.c is `#include`d directly so static helpers are exercisable. Each
- * test returns 0 on pass / 1 on fail; the shared harness lives in runner.h. */
+ * The config sources are `#include`d directly so static helpers are exercisable. Each test returns
+ * 0 on pass / 1 on fail; the shared harness lives in runner.h. */
 
 #define _POSIX_C_SOURCE 200809L
 
@@ -34,56 +34,10 @@
 
 #include "runner.h"
 
-/* Pull the module under test in directly. */
 #include "../src/config.c"
+#include "../src/config_alerts.c"
 
-/* --- Test infrastructure --- */
-
-static char g_tmpcfg_path[256];
-
-/* Write `toml` to a temp file, run config_load on it. Returns config_load's
- * return code. Leaves cfg in whatever state config_load left it. */
-static int load_cfg(config_t *cfg, const char *toml)
-{
-    snprintf(g_tmpcfg_path, sizeof(g_tmpcfg_path), "/tmp/minimoni-test-%d.toml", getpid());
-    FILE *f = fopen(g_tmpcfg_path, "w");
-    if (!f)
-        return -2;
-    fputs(toml, f);
-    fclose(f);
-
-    config_defaults(cfg);
-    int rc = config_load(cfg, g_tmpcfg_path);
-    unlink(g_tmpcfg_path);
-    return rc;
-}
-
-/* load_cfg, also capturing what config_load wrote to stderr into `err`. */
-static int load_cfg_err(config_t *cfg, const char *toml, char *err, size_t cap)
-{
-    char path[64];
-    snprintf(path, sizeof(path), "/tmp/minimoni-test-err-%d.txt", getpid());
-
-    fflush(stderr);
-    if (!freopen(path, "w", stderr))
-        return -2;
-
-    int rc = load_cfg(cfg, toml);
-
-    fflush(stderr);
-    if (!freopen("/dev/null", "w", stderr))
-        return -2;
-
-    FILE  *f = fopen(path, "r");
-    size_t n = f ? fread(err, 1, cap - 1, f) : 0;
-    err[n] = '\0';
-
-    if (f)
-        fclose(f);
-    unlink(path);
-
-    return rc;
-}
+#include "config-helpers.h"
 
 /* --- Interval: values --- */
 
@@ -145,121 +99,6 @@ static int test_interval_missing(void)
     if (load_cfg(&cfg, "[collect]\ndb = \"/tmp/x.db\"\n") != 0)
         return 1;
     return cfg.interval_seconds == 60 ? 0 : 1;
-}
-
-/* --- [webhook] insecure_skip_verify --- */
-
-static int test_insecure_skip_verify_default_false(void)
-{
-    config_t cfg;
-    if (load_cfg(&cfg, "[collect]\ndb = \"/tmp/x.db\"\n") != 0)
-        return 1;
-    return cfg.insecure_skip_verify == 0 ? 0 : 1;
-}
-
-static int test_insecure_skip_verify_true(void)
-{
-    config_t cfg;
-    if (load_cfg(&cfg, "[webhook]\ninsecure_skip_verify = true\n") != 0)
-        return 1;
-    return cfg.insecure_skip_verify == 1 ? 0 : 1;
-}
-
-static int test_insecure_skip_verify_explicit_false(void)
-{
-    config_t cfg;
-    if (load_cfg(&cfg, "[webhook]\ninsecure_skip_verify = false\n") != 0)
-        return 1;
-    return cfg.insecure_skip_verify == 0 ? 0 : 1;
-}
-
-/* A quoted "true" is not a boolean: it is dropped and https stays verified. */
-static int test_insecure_skip_verify_wrong_type_ignored(void)
-{
-    config_t cfg;
-    if (load_cfg(&cfg, "[webhook]\ninsecure_skip_verify = \"true\"\n") != 0)
-        return 1;
-    return cfg.insecure_skip_verify == 0 ? 0 : 1;
-}
-
-/* --- [webhook] ca_file --- */
-
-#define CA_FILE "/tmp/minimoni-test-ca.pem"
-#define CA_TOML "[webhook]\nca_file = \"" CA_FILE "\"\n"
-
-/* load_cfg_err with CA_FILE holding `pem` (NULL: no such file). */
-static int load_ca(config_t *cfg, const char *pem, const char *toml, char *err, size_t cap)
-{
-    unlink(CA_FILE);
-
-    if (pem) {
-        FILE *f = fopen(CA_FILE, "w");
-        if (!f)
-            return -2;
-        fputs(pem, f);
-        fclose(f);
-    }
-
-    int rc = load_cfg_err(cfg, toml, err, cap);
-    unlink(CA_FILE);
-
-    return rc;
-}
-
-static int test_ca_file_default_empty(void)
-{
-    config_t cfg;
-    if (load_cfg(&cfg, "[collect]\ndb = \"/tmp/x.db\"\n") != 0)
-        return 1;
-
-    return cfg.ca_file[0] == '\0' ? 0 : 1;
-}
-
-static int test_ca_file_with_a_certificate_loads(void)
-{
-    config_t cfg;
-    char     err[512];
-    int rc = load_ca(&cfg, "# CA\n-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n",
-                     CA_TOML, err, sizeof(err));
-
-    return rc == 0 && strcmp(cfg.ca_file, CA_FILE) == 0 && err[0] == '\0' ? 0 : 1;
-}
-
-static int test_ca_file_missing_fails(void)
-{
-    config_t cfg;
-    char     err[512];
-
-    return load_ca(&cfg, NULL, CA_TOML, err, sizeof(err)) == -1 &&
-                   strstr(err, "config: webhook.ca_file '" CA_FILE
-                               "': No such file or directory; aborting")
-               ? 0
-               : 1;
-}
-
-static int test_ca_file_without_a_certificate_fails(void)
-{
-    config_t cfg;
-    char     err[512];
-
-    return load_ca(&cfg, "-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----\n", CA_TOML,
-                   err, sizeof(err)) == -1 &&
-                   strstr(err, "config: webhook.ca_file '" CA_FILE "' has no certificate; aborting")
-               ? 0
-               : 1;
-}
-
-/* insecure_skip_verify wins, so the file is not even read. */
-static int test_ca_file_ignored_while_insecure(void)
-{
-    config_t cfg;
-    char     err[512];
-
-    return load_ca(&cfg, NULL, CA_TOML "insecure_skip_verify = true\n", err, sizeof(err)) == 0 &&
-                   strstr(err,
-                          "config: webhook.ca_file is ignored while insecure_skip_verify is true")
-               ? 0
-               : 1;
 }
 
 /* --- Interval: wrong types --- */
@@ -634,16 +473,6 @@ static int test_duration_overflow_typo(void)
 {
     /* The pre-multiply guard: 999999999d would overflow a 32-bit long. */
     return parse_duration("999999999d") == -1 ? 0 : 1;
-}
-
-static int test_alert_cooldown_capped(void)
-{
-    config_t cfg;
-    if (load_cfg(&cfg, "[[alert]]\nname = \"a\"\nmetric = \"load_1m\"\noperator = \">\"\n"
-                       "threshold = 1\nwebhook = \"http://x\"\ncooldown = \"999999999d\"\n") != 0)
-        return 1;
-    /* Invalid cooldown warns and stays 0 (alert itself is kept). */
-    return cfg.alert_count == 1 && cfg.alerts[0].cooldown_seconds == 0 ? 0 : 1;
 }
 
 /* --- Unit values --- */
@@ -1131,105 +960,6 @@ static int test_config_has_states(void)
     return config_has(cfg.charts, 1, "temp") == 1 && config_has(cfg.charts, 1, "net") == 0 ? 0 : 1;
 }
 
-/* --- [[alert]] --- */
-
-static int test_alert_full_entry(void)
-{
-    config_t cfg;
-    if (load_cfg(&cfg, "[[alert]]\nname = \"hot\"\nmetric = \"temp_degrees\"\noperator = \">=\"\n"
-                       "threshold = 80.5\nwebhook = \"http://h\"\ncommand = \"echo hi\"\n"
-                       "cooldown = \"5m\"\n") != 0)
-        return 1;
-    const alert_cfg_t *a = &cfg.alerts[0];
-    return cfg.alert_count == 1 && strcmp(a->name, "hot") == 0 && strcmp(a->op, ">=") == 0 &&
-                   a->threshold > 80.4 && a->threshold < 80.6 && a->cooldown_seconds == 300 &&
-                   strcmp(a->webhook, "http://h") == 0 && strcmp(a->command, "echo hi") == 0
-               ? 0
-               : 1;
-}
-
-static int test_alert_int_threshold(void)
-{
-    config_t cfg;
-    if (load_cfg(&cfg, "[[alert]]\nname = \"a\"\nmetric = \"load_1m\"\noperator = \"<\"\n"
-                       "threshold = 5\nwebhook = \"w\"\n") != 0)
-        return 1;
-    return cfg.alert_count == 1 && cfg.alerts[0].threshold > 4.9 ? 0 : 1;
-}
-
-/* An alert that cannot work fails the load: skipping it would lose it in silence. Each case is a
- * complete alert with one thing missing or wrong. */
-static int fails_to_load(const char *toml)
-{
-    config_t cfg;
-
-    return load_cfg(&cfg, toml) != 0;
-}
-
-static int test_alert_without_name_fails(void)
-{
-    return fails_to_load("[[alert]]\nmetric = \"load_1m\"\noperator = \">\"\nthreshold = 1\n"
-                         "webhook = \"w\"\n")
-               ? 0
-               : 1;
-}
-
-static int test_alert_without_metric_fails(void)
-{
-    return fails_to_load("[[alert]]\nname = \"a\"\noperator = \">\"\nthreshold = 1\n"
-                         "webhook = \"w\"\n")
-               ? 0
-               : 1;
-}
-
-static int test_alert_without_operator_fails(void)
-{
-    return fails_to_load("[[alert]]\nname = \"a\"\nmetric = \"load_1m\"\nthreshold = 1\n"
-                         "webhook = \"w\"\n")
-               ? 0
-               : 1;
-}
-
-static int test_alert_with_unknown_operator_fails(void)
-{
-    return fails_to_load("[[alert]]\nname = \"a\"\nmetric = \"load_1m\"\noperator = \"~\"\n"
-                         "threshold = 1\nwebhook = \"w\"\n")
-               ? 0
-               : 1;
-}
-
-static int test_alert_without_threshold_fails(void)
-{
-    return fails_to_load("[[alert]]\nname = \"a\"\nmetric = \"load_1m\"\noperator = \">\"\n"
-                         "webhook = \"w\"\n")
-               ? 0
-               : 1;
-}
-
-static int test_alert_with_equals_operator_fails(void)
-{
-    return fails_to_load("[[alert]]\nname = \"a\"\nmetric = \"load_1m\"\noperator = \"==\"\n"
-                         "threshold = 0\nwebhook = \"w\"\n")
-               ? 0
-               : 1;
-}
-
-static int test_alert_that_is_not_a_table_fails(void)
-{
-    return fails_to_load("alert = [{ name = \"a\", metric = \"load_1m\", operator = \">\", "
-                         "threshold = 1, webhook = \"w\" }, \"cpu-hot\"]\n")
-               ? 0
-               : 1;
-}
-
-static int test_alert_without_action_fails(void)
-{
-    return fails_to_load("[[alert]]\nname = \"a\"\nmetric = \"load_1m\"\noperator = \">\"\n"
-                         "threshold = 1\n")
-               ? 0
-               : 1;
-}
-
 /* --- File-level errors --- */
 
 static int test_missing_file_fails(void)
@@ -1305,17 +1035,6 @@ static int test_net_unit_percent_accepted(void)
 
 /* --- Unknown keys --- */
 
-/* Parse `toml` from memory and count the unknown keys it warns about. */
-static int count_unknown(const char *toml)
-{
-    toml_result_t r = toml_parse(toml, (int)strlen(toml));
-    if (!r.ok)
-        return -9;
-    int n = config_warn_unknown(r.toptab);
-    toml_free(r);
-    return n;
-}
-
 static int test_keys_all_known(void)
 {
     return count_unknown("[server]\nlisten = \"0.0.0.0:1\"\nmax_dashboards = 4\n"
@@ -1327,6 +1046,7 @@ static int test_keys_all_known(void)
                ? 0
                : 1;
 }
+
 static int test_keys_swap_units_known(void)
 {
     const char *toml = "[dashboard]\nswap_card_unit = \"%\"\nswap_chart_unit = \"auto\"\n";
@@ -1349,11 +1069,6 @@ static int test_keys_typo_in_dashboard(void)
 static int test_keys_typo_in_collect(void)
 {
     return count_unknown("[collect]\nintevral = 60\ndsik_path = \"/\"\n") == 2 ? 0 : 1;
-}
-
-static int test_keys_typo_in_alert(void)
-{
-    return count_unknown("[[alert]]\nname = \"a\"\ncoolddown = \"5m\"\n") == 1 ? 0 : 1;
 }
 
 static int test_keys_unknown_table(void)
@@ -1391,53 +1106,6 @@ static int test_key_distance(void)
 
 /* --- Values that do not fit their field --- */
 
-/* `n` copies of 'x'; buf must hold n + 1. */
-static const char *xs(char *buf, size_t n)
-{
-    memset(buf, 'x', n);
-    buf[n] = '\0';
-
-    return buf;
-}
-
-#define ALERT_HEAD                                                                                 \
-    "[[alert]]\nname = \"a\"\nmetric = \"load_1m\"\noperator = \">\"\nthreshold = 1\n"
-
-static int test_command_over_max_fails(void)
-{
-    config_t cfg;
-    char     cmd[300], toml[512], err[512];
-    snprintf(toml, sizeof(toml), ALERT_HEAD "command = \"%s\"\n", xs(cmd, 256));
-
-    return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 &&
-                   strstr(err, "config: alert[0].command is 256 bytes; the maximum is 255")
-               ? 0
-               : 1;
-}
-
-static int test_command_at_max_loads(void)
-{
-    config_t cfg;
-    char     cmd[300], toml[512];
-    snprintf(toml, sizeof(toml), ALERT_HEAD "command = \"%s\"\n", xs(cmd, 255));
-
-    return load_cfg(&cfg, toml) == 0 && cfg.alert_count == 1 && strlen(cfg.alerts[0].command) == 255
-               ? 0
-               : 1;
-}
-
-static int test_webhook_over_max_fails(void)
-{
-    config_t cfg;
-    char     url[520], toml[700], err[512];
-    snprintf(toml, sizeof(toml), ALERT_HEAD "webhook = \"%s\"\n", xs(url, 512));
-
-    return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 &&
-                   strstr(err, "config: alert[0].webhook is 512 bytes; the maximum is 511")
-               ? 0
-               : 1;
-}
-
 static int test_db_over_max_fails(void)
 {
     config_t cfg;
@@ -1446,18 +1114,6 @@ static int test_db_over_max_fails(void)
 
     return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 &&
                    strstr(err, "config: collect.db is 256 bytes; the maximum is 255")
-               ? 0
-               : 1;
-}
-
-static int test_ca_file_over_max_fails(void)
-{
-    config_t cfg;
-    char     path[300], toml[512], err[512];
-    snprintf(toml, sizeof(toml), "[webhook]\nca_file = \"%s\"\n", xs(path, 256));
-
-    return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 &&
-                   strstr(err, "config: webhook.ca_file is 256 bytes; the maximum is 255")
                ? 0
                : 1;
 }
@@ -1474,96 +1130,7 @@ static int test_range_over_max_fails(void)
                : 1;
 }
 
-static int test_every_overlong_value_is_reported(void)
-{
-    config_t cfg;
-    char     db[300], cmd[300], toml[1024], err[1024];
-    snprintf(toml, sizeof(toml), "[collect]\ndb = \"%s\"\n" ALERT_HEAD "command = \"%s\"\n",
-             xs(db, 256), xs(cmd, 256));
-
-    return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 &&
-                   strstr(err, "collect.db is 256 bytes") &&
-                   strstr(err, "alert[0].command is 256 bytes")
-               ? 0
-               : 1;
-}
-
-/* --- Cooldown: anything but a duration warns and leaves none --- */
-
-static int test_cooldown_integer_warns(void)
-{
-    config_t cfg;
-    char     err[512];
-    int rc = load_cfg_err(&cfg, ALERT_HEAD "webhook = \"w\"\ncooldown = 300\n", err, sizeof(err));
-
-    return rc == 0 && cfg.alert_count == 1 && cfg.alerts[0].cooldown_seconds == 0 &&
-                   strstr(err, "config: alert 'a': cooldown is not a duration string")
-               ? 0
-               : 1;
-}
-
-static int test_cooldown_absent_is_silent(void)
-{
-    config_t cfg;
-    char     err[512];
-    int      rc = load_cfg_err(&cfg, ALERT_HEAD "webhook = \"w\"\n", err, sizeof(err));
-
-    return rc == 0 && cfg.alert_count == 1 && !strstr(err, "cooldown") ? 0 : 1;
-}
-
-/* parse_duration once read only the first character after the number: "1mo" was 1m, "500ms" 500m
- * and "1h30m" 1h. */
-static int test_cooldown_trailing_text_warns(void)
-{
-    static const char *const bad[] = {"1mo", "500ms", "1h30m"};
-
-    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
-        config_t cfg;
-        char     toml[256], err[512], want[64];
-        snprintf(toml, sizeof(toml), ALERT_HEAD "webhook = \"w\"\ncooldown = \"%s\"\n", bad[i]);
-        snprintf(want, sizeof(want), "config: alert 'a': invalid cooldown '%s'", bad[i]);
-
-        if (load_cfg_err(&cfg, toml, err, sizeof(err)) != 0 || cfg.alert_count != 1 ||
-            cfg.alerts[0].cooldown_seconds != 0 || !strstr(err, want))
-            return 1;
-    }
-
-    return 0;
-}
-
 /* --- Lists past their limit --- */
-
-/* A single [alert] table was once skipped silently, and every alert with it. */
-static int test_alert_as_a_single_table_fails(void)
-{
-    config_t cfg;
-    char     err[512];
-    int      rc = load_cfg_err(&cfg,
-                               "[alert]\nname = \"a\"\nmetric = \"cpu_load\"\noperator = \">\"\n"
-                               "threshold = 1\nwebhook = \"w\"\n",
-                               err, sizeof(err));
-
-    return rc == -1 && strstr(err, "config: [alert] must be an array of tables, written [[alert]]")
-               ? 0
-               : 1;
-}
-
-/* A 17th alert was once dropped silently. */
-static int test_alerts_over_max_fail(void)
-{
-    config_t cfg;
-    char     toml[4096] = "", err[512];
-    for (int i = 0; i <= MAX_ALERTS; i++)
-        snprintf(toml + strlen(toml), sizeof(toml) - strlen(toml),
-                 "[[alert]]\nname = \"a%d\"\nmetric = \"cpu_load\"\noperator = \">\"\n"
-                 "threshold = 1\nwebhook = \"w\"\n",
-                 i);
-
-    return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 &&
-                   strstr(err, "config: 17 [[alert]] tables; the maximum is 16")
-               ? 0
-               : 1;
-}
 
 /* A 9th range was once dropped silently: when it was the longest, retention shrank and older data
  * was pruned. */
@@ -1578,255 +1145,6 @@ static int test_ranges_over_max_fail(void)
 
     return rc == -1 && strstr(err, "config: dashboard.ranges has 9 entries; the maximum is 8") ? 0
                                                                                                : 1;
-}
-
-/* An unknown metric was once loaded: the alert never fired, and every cycle logged it. */
-static int test_unknown_alert_metric_fails(void)
-{
-    config_t cfg;
-    char     err[512];
-    int rc = load_cfg_err(&cfg,
-                          "[[alert]]\nname = \"cpu-high\"\nmetric = \"cpu_pct\"\noperator = \">\"\n"
-                          "threshold = 90\nwebhook = \"w\"\n",
-                          err, sizeof(err));
-
-    return rc == -1 && strstr(err, "config: alert 'cpu-high': unknown metric 'cpu_pct'") ? 0 : 1;
-}
-
-static int test_mem_alert_metrics_accepted(void)
-{
-    static const char *const names[] = {"mem_available_mb", "mem_available_percent"};
-    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
-        char toml[256];
-        snprintf(toml, sizeof(toml),
-                 "[[alert]]\nname = \"mem\"\nmetric = \"%s\"\noperator = \">\"\n"
-                 "threshold = 1\nwebhook = \"w\"\n",
-                 names[i]);
-
-        config_t cfg;
-        if (load_cfg(&cfg, toml) != 0 || cfg.alert_count != 1 ||
-            strcmp(cfg.alerts[0].metric, names[i]))
-            return 1;
-    }
-
-    return 0;
-}
-
-/* mem_used_* (the complement of mem_available_*) and the old names fail the load. */
-static int test_old_mem_alert_metrics_fail(void)
-{
-    static const char *const names[] = {"mem_used_mb", "mem_used_percent", "mem_percent",
-                                        "mem_total_mb"};
-    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
-        char toml[256];
-        snprintf(toml, sizeof(toml),
-                 "[[alert]]\nname = \"mem\"\nmetric = \"%s\"\noperator = \">\"\n"
-                 "threshold = 1\nwebhook = \"w\"\n",
-                 names[i]);
-
-        config_t cfg;
-        char     err[512];
-        char     want[96];
-        snprintf(want, sizeof(want), "config: alert 'mem': unknown metric '%s'", names[i]);
-        if (load_cfg_err(&cfg, toml, err, sizeof(err)) != -1 || !strstr(err, want))
-            return 1;
-    }
-
-    return 0;
-}
-
-static int test_disk_alert_metrics_accepted(void)
-{
-    static const char *const names[] = {"disk_available_gb", "disk_available_percent"};
-    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
-        char toml[256];
-        snprintf(toml, sizeof(toml),
-                 "[[alert]]\nname = \"disk\"\nmetric = \"%s\"\noperator = \">\"\n"
-                 "threshold = 1\nwebhook = \"w\"\n",
-                 names[i]);
-
-        config_t cfg;
-        if (load_cfg(&cfg, toml) != 0 || cfg.alert_count != 1 ||
-            strcmp(cfg.alerts[0].metric, names[i]))
-            return 1;
-    }
-
-    return 0;
-}
-
-/* disk_used_* (the complement of disk_available_*) and the old names fail the load; disk_free_gb
- * is now disk_available_gb. */
-static int test_old_disk_alert_metrics_fail(void)
-{
-    static const char *const names[] = {"disk_used_gb", "disk_used_percent", "disk_percent",
-                                        "disk_free_gb", "disk_total_gb"};
-    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
-        char toml[256];
-        snprintf(toml, sizeof(toml),
-                 "[[alert]]\nname = \"disk\"\nmetric = \"%s\"\noperator = \">\"\n"
-                 "threshold = 1\nwebhook = \"w\"\n",
-                 names[i]);
-
-        config_t cfg;
-        char     err[512];
-        char     want[96];
-        snprintf(want, sizeof(want), "config: alert 'disk': unknown metric '%s'", names[i]);
-        if (load_cfg_err(&cfg, toml, err, sizeof(err)) != -1 || !strstr(err, want))
-            return 1;
-    }
-
-    return 0;
-}
-
-static int test_temp_alert_metrics_accepted(void)
-{
-    static const char *const names[] = {"temp_degrees", "temp_percent"};
-    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
-        char toml[256];
-        snprintf(toml, sizeof(toml),
-                 "[[alert]]\nname = \"hot\"\nmetric = \"%s\"\noperator = \">\"\n"
-                 "threshold = 1\nwebhook = \"w\"\n",
-                 names[i]);
-
-        config_t cfg;
-        if (load_cfg(&cfg, toml) != 0 || cfg.alert_count != 1 ||
-            strcmp(cfg.alerts[0].metric, names[i]))
-            return 1;
-    }
-
-    return 0;
-}
-
-/* The old name fails the load: temp_celsius, now temp_degrees in collect.temp_scale. */
-static int test_old_temp_alert_metric_fails(void)
-{
-    config_t cfg;
-    char     err[512];
-
-    if (load_cfg_err(&cfg,
-                     "[[alert]]\nname = \"hot\"\nmetric = \"temp_celsius\"\noperator = \">\"\n"
-                     "threshold = 1\nwebhook = \"w\"\n",
-                     err, sizeof(err)) != -1)
-        return 1;
-
-    return strstr(err, "config: alert 'hot': unknown metric 'temp_celsius'") ? 0 : 1;
-}
-
-/* The old name fails the load: cpu_idle_percent, now 100 minus cpu_total_percent. */
-static int test_cpu_idle_alert_metric_fails(void)
-{
-    config_t cfg;
-    char     err[512];
-
-    if (load_cfg_err(&cfg,
-                     "[[alert]]\nname = \"busy\"\nmetric = \"cpu_idle_percent\"\noperator = \"<\"\n"
-                     "threshold = 10\nwebhook = \"w\"\n",
-                     err, sizeof(err)) != -1)
-        return 1;
-
-    return strstr(err, "config: alert 'busy': unknown metric 'cpu_idle_percent'") ? 0 : 1;
-}
-
-static int test_swap_alert_metrics_accepted(void)
-{
-    static const char *const names[] = {"swap_free_mb", "swap_free_percent", "swap_in_bps",
-                                        "swap_out_bps", "swap_in_ram",       "swap_out_ram"};
-    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
-        char toml[256];
-        snprintf(toml, sizeof(toml),
-                 "[[alert]]\nname = \"swap\"\nmetric = \"%s\"\noperator = \">\"\n"
-                 "threshold = 1\nwebhook = \"w\"\n",
-                 names[i]);
-
-        config_t cfg;
-        if (load_cfg(&cfg, toml) != 0 || cfg.alert_count != 1 ||
-            strcmp(cfg.alerts[0].metric, names[i]))
-            return 1;
-    }
-
-    return 0;
-}
-
-/* swap_used_* (the complement of swap_free_*) fails the load. */
-static int test_swap_used_alert_metrics_fail(void)
-{
-    static const char *const names[] = {"swap_used_mb", "swap_used_percent"};
-    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
-        char toml[256];
-        snprintf(toml, sizeof(toml),
-                 "[[alert]]\nname = \"swap\"\nmetric = \"%s\"\noperator = \">\"\n"
-                 "threshold = 1\nwebhook = \"w\"\n",
-                 names[i]);
-
-        config_t cfg;
-        char     err[512];
-        char     want[96];
-        snprintf(want, sizeof(want), "config: alert 'swap': unknown metric '%s'", names[i]);
-        if (load_cfg_err(&cfg, toml, err, sizeof(err)) != -1 || !strstr(err, want))
-            return 1;
-    }
-
-    return 0;
-}
-
-static int test_load_alert_metrics_accepted(void)
-{
-    static const char *const names[] = {"load_1m",         "load_5m",         "load_15m",
-                                        "load_1m_percent", "load_5m_percent", "load_15m_percent"};
-    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
-        char toml[256];
-        snprintf(toml, sizeof(toml),
-                 "[[alert]]\nname = \"load\"\nmetric = \"%s\"\noperator = \">\"\n"
-                 "threshold = 1\nwebhook = \"w\"\n",
-                 names[i]);
-
-        config_t cfg;
-        if (load_cfg(&cfg, toml) != 0 || cfg.alert_count != 1 ||
-            strcmp(cfg.alerts[0].metric, names[i]))
-            return 1;
-    }
-
-    return 0;
-}
-
-static int test_cpu_alert_metrics_accepted(void)
-{
-    static const char *const names[] = {"cpu_total_percent", "cpu_user_percent",
-                                        "cpu_system_percent", "cpu_steal_percent"};
-    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
-        char toml[256];
-        snprintf(toml, sizeof(toml),
-                 "[[alert]]\nname = \"cpu\"\nmetric = \"%s\"\noperator = \">\"\n"
-                 "threshold = 1\nwebhook = \"w\"\n",
-                 names[i]);
-
-        config_t cfg;
-        if (load_cfg(&cfg, toml) != 0 || cfg.alert_count != 1 ||
-            strcmp(cfg.alerts[0].metric, names[i]))
-            return 1;
-    }
-
-    return 0;
-}
-
-static int test_net_alert_metrics_accepted(void)
-{
-    static const char *const names[] = {"net_rx_bps", "net_tx_bps", "net_rx_percent",
-                                        "net_tx_percent"};
-    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
-        char toml[256];
-        snprintf(toml, sizeof(toml),
-                 "[[alert]]\nname = \"net\"\nmetric = \"%s\"\noperator = \">\"\n"
-                 "threshold = 1\nwebhook = \"w\"\n",
-                 names[i]);
-
-        config_t cfg;
-        if (load_cfg(&cfg, toml) != 0 || cfg.alert_count != 1 ||
-            strcmp(cfg.alerts[0].metric, names[i]))
-            return 1;
-    }
-
-    return 0;
 }
 
 /* A missing disk_path was once loaded: serve then failed every collection and stored nothing. */
@@ -1911,7 +1229,6 @@ static const test_t ALL_TESTS[] = {
     T(duration_basics),
     T(duration_caps),
     T(duration_overflow_typo),
-    T(alert_cooldown_capped),
     /* unit values */
     T(unit_invalid_keeps_default),
     T(unit_valid_applied),
@@ -1957,17 +1274,6 @@ static const test_t ALL_TESTS[] = {
     T(swap_is_a_chart_and_a_card),
     T(swap_io_is_a_chart_and_a_card),
     T(config_has_states),
-    /* alerts */
-    T(alert_full_entry),
-    T(alert_int_threshold),
-    T(alert_without_name_fails),
-    T(alert_without_metric_fails),
-    T(alert_without_operator_fails),
-    T(alert_with_unknown_operator_fails),
-    T(alert_without_threshold_fails),
-    T(alert_without_action_fails),
-    T(alert_with_equals_operator_fails),
-    T(alert_that_is_not_a_table_fails),
     /* file-level errors */
     T(missing_file_fails),
     T(malformed_toml_fails),
@@ -1978,57 +1284,20 @@ static const test_t ALL_TESTS[] = {
     T(net_max_speed_invalid),
     T(net_max_speed_in_dashboard_is_unknown),
     T(net_unit_percent_accepted),
-    /* [webhook] */
-    T(insecure_skip_verify_default_false),
-    T(insecure_skip_verify_true),
-    T(insecure_skip_verify_explicit_false),
-    T(insecure_skip_verify_wrong_type_ignored),
-    T(ca_file_default_empty),
-    T(ca_file_with_a_certificate_loads),
-    T(ca_file_missing_fails),
-    T(ca_file_without_a_certificate_fails),
-    T(ca_file_ignored_while_insecure),
     /* unknown keys */
     T(keys_all_known),
     T(keys_swap_units_known),
     T(keys_swap_io_units_known),
     T(keys_typo_in_dashboard),
     T(keys_typo_in_collect),
-    T(keys_typo_in_alert),
     T(keys_unknown_table),
     T(keys_root_scalar),
     T(keys_removed_points_warns),
     T(keys_typo_load_still_succeeds),
     T(key_distance),
-    /* values that do not fit their field */
-    T(command_over_max_fails),
-    T(command_at_max_loads),
-    T(webhook_over_max_fails),
     T(db_over_max_fails),
-    T(ca_file_over_max_fails),
     T(range_over_max_fails),
-    T(every_overlong_value_is_reported),
-    /* cooldown: anything but a duration */
-    T(cooldown_integer_warns),
-    T(cooldown_absent_is_silent),
-    T(cooldown_trailing_text_warns),
-    /* lists past their limit */
-    T(alert_as_a_single_table_fails),
-    T(alerts_over_max_fail),
     T(ranges_over_max_fail),
-    T(unknown_alert_metric_fails),
-    T(mem_alert_metrics_accepted),
-    T(old_mem_alert_metrics_fail),
-    T(disk_alert_metrics_accepted),
-    T(old_disk_alert_metrics_fail),
-    T(temp_alert_metrics_accepted),
-    T(old_temp_alert_metric_fails),
-    T(cpu_idle_alert_metric_fails),
-    T(swap_alert_metrics_accepted),
-    T(swap_used_alert_metrics_fail),
-    T(load_alert_metrics_accepted),
-    T(cpu_alert_metrics_accepted),
-    T(net_alert_metrics_accepted),
     T(missing_disk_path_fails),
 };
 

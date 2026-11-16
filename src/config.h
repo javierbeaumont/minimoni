@@ -101,16 +101,14 @@ typedef struct {
 /* Fill cfg with built-in defaults. Always call before config_load or config_open. */
 void config_defaults(config_t *cfg);
 
-/* Load and merge TOML values from path into cfg.
- * cfg must have been initialised with config_defaults() first.
+/* Load the TOML values at path into cfg, which must come straight from config_defaults().
  * Returns 0 on success, -1 if the file cannot be opened or parsed or a value is refused, such as
  * one too long for its field (each reason written to stderr). */
 int config_load(config_t *cfg, const char *path);
 
-/* Apply config_defaults then find and load a config file.
- * If explicit_path is non-NULL it is used as-is (returns -1 on failure).
- * Otherwise tries "./config.toml", then "/etc/minimoni/config.toml",
- * then silently keeps defaults. Always returns 0 when explicit_path is NULL. */
+/* Apply config_defaults then find and load a config file. If explicit_path is non-NULL it is used
+ * as-is. Otherwise tries "./config.toml", then "/etc/minimoni/config.toml", then silently keeps
+ * defaults. Returns config_load's result for the file it finds, 0 when there is none. */
 [[nodiscard]] int config_open(config_t *cfg, const char *explicit_path);
 
 /* Membership test for the charts/cards visibility lists: 1 if `name` is

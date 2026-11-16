@@ -28,7 +28,7 @@
  * list them in an ALL_TESTS array using the T() macro, and call
  * run_tests() from main.
  *
- * Helpers specific to a single suite (temp DBs, config fixtures, ...)
+ * Helpers specific to a single suite (temp DBs, ...)
  * live in the suite's own .c. Only the runner harness - common to
  * every suite - is here.
  */

@@ -22,9 +22,9 @@
 /* Unit tests for src/json.c. Zero-dependency, no framework. Build with:
  *   make test
  *
- * json.c is `#include`d directly, together with units.c (the *_convert helpers
- * it calls) and config.c (config_has). Each test returns 0 on pass / 1 on fail;
- * the shared harness lives in runner.h. */
+ * json.c is `#include`d directly, together with units.c (the *_convert helpers it calls) and
+ * config.c (config_has), which needs config_alerts.c. Each test returns 0 on pass / 1 on fail; the
+ * shared harness lives in runner.h. */
 
 #define _POSIX_C_SOURCE 200809L
 
@@ -35,6 +35,7 @@
 #include "runner.h"
 
 #include "../src/config.c"
+#include "../src/config_alerts.c"
 #include "../src/json.c"
 #include "../src/units.c"
 
