@@ -1,11 +1,11 @@
 [server]
 listen        = "0.0.0.0:8080"
 # max_dashboards = 4 # live dashboards allowed at once; 1-256 (default: 4)
-# sse_keepalive = 1 # seconds between SSE keepalives; 1..refresh-1 (default: 1)
+# sse_keepalive = 1  # seconds between SSE keepalives; 1..refresh-1 (default: 1)
 
 [collect]
 db        = "/var/lib/minimoni/metrics.db"
-interval  = 60                              # seconds between samples (range: 1-3600)
+interval  = 60              # seconds between samples (range: 1-3600)
 disk_path = "/"
 # temp_scale    = "celsius" # "celsius" | "fahrenheit": the scale of every temperature
 # temp_critical = 80        # critical trip point in temp_scale; wins over the sensor's
@@ -21,43 +21,38 @@ disk_path = "/"
 
 [dashboard]
 # title       = "My Server"
-# theme       = "auto"      # "auto" | "light" | "dark"; "auto" follows OS preference
-# show_footer = true        # show version footer
-# refresh     = 30          # SSE push interval in seconds
+# theme       = "auto"                     # "auto" | "light" | "dark"; "auto" follows OS preference
+# show_footer = true                       # show version footer
+# refresh     = 30                         # SSE push interval in seconds
 # ranges      = ["1d", "7d", "30d", "90d"] # largest value sets retention; units: m/h/d
 
 # charts = ["cpu_load", "cpu_usage", "memory", "swap", "swap_io", "disk", "temp", "net"]
 # cards  = ["cpu_load", "cpu_usage", "memory", "swap", "swap_io", "disk", "temp", "net", "uptime"]
 # Omit to show all in default order. Set to [] to hide all. Listed order is respected.
 
-# cpu_load_card_unit     = "abs"  # status card: "%" | "abs" (% = normalized by core count)
-# cpu_load_chart_unit    = "abs"  # chart Y-axis: "%" | "abs"
-# memory_card_unit       = "%"    # status card: "%" | "auto" (auto = MB/GB/TB by capacity)
-# memory_chart_unit      = "auto" # chart Y-axis: "%" | "auto"
-# swap_card_unit         = "%"    # status card: "%" | "auto" (auto = MB/GB/TB by capacity)
-# swap_chart_unit        = "auto" # chart Y-axis: "%" | "auto"
-# swap_io_card_unit      = "bytes" # status card: "bytes" | "ram" (ram = % of the RAM per minute)
-# swap_io_chart_unit     = "bytes" # chart Y-axis: "bytes" | "ram"
-# disk_card_unit         = "%"    # status card: "%" | "auto" (auto = GB/TB by capacity)
-# disk_chart_unit        = "auto" # chart Y-axis: "%" | "auto"
+# cpu_load_card_unit     = "abs"     # status card: "%" | "abs" (% = normalized by core count)
+# cpu_load_chart_unit    = "abs"     # chart Y-axis: "%" | "abs"
+# memory_card_unit       = "%"       # status card: "%" | "auto" (auto = MB/GB/TB by capacity)
+# memory_chart_unit      = "auto"    # chart Y-axis: "%" | "auto"
+# swap_card_unit         = "%"       # status card: "%" | "auto" (auto = MB/GB/TB by capacity)
+# swap_chart_unit        = "auto"    # chart Y-axis: "%" | "auto"
+# swap_io_card_unit      = "bytes"   # status card: "bytes" | "ram" (ram = % of the RAM per minute)
+# swap_io_chart_unit     = "bytes"   # chart Y-axis: "bytes" | "ram"
+# disk_card_unit         = "%"       # status card: "%" | "auto" (auto = GB/TB by capacity)
+# disk_chart_unit        = "auto"    # chart Y-axis: "%" | "auto"
 # temp_card_unit         = "degrees" # status card: "%" | "degrees" (in collect.temp_scale)
 # temp_chart_unit        = "degrees" # chart Y-axis: "%" | "degrees"
-# net_card_unit          = "bytes" # status card: "%" | "bytes" | "bits" (magnitude is automatic)
-# net_chart_unit         = "bytes" # chart Y-axis: "%" | "bytes" | "bits"
-# uptime_unit            = "auto" # uptime display: "auto" | "h" | "d"
+# net_card_unit          = "bytes"   # status card: "%" | "bytes" | "bits" (magnitude is automatic)
+# net_chart_unit         = "bytes"   # chart Y-axis: "%" | "bytes" | "bits"
+# uptime_unit            = "auto"    # uptime display: "auto" | "h" | "d"
 
 [[alert]]
-name = "disk-full"
-metric = "disk_available_percent"
-operator = "<"
-threshold = 10
-webhook = "https://ntfy.sh/my-server"
+when     = "disk_available_percent < 10" # metric, operator and number; also the default name
+webhook  = "https://ntfy.sh/my-server"
 cooldown = "1h"
 
 [[alert]]
-name = "high-temp"
-metric = "temp_degrees"
-operator = ">"
-threshold = 80
-command = "/usr/local/bin/alert.sh"
+name     = "high-temp"
+when     = "temp_degrees > 80"
+command  = "/usr/local/bin/alert.sh"
 cooldown = "30m"

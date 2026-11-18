@@ -20,6 +20,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "config.h"
@@ -34,8 +35,93 @@ static int valid_op(const char *s)
            strcmp(s, "<=") == 0;
 }
 
-/* One [[alert]]. Returns -1 when the load must fail; a value too long for its field sets *too_long
- * instead. */
+/* A condition's three parts, as written, and the metric's place and the number's length, to
+ * report a part too long. */
+typedef struct {
+    char        metric[sizeof(((alert_cfg_t *)0)->metric)];
+    char        op[sizeof(((alert_cfg_t *)0)->op)];
+    char        num[24];
+    const char *metric_at;
+    size_t      metric_len;
+    size_t      num_len;
+} when_t;
+
+/* What split_when found wrong, if anything. */
+enum { WHEN_OK, WHEN_MALFORMED, WHEN_NEGATIVE, WHEN_METRIC_TOO_LONG, WHEN_NUMBER_TOO_LONG };
+
+/* The name an alert gets from its condition always fits. */
+static_assert(sizeof(((when_t *)0)->metric) + sizeof(((when_t *)0)->op) +
+                  sizeof(((when_t *)0)->num) <=
+              sizeof(((alert_cfg_t *)0)->name));
+
+/* How a message names the alert at `index` before alert->name is set. */
+static void alert_label(char *label, size_t size, toml_datum_t name, int index)
+{
+    if (name.type == TOML_STRING && name.u.s[0])
+        snprintf(label, size, "alert '%s'", name.u.s);
+    else
+        snprintf(label, size, "alert[%d]", index);
+}
+
+/* Copy the `len` characters at `src`; -1 when `len` is 0 or more than `dst` holds. */
+static int take(char *dst, size_t dst_size, const char *src, size_t len)
+{
+    if (len == 0 || len >= dst_size)
+        return -1;
+
+    memcpy(dst, src, len);
+    dst[len] = '\0';
+
+    return 0;
+}
+
+/* Split "metric operator number", with spaces around the operator optional and the number a plain
+ * decimal. Returns WHEN_OK, or what is wrong. */
+static int split_when(const char *text, when_t *parts)
+{
+    const char *cursor = text + strspn(text, " \t");
+    parts->metric_at = cursor;
+    parts->metric_len = strcspn(cursor, " \t<>=!");
+
+    if (parts->metric_len >= sizeof(parts->metric))
+        return WHEN_METRIC_TOO_LONG;
+
+    if (take(parts->metric, sizeof(parts->metric), cursor, parts->metric_len) != 0)
+        return WHEN_MALFORMED;
+
+    cursor += parts->metric_len;
+    cursor += strspn(cursor, " \t");
+    size_t op_len = strspn(cursor, "<>=!");
+
+    if (take(parts->op, sizeof(parts->op), cursor, op_len) != 0)
+        return WHEN_MALFORMED;
+
+    cursor += op_len;
+    cursor += strspn(cursor, " \t");
+
+    if (cursor[0] == '-' && cursor[1] >= '0' && cursor[1] <= '9')
+        return WHEN_NEGATIVE;
+
+    const char *number = cursor;
+    parts->num_len = strspn(number, "0123456789");
+    if (parts->num_len > 0 && number[parts->num_len] == '.' && number[parts->num_len + 1] >= '0' &&
+        number[parts->num_len + 1] <= '9')
+        parts->num_len += 1 + strspn(number + parts->num_len + 1, "0123456789");
+
+    cursor = number + parts->num_len;
+    cursor += strspn(cursor, " \t");
+
+    if (parts->num_len == 0 || *cursor != '\0')
+        return WHEN_MALFORMED;
+
+    if (take(parts->num, sizeof(parts->num), number, parts->num_len) != 0)
+        return WHEN_NUMBER_TOO_LONG;
+
+    return WHEN_OK;
+}
+
+/* One [[alert]]. Returns -1 when the load must fail; a name, webhook or command too long for its
+ * field sets *too_long instead, so that every such value is reported. */
 static int load_alert(alert_cfg_t *alert, toml_datum_t table, int index, int *too_long)
 {
     if (table.type != TOML_TABLE) {
@@ -44,47 +130,92 @@ static int load_alert(alert_cfg_t *alert, toml_datum_t table, int index, int *to
     }
 
     toml_datum_t name = toml_get(table, "name");
-    toml_datum_t metric = toml_get(table, "metric");
-    toml_datum_t op = toml_get(table, "operator");
-    toml_datum_t threshold = toml_get(table, "threshold");
+    char         label[96];
+    alert_label(label, sizeof(label), name, index);
 
-    if (name.type != TOML_STRING || metric.type != TOML_STRING || op.type != TOML_STRING) {
-        fprintf(stderr, "config: alert[%d]: missing name, metric or operator; aborting\n", index);
+    toml_datum_t when = toml_get(table, "when");
+
+    if (when.type == TOML_UNKNOWN) {
+        fprintf(stderr, "config: %s: missing when; aborting\n", label);
         return -1;
     }
 
-    /* A measured value almost never equals a threshold exactly, and no metric is below 0, so "is
-     * zero" is <= 0. */
-    if (strcmp(op.u.s, "==") == 0) {
+    if (when.type != TOML_STRING) {
+        fprintf(stderr, "config: %s: when is not a string such as \"load_1m > 2\"; aborting\n",
+                label);
+        return -1;
+    }
+
+    when_t parts = {0};
+    int    split = split_when(when.u.s, &parts);
+
+    if (split == WHEN_MALFORMED) {
+        fprintf(stderr, "config: %s: when \"%s\" is not \"metric operator number\"; aborting\n",
+                label, when.u.s);
+        return -1;
+    }
+
+    if (split == WHEN_NEGATIVE) {
+        fprintf(stderr, "config: %s: when \"%s\": the number cannot be negative; aborting\n", label,
+                when.u.s);
+        return -1;
+    }
+
+    if (split == WHEN_METRIC_TOO_LONG) {
+        fprintf(stderr, "config: %s: unknown metric '%.*s'; aborting\n", label,
+                (int)parts.metric_len, parts.metric_at);
+        return -1;
+    }
+
+    if (split == WHEN_NUMBER_TOO_LONG) {
         fprintf(stderr,
-                "config: alert '%s': '==' is not supported; use '<= 0' to check for zero, or '>=' "
-                "or '<='; aborting\n",
-                name.u.s);
+                "config: %s: when \"%s\": the number is %zu characters; the maximum is %zu; "
+                "aborting\n",
+                label, when.u.s, parts.num_len, sizeof(parts.num) - 1);
         return -1;
     }
 
-    if (!valid_op(op.u.s)) {
-        fprintf(stderr, "config: alert '%s': unknown operator '%s'; aborting\n", name.u.s, op.u.s);
+    /* A measured value almost never equals a threshold exactly. Every metric but the temperatures
+     * is 0 or more, where "is zero" is <= 0. */
+    if (strcmp(parts.op, "==") == 0) {
+        if (strncmp(parts.metric, "temp_", 5) == 0)
+            fprintf(stderr, "config: %s: '==' is not supported; use '>=' or '<='; aborting\n",
+                    label);
+        else
+            fprintf(stderr,
+                    "config: %s: '==' is not supported; use '<= 0' to check for zero, or '>=' or "
+                    "'<='; aborting\n",
+                    label);
+
         return -1;
     }
 
-    if (!in_list(metric.u.s, METRIC_NAMES)) {
-        fprintf(stderr, "config: alert '%s': unknown metric '%s'; aborting\n", name.u.s,
-                metric.u.s);
+    if (!valid_op(parts.op)) {
+        fprintf(stderr, "config: %s: unknown operator '%s'; aborting\n", label, parts.op);
         return -1;
     }
 
-    if (threshold.type != TOML_FP64 && threshold.type != TOML_INT64) {
-        fprintf(stderr, "config: alert '%s': missing threshold; aborting\n", name.u.s);
+    if (!in_list(parts.metric, METRIC_NAMES)) {
+        fprintf(stderr, "config: %s: unknown metric '%s'; aborting\n", label, parts.metric);
         return -1;
     }
 
     memset(alert, 0, sizeof(*alert));
-    *too_long |= str_copy(alert->name, sizeof(alert->name), name, "alert[%d].name", index) != 0;
-    *too_long |=
-        str_copy(alert->metric, sizeof(alert->metric), metric, "alert[%d].metric", index) != 0;
-    *too_long |= str_copy(alert->op, sizeof(alert->op), op, "alert[%d].operator", index) != 0;
-    alert->threshold = threshold.type == TOML_FP64 ? threshold.u.fp64 : (double)threshold.u.int64;
+    memcpy(alert->metric, parts.metric, sizeof(parts.metric));
+    memcpy(alert->op, parts.op, sizeof(parts.op));
+    alert->threshold = strtod(parts.num, NULL);
+
+    snprintf(alert->name, sizeof(alert->name), "%s %s %s", parts.metric, parts.op, parts.num);
+
+    if (name.type != TOML_STRING && name.type != TOML_UNKNOWN)
+        fprintf(stderr, "config: %s: name is not a string; it is named '%s'\n", label, alert->name);
+    else if (name.type == TOML_STRING && name.u.s[0] &&
+             str_copy(alert->name, sizeof(alert->name), name, "alert[%d].name", index) != 0)
+        *too_long = 1;
+
+    char who[96];
+    snprintf(who, sizeof(who), "alert '%s'", alert->name);
+
     *too_long |= str_copy(alert->webhook, sizeof(alert->webhook), toml_get(table, "webhook"),
                           "alert[%d].webhook", index) != 0;
     *too_long |= str_copy(alert->command, sizeof(alert->command), toml_get(table, "command"),
@@ -99,19 +230,19 @@ static int load_alert(alert_cfg_t *alert, toml_datum_t table, int index, int *to
             alert->cooldown_seconds = seconds;
         else
             fprintf(stderr,
-                    "config: alert '%s': invalid cooldown '%s'; no cooldown, it fires every "
-                    "cycle\n",
-                    alert->name, cooldown.u.s);
+                    "config: %s: invalid cooldown '%s'; no cooldown, it fires every cycle\n", who,
+                    cooldown.u.s);
     } else if (cooldown.type != TOML_UNKNOWN) {
         fprintf(stderr,
-                "config: alert '%s': cooldown is not a duration string such as \"5m\"; no "
-                "cooldown, it fires every cycle\n",
-                alert->name);
+                "config: %s: cooldown is not a duration string such as \"5m\"; no cooldown, it "
+                "fires every cycle\n",
+                who);
     }
 
-    if (!alert->webhook[0] && !alert->command[0]) {
-        fprintf(stderr, "config: alert '%s': needs a webhook or a command; aborting\n",
-                alert->name);
+    /* A refused value already fails the load, and a refused webhook or command would look
+     * missing. */
+    if (!*too_long && !alert->webhook[0] && !alert->command[0]) {
+        fprintf(stderr, "config: %s: needs a webhook or a command; aborting\n", who);
         return -1;
     }
 
@@ -141,6 +272,23 @@ int load_alerts(config_t *cfg, toml_datum_t root, int *too_long)
             return -1;
 
         cfg->alert_count = i + 1;
+    }
+
+    /* A refused value already fails the load, and an alert whose name is refused is named after its
+     * condition, which another alert may share. */
+    if (*too_long)
+        return 0;
+
+    /* alert_log keeps firings by name: of two alerts with one name, the first to fire would put the
+     * other on cooldown. */
+    for (int i = 0; i < cfg->alert_count; i++) {
+        for (int j = i + 1; j < cfg->alert_count; j++) {
+            if (strcmp(cfg->alerts[i].name, cfg->alerts[j].name) == 0) {
+                fprintf(stderr, "config: two alerts are named '%s'; aborting\n",
+                        cfg->alerts[i].name);
+                return -1;
+            }
+        }
     }
 
     return 0;

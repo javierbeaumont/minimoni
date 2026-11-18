@@ -230,8 +230,7 @@ static const char *const DASHBOARD_KEYS[] = {"cards",
                                              "title",
                                              "uptime_unit"};
 /* clang-format on */
-static const char *const ALERT_KEYS[] = {"command",  "cooldown",  "metric", "name",
-                                         "operator", "threshold", "webhook"};
+static const char *const ALERT_KEYS[] = {"command", "cooldown", "name", "webhook", "when"};
 
 /* Levenshtein distance, for the did-you-mean hint. */
 static int key_distance(const char *a, const char *b)

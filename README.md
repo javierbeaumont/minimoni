@@ -341,8 +341,8 @@ A value past its limit is never cut or dropped: the config fails to load, and th
 key and the limit.
 
 - **String length**, in bytes: `listen` 63, `db` and `disk_path` 255, `title` 127, each `charts` or
-  `cards` entry 15, each `ranges` entry 7, and in an alert `name` 63, `metric` 31, `webhook` 511 and
-  `command` 255.
+  `cards` entry 15, each `ranges` entry 7, and in an alert `name` 63, `webhook` 511 and `command`
+  255.
 - **List size**: at most 16 `[[alert]]` blocks and 8 `ranges`.
 - **Alerts are an array of tables**: each one starts with `[[alert]]`, and a single `[alert]` table
   is an error rather than no alerts.
@@ -545,21 +545,31 @@ if the parameter is missing.
 
 ### Alerts
 
-Alerts are evaluated after every collect cycle. Each `[[alert]]` block is independent.
-Every alert needs `name`, `metric`, `operator` and `threshold`, plus a `webhook`, a `command`, or
-both; `cooldown` is optional. A missing field, an unknown operator or an entry that is not a table
-fails the load, and the error says which alert.
+Alerts are evaluated after every collect cycle. Each `[[alert]]` block is one alert.
 
 ```toml
 [[alert]]
-name      = "disk-full"                 # identifier shown in logs
-metric    = "disk_available_percent"    # see metric table below
-operator  = "<"                         # supported: > < >= <=
-threshold = 10                          # in the metric's own unit (see below)
-webhook   = "https://ntfy.sh/my-server" # POST JSON to this URL on fire
-command   = "/usr/local/bin/notify.sh"  # execute this command on fire
-cooldown  = "1h"                        # minimum time between repeated firings
+when     = "disk_available_percent < 10" # metric, operator and number
+webhook  = "https://ntfy.sh/my-server"   # POST JSON to this URL when the alert fires
+command  = "/usr/local/bin/notify.sh"    # execute this command when the alert fires
+cooldown = "1h"                          # minimum time between repeated firings
+
+[[alert]]
+name    = "hot"                          # shown in logs (default: the condition)
+when    = "temp_degrees > 80"
+command = "/usr/local/bin/notify.sh"
 ```
+
+Every alert needs `when` and a `webhook` or `command` (or both); `name` and `cooldown` are optional.
+
+`when` is a metric from the table below, an operator (`>`, `<`, `>=` or `<=`) and a threshold (a
+plain decimal number, 0 or more, of at most 23 characters) in the metric's own unit; spaces around
+the operator are optional. An alert whose `name` is missing, empty or not a string (which warns) is
+named after its condition, with one space on each side of the operator. Two alerts with one name
+fail the load, since cooldowns are kept by name.
+
+A missing or malformed `when`, an unknown metric or operator, or an entry that is not a table fails
+the load, and the error says which alert.
 
 **Available metrics** (any other name fails the load):
 
@@ -616,7 +626,7 @@ connect included, is given up and reported.
 
 ```json
 {
-    "alert":     "disk-full",
+    "alert":     "disk_available_percent < 10",
     "metric":    "disk_available_percent",
     "value":     8.7,
     "threshold": 10,
@@ -633,9 +643,11 @@ delay the next collect cycle.
 `cooldown` prevents repeated firings: the alert will not fire again until the cooldown period has
 elapsed. The cooldown starts only when at least one of the alert's actions succeeds: a webhook that
 gets a 2xx reply, or a command that exits 0. If none succeeds, the alert fires again on the next
-cycle. Accepts `30s`, `1m`, `1h`, `1d`. Any other value is reported at startup and leaves the
-alert without a cooldown, so it fires every cycle while its condition holds. Cooldown state is
-stored in the database (`alert_log` table) and survives restarts.
+cycle. `cooldown` takes a positive whole number and a unit, `s`, `m`, `h` or `d` (`30s`, `90m`,
+`1d`), up to 10 years. Any other value is reported at startup and leaves the alert without a
+cooldown, so it fires every cycle while its condition holds. Cooldown state is stored in the
+database by alert name (`alert_log` table) and survives restarts. It is deleted with the metrics
+older than the retention period (see `ranges`), so a longer cooldown ends there.
 
 ### Webhook TLS
 
@@ -705,28 +717,20 @@ listen = "127.0.0.1:8080"
 
 ```toml
 [[alert]]
-name      = "disk-full"
-metric    = "disk_available_percent"
-operator  = "<"
-threshold = 15
-webhook   = "https://ntfy.sh/my-server"
-cooldown  = "6h"
+when     = "disk_available_percent < 15"
+webhook  = "https://ntfy.sh/my-server"
+cooldown = "6h"
 
 [[alert]]
-name      = "high-load"
-metric    = "load_5m_percent"
-operator  = ">="
-threshold = 100
-webhook   = "https://ntfy.sh/my-server"
-cooldown  = "30m"
+when     = "load_5m_percent >= 100"
+webhook  = "https://ntfy.sh/my-server"
+cooldown = "30m"
 
 [[alert]]
-name      = "overheating"
-metric    = "temp_degrees"
-operator  = ">"
-threshold = 80
-command   = "/usr/local/bin/thermal-alert.sh"
-cooldown  = "15m"
+name     = "overheating"
+when     = "temp_degrees > 80"
+command  = "/usr/local/bin/thermal-alert.sh"
+cooldown = "15m"
 ```
 
 See `config.example.toml` for a fully annotated reference.

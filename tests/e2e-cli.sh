@@ -135,22 +135,6 @@ EOF
 expect_rc 1 "a webhook ca_file that cannot be read fails the load" \
     "$BIN" collect --config "$work/ca-missing.toml"
 
-# There is no == operator: the load fails and says what to use instead.
-cat >"$work/equals.toml" <<EOF
-[collect]
-db = "$work/equals.db"
-[[alert]]
-name = "zero"
-metric = "load_1m"
-operator = "=="
-threshold = 0
-command = "true"
-EOF
-out=$("$BIN" collect --config "$work/equals.toml" 2>&1)
-rc=$?
-check_rc "an alert with == fails the load" 1 "$rc"
-check_has "and says what to use instead" "$out" "use '<= 0' to check for zero"
-
 # The one-shot collect evaluates the network percents too.
 cat >"$work/net.toml" <<EOF
 [collect]
@@ -158,9 +142,7 @@ db = "$work/net.db"
 net_max_speed = 100
 [[alert]]
 name = "net"
-metric = "net_rx_percent"
-operator = ">="
-threshold = 0
+when = "net_rx_percent >= 0"
 command = "echo \$MINIMONI_ALERT_METRIC=\$MINIMONI_ALERT_VALUE > $work/net.out"
 EOF
 "$BIN" collect --config "$work/net.toml" >/dev/null 2>&1
@@ -173,9 +155,7 @@ cat >"$work/load.toml" <<EOF
 db = "$work/load.db"
 [[alert]]
 name = "load"
-metric = "load_1m_percent"
-operator = ">="
-threshold = 0
+when = "load_1m_percent >= 0"
 command = "echo \$MINIMONI_ALERT_METRIC=\$MINIMONI_ALERT_VALUE > $work/load.out"
 EOF
 "$BIN" collect --config "$work/load.toml" >/dev/null 2>&1

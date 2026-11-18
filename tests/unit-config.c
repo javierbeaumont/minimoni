@@ -1041,8 +1041,8 @@ static int test_keys_all_known(void)
                          "[collect]\ninterval = 60\ndb = \"x\"\ndisk_path = \"/\"\n"
                          "[webhook]\ninsecure_skip_verify = true\n"
                          "[dashboard]\ntitle = \"t\"\ntheme = \"dark\"\nranges = [\"1d\"]\n"
-                         "[[alert]]\nname = \"a\"\nmetric = \"m\"\noperator = \">\"\n"
-                         "threshold = 1\nwebhook = \"w\"\ncooldown = \"5m\"\n") == 0
+                         "[[alert]]\nname = \"a\"\nwhen = \"m > 1\"\n"
+                         "webhook = \"w\"\ncommand = \"c\"\ncooldown = \"5m\"\n") == 0
                ? 0
                : 1;
 }

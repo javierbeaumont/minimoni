@@ -214,9 +214,7 @@ fire() { # URL INSECURE(0|1) [NAME] [TITLE] -> sets $out (stderr) and $got (byte
 db = "$work/metrics.db"
 [[alert]]
 name = "${3:-probe}"
-metric = "uptime_seconds"
-operator = ">"
-threshold = 0
+when = "uptime_seconds > 0"
 webhook = "$1"
 cooldown = "1h"
 EOF
@@ -259,7 +257,7 @@ check_has "a peer that resets in the handshake is reported, not polled" "$out" "
 # the TLS close looped forever. A race, so 15 deliveries to a peer that resets after the handshake,
 # then an alert that must still run.
 alert_firing() { # NAME: an alert table that always fires, missing its action
-    printf '[[alert]]\nname = "%s"\nmetric = "uptime_seconds"\noperator = ">"\nthreshold = 0\n' "$1"
+    printf '[[alert]]\nname = "%s"\nwhen = "uptime_seconds > 0"\n' "$1"
 }
 
 reset_after_handshake() { # -> sets $rc (collect's exit status) and $ran (yes if the last alert ran)
