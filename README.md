@@ -341,8 +341,8 @@ A value past its limit is never cut or dropped: the config fails to load, and th
 key and the limit.
 
 - **String length**, in bytes: `listen` 63, `db` and `disk_path` 255, `title` 127, each `charts` or
-  `cards` entry 15, each `ranges` entry 7, and in an alert `name` 63, `webhook` 511 and `command`
-  255.
+  `cards` entry 15, each `ranges` entry 7, `ca_file` 255, and in an alert `name` 63, `webhook` 511
+  and `command` 255.
 - **List size**: at most 16 `[[alert]]` blocks and 8 `ranges`.
 - **Alerts are an array of tables**: each one starts with `[[alert]]`, and a single `[alert]` table
   is an error rather than no alerts.
@@ -545,7 +545,8 @@ if the parameter is missing.
 
 ### Alerts
 
-Alerts are evaluated after every collect cycle. Each `[[alert]]` block is one alert.
+Alerts are evaluated after every collect cycle. Each `[[alert]]` block is one alert, and
+`[alerts]` holds the webhook TLS keys.
 
 ```toml
 [[alert]]
@@ -649,13 +650,17 @@ cooldown, so it fires every cycle while its condition holds. Cooldown state is s
 database by alert name (`alert_log` table) and survives restarts. It is deleted with the metrics
 older than the retention period (see `ranges`), so a longer cooldown ends there.
 
-### Webhook TLS
+#### Webhook TLS
 
 ```toml
-[webhook]
+[alerts]
 ca_file              = "/etc/minimoni/ca.pem"
 insecure_skip_verify = false
 ```
+
+Both apply to every webhook: in an `[[alert]]` they fail the load. A `ca_file` that is not a string
+fails the load too, and an `insecure_skip_verify` that is not a boolean warns and leaves
+certificates verified.
 
 minimoni verifies the certificate of every `https://` webhook: it must chain to a trusted CA, be
 within its validity dates and name the URL's host. A webhook that fails any of these is not sent,

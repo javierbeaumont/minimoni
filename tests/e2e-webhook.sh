@@ -206,7 +206,7 @@ fi
 
 ca_file=""
 fire() { # URL INSECURE(0|1) [NAME] [TITLE] -> sets $out (stderr) and $got (bytes the server read)
-    # $ca_file, when set, goes under [webhook] too.
+    # $ca_file, when set, goes under [alerts] too.
     : >"$received"
     rm -f "$work/metrics.db"
     cat >"$work/config.toml" <<EOF
@@ -218,7 +218,7 @@ when = "uptime_seconds > 0"
 webhook = "$1"
 cooldown = "1h"
 EOF
-    printf '[webhook]\n' >>"$work/config.toml"
+    printf '[alerts]\n' >>"$work/config.toml"
     if [ "$2" = 1 ]; then
         printf 'insecure_skip_verify = true\n' >>"$work/config.toml"
     fi
@@ -263,7 +263,7 @@ alert_firing() { # NAME: an alert table that always fires, missing its action
 reset_after_handshake() { # -> sets $rc (collect's exit status) and $ran (yes if the last alert ran)
     rm -f "$work/metrics.db" "$work/ran"
     {
-        printf '[collect]\ndb = "%s"\n[webhook]\ninsecure_skip_verify = true\n' "$work/metrics.db"
+        printf '[collect]\ndb = "%s"\n[alerts]\ninsecure_skip_verify = true\n' "$work/metrics.db"
         for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
             alert_firing "reset$i"
             printf 'webhook = "https://127.0.0.1:%s/hook"\n' "$TLS_RESET_PORT"
@@ -281,7 +281,7 @@ reset_after_handshake() { # -> sets $rc (collect's exit status) and $ran (yes if
 slow_peer() { # URL -> sets $rc, $ran, $took (seconds) and $out (stderr)
     rm -f "$work/metrics.db" "$work/ran"
     {
-        printf '[collect]\ndb = "%s"\n[webhook]\ninsecure_skip_verify = true\n' "$work/metrics.db"
+        printf '[collect]\ndb = "%s"\n[alerts]\ninsecure_skip_verify = true\n' "$work/metrics.db"
         alert_firing slow
         printf 'webhook = "%s"\n' "$1"
         alert_firing after
@@ -388,7 +388,7 @@ ca_file="$work/other-ca.pem"
 fire "https://localhost:$CA_PORT/hook" 1
 check_has "insecure_skip_verify delivers even when ca_file would refuse the certificate" "$got" \
     "POST /hook"
-check_has "and the load warns that ca_file is ignored" "$out" "webhook.ca_file is ignored"
+check_has "and the load warns that ca_file is ignored" "$out" "alerts.ca_file is ignored"
 ca_file=""
 
 fire "http://127.0.0.1:$TCP_PORT/hook" 0

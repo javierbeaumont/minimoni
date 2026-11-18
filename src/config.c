@@ -80,30 +80,6 @@ int str_copy(char *dst, size_t dsize, toml_datum_t v, const char *key, ...)
     return 0;
 }
 
-/* 1 when a line opens a PEM certificate, 0 when none does, -1 with errno when the file cannot be
- * read. Only a first check: the anchors are decoded at delivery. */
-static int has_certificate(const char *path)
-{
-    FILE *f = fopen(path, "r");
-    if (!f)
-        return -1;
-
-    char line[64];
-    int  found = 0;
-    while (!found && fgets(line, sizeof(line), f))
-        found = strncmp(line, "-----BEGIN CERTIFICATE-----", 27) == 0;
-
-    int err = ferror(f) ? errno : 0;
-    fclose(f);
-
-    if (err) {
-        errno = err;
-        return -1;
-    }
-
-    return found;
-}
-
 static int valid_range(const char *s)
 {
     char *end;
@@ -204,7 +180,7 @@ static int known_name(const char *name, const char *const *known, const char *ke
 static const char *const SERVER_KEYS[] = {"listen", "max_dashboards", "sse_keepalive"};
 static const char *const COLLECT_KEYS[] = {
     "db", "disk_path", "interval", "net_max_speed", "temp_critical", "temp_scale"};
-static const char *const WEBHOOK_KEYS[] = {"ca_file", "insecure_skip_verify"};
+static const char *const ALERTS_KEYS[] = {"ca_file", "insecure_skip_verify"};
 /* One key per line, so a new one never reflows the list. */
 /* clang-format off */
 static const char *const DASHBOARD_KEYS[] = {"cards",
@@ -230,7 +206,9 @@ static const char *const DASHBOARD_KEYS[] = {"cards",
                                              "title",
                                              "uptime_unit"};
 /* clang-format on */
-static const char *const ALERT_KEYS[] = {"command", "cooldown", "name", "webhook", "when"};
+/* Includes the TLS keys, which load_alert refuses with its own error. */
+static const char *const ALERT_KEYS[] = {"ca_file", "command", "cooldown", "insecure_skip_verify",
+                                         "name",    "webhook", "when"};
 
 /* Levenshtein distance, for the did-you-mean hint. */
 static int key_distance(const char *a, const char *b)
@@ -258,56 +236,84 @@ static int key_distance(const char *a, const char *b)
     return row[lb];
 }
 
-/* Warn for each key of `tab` not in known[]; suggests the closest canonical
- * name within distance 2. Returns the unknown count (warnings only). */
-static int warn_unknown_in(toml_datum_t tab, const char *where, const char *const *known, int nkeys)
+/* The name in `names` closest to `key`, within two edits; NULL when none is. */
+static const char *closest(const char *key, const char *const *names, int count)
 {
-    int unknown = 0;
-    for (int i = 0; i < tab.u.tab.size; i++) {
-        const char *k = tab.u.tab.key[i];
-        int         found = 0;
-        for (int j = 0; j < nkeys && !found; j++)
-            found = strcmp(k, known[j]) == 0;
-        if (found)
-            continue;
-        unknown++;
-        const char *close = NULL;
-        int         bestd = 3;
-        for (int j = 0; j < nkeys; j++) {
-            int d = key_distance(k, known[j]);
-            if (d < bestd) {
-                bestd = d;
-                close = known[j];
-            }
+    const char *best = NULL;
+    int         best_distance = 3;
+
+    for (int i = 0; i < count; i++) {
+        int distance = key_distance(key, names[i]);
+
+        if (distance < best_distance) {
+            best_distance = distance;
+            best = names[i];
         }
-        if (close)
-            fprintf(stderr, "config: unknown key '%s.%s' (typo of '%s'?)\n", where, k, close);
-        else
-            fprintf(stderr, "config: unknown key '%s.%s'\n", where, k);
     }
-    return unknown;
+
+    return best;
 }
 
-#define N_KEYS(a) ((int)(sizeof(a) / sizeof((a)[0])))
+static int is_known(const char *key, const char *const *known, int count)
+{
+    for (int i = 0; i < count; i++) {
+        if (strcmp(key, known[i]) == 0)
+            return 1;
+    }
+
+    return 0;
+}
+
+/* Warn for each key of `table` not in `known`, suggesting the closest known name. Returns the
+ * unknown count. */
+static int warn_unknown_in(toml_datum_t table, const char *where, const char *const *known,
+                           int count)
+{
+    int unknown = 0;
+
+    for (int i = 0; i < table.u.tab.size; i++) {
+        const char *key = table.u.tab.key[i];
+
+        if (is_known(key, known, count))
+            continue;
+
+        unknown++;
+
+        const char *hint = closest(key, known, count);
+        if (hint)
+            fprintf(stderr, "config: unknown key '%s.%s' (typo of '%s'?)\n", where, key, hint);
+        else
+            fprintf(stderr, "config: unknown key '%s.%s'\n", where, key);
+    }
+
+    return unknown;
+}
 
 /* Walk the parsed document's top level and every known table one level deep.
  * Exact-named tables of the wrong type are left to the readers' own checks. */
 static int config_warn_unknown(toml_datum_t root)
 {
     int unknown = 0;
+
     for (int i = 0; i < root.u.tab.size; i++) {
         const char  *k = root.u.tab.key[i];
         toml_datum_t v = root.u.tab.value[i];
+
         if (strcmp(k, "alert") == 0) {
             if (v.type != TOML_ARRAY)
                 continue;
-            for (int a = 0; a < v.u.arr.size; a++) {
-                if (v.u.arr.elem[a].type != TOML_TABLE)
+
+            for (int j = 0; j < v.u.arr.size; j++) {
+                if (v.u.arr.elem[j].type != TOML_TABLE)
                     continue;
+
                 char where[24];
-                snprintf(where, sizeof(where), "alert[%d]", a);
-                unknown += warn_unknown_in(v.u.arr.elem[a], where, ALERT_KEYS, N_KEYS(ALERT_KEYS));
+                snprintf(where, sizeof(where), "alert[%d]", j);
+                unknown += warn_unknown_in(v.u.arr.elem[j], where, ALERT_KEYS, N_KEYS(ALERT_KEYS));
             }
+        } else if (strcmp(k, "alerts") == 0) {
+            if (v.type == TOML_TABLE)
+                unknown += warn_unknown_in(v, k, ALERTS_KEYS, N_KEYS(ALERTS_KEYS));
         } else if (strcmp(k, "collect") == 0) {
             if (v.type == TOML_TABLE)
                 unknown += warn_unknown_in(v, k, COLLECT_KEYS, N_KEYS(COLLECT_KEYS));
@@ -317,23 +323,20 @@ static int config_warn_unknown(toml_datum_t root)
         } else if (strcmp(k, "server") == 0) {
             if (v.type == TOML_TABLE)
                 unknown += warn_unknown_in(v, k, SERVER_KEYS, N_KEYS(SERVER_KEYS));
-        } else if (strcmp(k, "webhook") == 0) {
-            if (v.type == TOML_TABLE)
-                unknown += warn_unknown_in(v, k, WEBHOOK_KEYS, N_KEYS(WEBHOOK_KEYS));
         } else {
-            static const char *const TABLES[] = {"alert", "collect", "dashboard", "server",
-                                                 "webhook"};
+            static const char *const TABLES[] = {"alert", "alerts", "collect", "dashboard",
+                                                 "server"};
+
             unknown++;
-            const char *close = NULL;
-            for (int j = 0; j < N_KEYS(TABLES) && !close; j++)
-                if (key_distance(k, TABLES[j]) <= 2)
-                    close = TABLES[j];
-            if (close)
-                fprintf(stderr, "config: unknown top-level key '%s' (typo of '%s'?)\n", k, close);
+
+            const char *hint = closest(k, TABLES, N_KEYS(TABLES));
+            if (hint)
+                fprintf(stderr, "config: unknown top-level key '%s' (typo of '%s'?)\n", k, hint);
             else
                 fprintf(stderr, "config: unknown top-level key '%s'\n", k);
         }
     }
+
     return unknown;
 }
 
@@ -503,33 +506,6 @@ int config_load(config_t *cfg, const char *path)
                 "config: net_max_speed must be 1..1000000 Mbit/s (got %ld); "
                 "using default\n",
                 (long)v.u.int64);
-
-    /* [webhook] */
-    v = toml_seek(root, "webhook.insecure_skip_verify");
-    if (v.type == TOML_BOOLEAN)
-        cfg->insecure_skip_verify = v.u.boolean ? 1 : 0;
-
-    v = toml_seek(root, "webhook.ca_file");
-    int ca_ok = str_copy(cfg->ca_file, sizeof(cfg->ca_file), v, "webhook.ca_file") == 0;
-    too_long |= !ca_ok;
-
-    if (v.type == TOML_STRING && ca_ok && cfg->insecure_skip_verify) {
-        fprintf(stderr, "config: webhook.ca_file is ignored while insecure_skip_verify is true\n");
-    } else if (v.type == TOML_STRING && ca_ok) {
-        int found = has_certificate(cfg->ca_file);
-
-        if (found <= 0) {
-            if (found < 0)
-                fprintf(stderr, "config: webhook.ca_file '%s': %s; aborting\n", cfg->ca_file,
-                        strerror(errno));
-            else
-                fprintf(stderr, "config: webhook.ca_file '%s' has no certificate; aborting\n",
-                        cfg->ca_file);
-            toml_free(res);
-
-            return -1;
-        }
-    }
 
     /* [dashboard] */
     v = toml_seek(root, "dashboard.title");

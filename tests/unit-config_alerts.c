@@ -39,7 +39,7 @@
 
 #include "config-helpers.h"
 
-/* --- [webhook] insecure_skip_verify --- */
+/* --- [alerts] insecure_skip_verify --- */
 
 static int test_insecure_skip_verify_default_false(void)
 {
@@ -52,32 +52,43 @@ static int test_insecure_skip_verify_default_false(void)
 static int test_insecure_skip_verify_true(void)
 {
     config_t cfg;
-    if (load_cfg(&cfg, "[webhook]\ninsecure_skip_verify = true\n") != 0)
+
+    if (load_cfg(&cfg, "[alerts]\ninsecure_skip_verify = true\n") != 0)
         return 1;
+
     return cfg.insecure_skip_verify == 1 ? 0 : 1;
 }
 
 static int test_insecure_skip_verify_explicit_false(void)
 {
     config_t cfg;
-    if (load_cfg(&cfg, "[webhook]\ninsecure_skip_verify = false\n") != 0)
+
+    if (load_cfg(&cfg, "[alerts]\ninsecure_skip_verify = false\n") != 0)
         return 1;
+
     return cfg.insecure_skip_verify == 0 ? 0 : 1;
 }
 
-/* A quoted "true" is not a boolean: it is dropped and https stays verified. */
+/* A quoted "true" is not a boolean: it warns, and https stays verified. */
 static int test_insecure_skip_verify_wrong_type_ignored(void)
 {
     config_t cfg;
-    if (load_cfg(&cfg, "[webhook]\ninsecure_skip_verify = \"true\"\n") != 0)
+    char     err[512];
+
+    if (load_cfg_err(&cfg, "[alerts]\ninsecure_skip_verify = \"true\"\n", err, sizeof(err)) != 0)
         return 1;
-    return cfg.insecure_skip_verify == 0 ? 0 : 1;
+
+    return cfg.insecure_skip_verify == 0 &&
+                   strstr(err, "config: alerts: insecure_skip_verify is not a boolean; "
+                               "certificates stay verified")
+               ? 0
+               : 1;
 }
 
-/* --- [webhook] ca_file --- */
+/* --- [alerts] ca_file --- */
 
 #define CA_FILE "/tmp/minimoni-test-ca.pem"
-#define CA_TOML "[webhook]\nca_file = \"" CA_FILE "\"\n"
+#define CA_TOML "[alerts]\nca_file = \"" CA_FILE "\"\n"
 
 /* load_cfg_err with CA_FILE holding `pem` (NULL: no such file). */
 static int load_ca(config_t *cfg, const char *pem, const char *toml, char *err, size_t cap)
@@ -123,7 +134,7 @@ static int test_ca_file_missing_fails(void)
     char     err[512];
 
     return load_ca(&cfg, NULL, CA_TOML, err, sizeof(err)) == -1 &&
-                   strstr(err, "config: webhook.ca_file '" CA_FILE
+                   strstr(err, "config: alerts.ca_file '" CA_FILE
                                "': No such file or directory; aborting")
                ? 0
                : 1;
@@ -136,7 +147,19 @@ static int test_ca_file_without_a_certificate_fails(void)
 
     return load_ca(&cfg, "-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----\n", CA_TOML,
                    err, sizeof(err)) == -1 &&
-                   strstr(err, "config: webhook.ca_file '" CA_FILE "' has no certificate; aborting")
+                   strstr(err, "config: alerts.ca_file '" CA_FILE "' has no certificate; aborting")
+               ? 0
+               : 1;
+}
+
+static int test_ca_file_not_a_string_fails(void)
+{
+    config_t cfg;
+    char     err[512];
+
+    return load_cfg_err(&cfg, "[alerts]\nca_file = [\"/etc/minimoni/ca.pem\"]\n", err,
+                        sizeof(err)) == -1 &&
+                   strstr(err, "config: alerts: ca_file is not a string; aborting")
                ? 0
                : 1;
 }
@@ -149,7 +172,7 @@ static int test_ca_file_ignored_while_insecure(void)
 
     return load_ca(&cfg, NULL, CA_TOML "insecure_skip_verify = true\n", err, sizeof(err)) == 0 &&
                    strstr(err,
-                          "config: webhook.ca_file is ignored while insecure_skip_verify is true")
+                          "config: alerts.ca_file is ignored while insecure_skip_verify is true")
                ? 0
                : 1;
 }
@@ -433,6 +456,28 @@ static int test_when_parts_too_long_fail(void)
                : 1;
 }
 
+static int test_alerts_as_an_array_fails(void)
+{
+    return fails_with("[[alerts]]\nwebhook = \"w\"\n",
+                      "config: alerts must be a table, written [alerts]; each alert is an "
+                      "[[alert]]; aborting")
+               ? 0
+               : 1;
+}
+
+/* The TLS keys hold for every webhook: in one alert they fail the load. */
+static int test_tls_keys_in_an_alert_fail(void)
+{
+    return fails_with("[[alert]]\nname = \"a\"\nwhen = \"load_1m > 1\"\nwebhook = \"w\"\n"
+                      "ca_file = \"/x.pem\"\n",
+                      "config: alert 'a': ca_file goes in [alerts]; aborting") &&
+                   fails_with("[[alert]]\nwhen = \"load_1m > 1\"\nwebhook = \"w\"\n"
+                              "insecure_skip_verify = true\n",
+                              "config: alert[0]: insecure_skip_verify goes in [alerts]; aborting")
+               ? 0
+               : 1;
+}
+
 /* --- Names --- */
 
 static int test_alerts_with_one_name_fail(void)
@@ -461,6 +506,23 @@ static int test_alerts_with_one_condition_fail(void)
 static int test_keys_typo_in_alert(void)
 {
     return count_unknown("[[alert]]\nname = \"a\"\ncoolddown = \"5m\"\n") == 1 ? 0 : 1;
+}
+
+static int test_keys_typo_in_alerts(void)
+{
+    config_t cfg;
+    char     err[512];
+    int rc = load_cfg_err(&cfg, "[alerts]\ncooldown = \"5m\"\nca_fil = \"c\"\n", err, sizeof(err));
+
+    return rc == 0 && strstr(err, "config: unknown key 'alerts.cooldown'\n") &&
+                   strstr(err, "config: unknown key 'alerts.ca_fil' (typo of 'ca_file'?)\n")
+               ? 0
+               : 1;
+}
+
+static int test_keys_refused_with_their_own_error_not_warned(void)
+{
+    return count_unknown("[[alert]]\nca_file = \"c\"\ninsecure_skip_verify = true\n") == 0 ? 0 : 1;
 }
 
 /* --- Values that do not fit their field --- */
@@ -540,14 +602,27 @@ static int test_destinations_over_max_report_only_their_length(void)
                : 1;
 }
 
+static int test_ca_file_over_max_reports_only_its_length(void)
+{
+    config_t cfg;
+    char     path[300], toml[512], err[1024];
+    snprintf(toml, sizeof(toml), "[alerts]\nca_file = \"%s\"\n", xs(path, 256));
+
+    return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 &&
+                   strstr(err, "config: alerts.ca_file is 256 bytes; the maximum is 255") &&
+                   !strstr(err, "No such file")
+               ? 0
+               : 1;
+}
+
 static int test_ca_file_over_max_fails(void)
 {
     config_t cfg;
     char     path[300], toml[512], err[512];
-    snprintf(toml, sizeof(toml), "[webhook]\nca_file = \"%s\"\n", xs(path, 256));
+    snprintf(toml, sizeof(toml), "[alerts]\nca_file = \"%s\"\n", xs(path, 256));
 
     return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 &&
-                   strstr(err, "config: webhook.ca_file is 256 bytes; the maximum is 255")
+                   strstr(err, "config: alerts.ca_file is 256 bytes; the maximum is 255")
                ? 0
                : 1;
 }
@@ -936,9 +1011,11 @@ static const test_t ALL_TESTS[] = {
     T(alert_decimal_numbers_load),
     T(when_number_of_23_characters_loads),
     T(when_parts_too_long_fail),
+    T(alerts_as_an_array_fails),
+    T(tls_keys_in_an_alert_fail),
     T(alerts_with_one_name_fail),
     T(alerts_with_one_condition_fail),
-    /* [webhook] */
+    /* [alerts] TLS */
     T(insecure_skip_verify_default_false),
     T(insecure_skip_verify_true),
     T(insecure_skip_verify_explicit_false),
@@ -947,8 +1024,11 @@ static const test_t ALL_TESTS[] = {
     T(ca_file_with_a_certificate_loads),
     T(ca_file_missing_fails),
     T(ca_file_without_a_certificate_fails),
+    T(ca_file_not_a_string_fails),
     T(ca_file_ignored_while_insecure),
     T(keys_typo_in_alert),
+    T(keys_typo_in_alerts),
+    T(keys_refused_with_their_own_error_not_warned),
     /* values that do not fit their field */
     T(command_over_max_fails),
     T(command_at_max_loads),
@@ -956,6 +1036,7 @@ static const test_t ALL_TESTS[] = {
     T(alert_names_over_max_report_only_their_length),
     T(destinations_over_max_report_only_their_length),
     T(ca_file_over_max_fails),
+    T(ca_file_over_max_reports_only_its_length),
     T(every_overlong_value_is_reported),
     /* cooldown: anything but a duration */
     T(cooldown_integer_warns),

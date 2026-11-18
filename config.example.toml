@@ -15,10 +15,6 @@ disk_path = "/"
 #                           # Wins over the sysfs link speed, which is the NIC's, not your uplink
 #                           # (a 1 GbE card on a 300 Mbit line reads 1000). Unset: sysfs, else 1000.
 
-[webhook]
-# ca_file              = "/etc/minimoni/ca.pem" # CAs to trust (default: the host's CA store)
-# insecure_skip_verify = true # POST to https:// webhooks without checking their certificate
-
 [dashboard]
 # title       = "My Server"
 # theme       = "auto"                     # "auto" | "light" | "dark"; "auto" follows OS preference
@@ -45,6 +41,10 @@ disk_path = "/"
 # net_card_unit          = "bytes"   # status card: "%" | "bytes" | "bits" (magnitude is automatic)
 # net_chart_unit         = "bytes"   # chart Y-axis: "%" | "bytes" | "bits"
 # uptime_unit            = "auto"    # uptime display: "auto" | "h" | "d"
+
+[alerts]
+# ca_file = "/etc/minimoni/ca.pem"     # CAs to trust (default: the host's CA store)
+# insecure_skip_verify = true          # POST to HTTPS webhooks without checking their certificate
 
 [[alert]]
 when     = "disk_available_percent < 10" # metric, operator and number; also the default name

@@ -329,7 +329,7 @@ static int load_anchors(const char *ca_file, const char *host, trust_t *t)
     if (!path) {
         fprintf(stderr,
                 "alerts: webhook to %s not delivered, no system CA store; set ca_file under "
-                "[webhook]\n",
+                "[alerts]\n",
                 host);
         return -1;
     }

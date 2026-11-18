@@ -60,7 +60,7 @@ typedef struct {
     float temp_critical;    /* critical trip point in °C, wins over the sensor's; 0: unset */
     int   net_max_speed;    /* link ceiling in Mbit/s, wins over the detected link; 0: unset */
 
-    /* [webhook] */
+    /* [alerts] */
     int  insecure_skip_verify; /* 1 = POST https webhooks unverified, default: 0 */
     char ca_file[256];         /* PEM CA certificates; default: "" (the system store) */
 

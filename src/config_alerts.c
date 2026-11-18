@@ -19,6 +19,7 @@
  * along with minimoni. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,6 +29,30 @@
 #include "tomlc17.h"
 
 static const char *const METRIC_NAMES[] = {ALERT_METRICS, NULL};
+
+/* 1 when a line opens a PEM certificate, 0 when none does, -1 with errno when the file cannot be
+ * read. Only a first check: the anchors are decoded at delivery. */
+static int has_certificate(const char *path)
+{
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return -1;
+
+    char line[64];
+    int  found = 0;
+    while (!found && fgets(line, sizeof(line), f))
+        found = strncmp(line, "-----BEGIN CERTIFICATE-----", 27) == 0;
+
+    int err = ferror(f) ? errno : 0;
+    fclose(f);
+
+    if (err) {
+        errno = err;
+        return -1;
+    }
+
+    return found;
+}
 
 static int valid_op(const char *s)
 {
@@ -120,6 +145,60 @@ static int split_when(const char *text, when_t *parts)
     return WHEN_OK;
 }
 
+/* Returns 1, after an error naming `who` and `key`, when `value` is set but is not a string. */
+static int not_a_string(toml_datum_t value, const char *who, const char *key)
+{
+    if (value.type == TOML_STRING || value.type == TOML_UNKNOWN)
+        return 0;
+
+    fprintf(stderr, "config: %s: %s is not a string; aborting\n", who, key);
+
+    return 1;
+}
+
+/* [alerts]: the TLS keys every webhook uses. Returns -1 when the load must fail; a value too long
+ * for its field sets *too_long instead. */
+static int load_tls(config_t *cfg, toml_datum_t alerts_table, int *too_long)
+{
+    toml_datum_t skip = toml_get(alerts_table, "insecure_skip_verify");
+    if (skip.type == TOML_BOOLEAN)
+        cfg->insecure_skip_verify = skip.u.boolean ? 1 : 0;
+    else if (skip.type != TOML_UNKNOWN)
+        fprintf(stderr, "config: alerts: insecure_skip_verify is not a boolean; certificates stay "
+                        "verified\n");
+
+    toml_datum_t ca_file = toml_get(alerts_table, "ca_file");
+
+    if (not_a_string(ca_file, "alerts", "ca_file"))
+        return -1;
+
+    int ca_ok = str_copy(cfg->ca_file, sizeof(cfg->ca_file), ca_file, "alerts.ca_file") == 0;
+    *too_long |= !ca_ok;
+
+    if (ca_file.type != TOML_STRING || !ca_ok)
+        return 0;
+
+    if (cfg->insecure_skip_verify) {
+        fprintf(stderr, "config: alerts.ca_file is ignored while insecure_skip_verify is true\n");
+        return 0;
+    }
+
+    int found = has_certificate(cfg->ca_file);
+
+    if (found < 0) {
+        fprintf(stderr, "config: alerts.ca_file '%s': %s; aborting\n", cfg->ca_file,
+                strerror(errno));
+        return -1;
+    }
+
+    if (found == 0) {
+        fprintf(stderr, "config: alerts.ca_file '%s' has no certificate; aborting\n", cfg->ca_file);
+        return -1;
+    }
+
+    return 0;
+}
+
 /* One [[alert]]. Returns -1 when the load must fail; a name, webhook or command too long for its
  * field sets *too_long instead, so that every such value is reported. */
 static int load_alert(alert_cfg_t *alert, toml_datum_t table, int index, int *too_long)
@@ -132,6 +211,14 @@ static int load_alert(alert_cfg_t *alert, toml_datum_t table, int index, int *to
     toml_datum_t name = toml_get(table, "name");
     char         label[96];
     alert_label(label, sizeof(label), name, index);
+
+    static const char *const TLS_KEYS[] = {"ca_file", "insecure_skip_verify"};
+    for (int i = 0; i < N_KEYS(TLS_KEYS); i++) {
+        if (toml_get(table, TLS_KEYS[i]).type != TOML_UNKNOWN) {
+            fprintf(stderr, "config: %s: %s goes in [alerts]; aborting\n", label, TLS_KEYS[i]);
+            return -1;
+        }
+    }
 
     toml_datum_t when = toml_get(table, "when");
 
@@ -251,6 +338,17 @@ static int load_alert(alert_cfg_t *alert, toml_datum_t table, int index, int *to
 
 int load_alerts(config_t *cfg, toml_datum_t root, int *too_long)
 {
+    toml_datum_t alerts_table = toml_seek(root, "alerts");
+
+    if (alerts_table.type != TOML_TABLE && alerts_table.type != TOML_UNKNOWN) {
+        fprintf(stderr, "config: alerts must be a table, written [alerts]; each alert is an "
+                        "[[alert]]; aborting\n");
+        return -1;
+    }
+
+    if (load_tls(cfg, alerts_table, too_long) != 0)
+        return -1;
+
     toml_datum_t list = toml_seek(root, "alert");
 
     if (list.type != TOML_ARRAY && list.type != TOML_UNKNOWN) {

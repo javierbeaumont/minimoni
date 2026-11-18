@@ -29,6 +29,8 @@
 #include "config.h"
 #include "tomlc17.h"
 
+#define N_KEYS(a) ((int)(sizeof(a) / sizeof((a)[0])))
+
 /* Seconds in a duration such as "90m" (s, m, h or d, at most 10 years); -1 when it is not one. */
 long parse_duration(const char *s);
 
@@ -41,8 +43,8 @@ long parse_duration(const char *s);
 /* 1 if `name` is in the NULL-terminated `list`. */
 int in_list(const char *name, const char *const *list);
 
-/* Each [[alert]] into cfg. Returns -1 when the load must fail; a value too long for its field sets
- * *too_long instead. */
+/* The [alerts] TLS keys, then each [[alert]], into cfg. Returns -1 when the load must fail; a value
+ * too long for its field sets *too_long instead. */
 int load_alerts(config_t *cfg, toml_datum_t root, int *too_long);
 
 #endif /* MINIMONI_CONFIG_INTERNAL_H */

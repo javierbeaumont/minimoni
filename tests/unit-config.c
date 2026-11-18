@@ -1039,7 +1039,7 @@ static int test_keys_all_known(void)
 {
     return count_unknown("[server]\nlisten = \"0.0.0.0:1\"\nmax_dashboards = 4\n"
                          "[collect]\ninterval = 60\ndb = \"x\"\ndisk_path = \"/\"\n"
-                         "[webhook]\ninsecure_skip_verify = true\n"
+                         "[alerts]\ninsecure_skip_verify = true\nca_file = \"c\"\n"
                          "[dashboard]\ntitle = \"t\"\ntheme = \"dark\"\nranges = [\"1d\"]\n"
                          "[[alert]]\nname = \"a\"\nwhen = \"m > 1\"\n"
                          "webhook = \"w\"\ncommand = \"c\"\ncooldown = \"5m\"\n") == 0
@@ -1069,6 +1069,22 @@ static int test_keys_typo_in_dashboard(void)
 static int test_keys_typo_in_collect(void)
 {
     return count_unknown("[collect]\nintevral = 60\ndsik_path = \"/\"\n") == 2 ? 0 : 1;
+}
+
+/* The hint names the closest table: [alrts] is one edit from [alerts] and two from [alert]. Of two
+ * as close, it names the first in alphabetical order: [alertz] is one edit from both. */
+static int test_keys_typo_hints_the_closest_table(void)
+{
+    config_t cfg;
+    char     err[512];
+
+    if (load_cfg_err(&cfg, "[alrts]\nwebhook = \"w\"\n[alertz]\nx = 1\n", err, sizeof(err)) != 0)
+        return 1;
+
+    return strstr(err, "unknown top-level key 'alrts' (typo of 'alerts'?)") &&
+                   strstr(err, "unknown top-level key 'alertz' (typo of 'alert'?)")
+               ? 0
+               : 1;
 }
 
 static int test_keys_unknown_table(void)
@@ -1290,6 +1306,7 @@ static const test_t ALL_TESTS[] = {
     T(keys_swap_io_units_known),
     T(keys_typo_in_dashboard),
     T(keys_typo_in_collect),
+    T(keys_typo_hints_the_closest_table),
     T(keys_unknown_table),
     T(keys_root_scalar),
     T(keys_removed_points_warns),

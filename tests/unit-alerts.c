@@ -541,6 +541,39 @@ static int test_swap_io_metrics_without_a_sample_have_no_value(void)
     return !in && !out && !in_ram && !out_ram && free_pct ? 0 : 1;
 }
 
+/* --- The trust anchors --- */
+
+static int test_no_system_store_points_to_ca_file(void)
+{
+    char path[64];
+    snprintf(path, sizeof(path), "/tmp/minimoni-test-anchors-%d.txt", getpid());
+
+    fflush(stderr);
+    if (!freopen(path, "w", stderr))
+        return 1;
+
+    trust_t trust;
+    int     rc = load_anchors("", "hooks.example", &trust);
+
+    fflush(stderr);
+    if (!freopen("/dev/null", "w", stderr))
+        return 1;
+
+    char   err[256];
+    FILE  *file = fopen(path, "r");
+    size_t len = file ? fread(err, 1, sizeof(err) - 1, file) : 0;
+    err[len] = '\0';
+
+    if (file)
+        fclose(file);
+    unlink(path);
+
+    return rc == -1 && strstr(err, "alerts: webhook to hooks.example not delivered, no system CA "
+                                   "store; set ca_file under [alerts]\n")
+               ? 0
+               : 1;
+}
+
 /* --- The request: what does not fit is not sent --- */
 
 static int test_fit_printf_exact_fit(void)
@@ -662,6 +695,7 @@ static const test_t ALL_TESTS[] = {
     T(swap_metrics_read_their_fields),
     T(swap_metrics_without_swap_have_no_value),
     T(swap_io_metrics_without_a_sample_have_no_value),
+    T(no_system_store_points_to_ca_file),
     T(fit_printf_exact_fit),
     T(fit_printf_one_byte_short),
     T(parse_url_host_at_max),

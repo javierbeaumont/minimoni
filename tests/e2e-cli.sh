@@ -126,15 +126,6 @@ expect_rc 1 "collect rejects a positional config path" "$BIN" collect "$cfg"
 expect_rc 1 "serve rejects --config with no path" "$BIN" serve --config
 expect_rc 1 "collect rejects an unknown flag" "$BIN" collect --nope
 
-cat >"$work/ca-missing.toml" <<EOF
-[collect]
-db = "$work/webhook.db"
-[webhook]
-ca_file = "$work/none.pem"
-EOF
-expect_rc 1 "a webhook ca_file that cannot be read fails the load" \
-    "$BIN" collect --config "$work/ca-missing.toml"
-
 # The one-shot collect evaluates the network percents too.
 cat >"$work/net.toml" <<EOF
 [collect]
