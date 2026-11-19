@@ -1445,6 +1445,24 @@ static int test_db_open_no_warning_otherwise(void)
     return ok && !strstr(err, "writable") ? 0 : 1;
 }
 
+/* --- Alert log --- */
+
+/* A lookup that returns a row resets its statement: one left mid-read keeps a read transaction open
+ * on the writer's connection, and the WAL never restarts. */
+static int test_alert_lookups_leave_no_statement_busy(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    int ok = db_alert_log_fire(&db, "a") == 0 && db_alert_on_cooldown(&db, "a", 3600) == 1 &&
+             !sqlite3_stmt_busy(db.stmt_alert_check);
+
+    close_test_db(&db);
+
+    return ok ? 0 : 1;
+}
+
 /* --- Runner --- */
 
 /* --- One cutoff instant per pass ---
@@ -1634,6 +1652,7 @@ static const test_t ALL_TESTS[] = {
     T(consolidate_sql_reads_no_clock),
     T(consolidate_boundary_bucket_is_aggregated),
     T(consolidate_boundary_bucket_not_due),
+    T(alert_lookups_leave_no_statement_busy),
 };
 
 int main(void)

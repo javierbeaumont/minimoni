@@ -413,17 +413,22 @@ int db_alert_on_cooldown(db_t *db, const char *alert_name, long cooldown_seconds
     gmtime_r(&cutoff, &utc);
     strftime(cutoff_str, sizeof(cutoff_str), "%Y-%m-%dT%H:%M:%SZ", &utc);
 
-    sqlite3_stmt *s = db->stmt_alert_check;
-    sqlite3_reset(s);
-    sqlite3_bind_text(s, 1, alert_name, -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(s, 2, cutoff_str, -1, SQLITE_TRANSIENT);
+    sqlite3_stmt *stmt = db->stmt_alert_check;
+    sqlite3_reset(stmt);
+    sqlite3_bind_text(stmt, 1, alert_name, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, cutoff_str, -1, SQLITE_TRANSIENT);
 
-    int rc = step_with_retry(s);
+    int rc = step_with_retry(stmt);
+
     if (rc != SQLITE_ROW) {
         fprintf(stderr, "db: alert check error: %s\n", sqlite3_errmsg(db->handle));
         return -1;
     }
-    return sqlite3_column_int(s, 0) > 0 ? 1 : 0;
+
+    int cooling = sqlite3_column_int(stmt, 0) > 0;
+    sqlite3_reset(stmt);
+
+    return cooling;
 }
 
 int db_alert_log_fire(db_t *db, const char *alert_name)
