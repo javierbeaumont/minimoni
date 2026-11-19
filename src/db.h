@@ -22,15 +22,17 @@
 #ifndef MINIMONI_DB_H
 #define MINIMONI_DB_H
 
+#include <time.h>
+
 #include "metrics.h"
 #include "sqlite3.h"
 
 /* SQLite database format. application_id is the ASCII magic "moni", stamped into every database so
  * tooling (minimoni db info, minimoni-migrate) can recognise the file via PRAGMA application_id.
  * user_version carries the schema version: 1 is the tiered write-time consolidation schema (net
- * rates + bucket_sec), 2 adds the swap columns and keeps only the total and the available of memory
- * and disk. db_open refuses to run against a database at a different user_version; minimoni-migrate
- * upgrades older databases. */
+ * rates + bucket_sec), 2 adds the swap columns, keeps only the total and the available of memory
+ * and disk, and gives alert_log its resolved_at. db_open refuses to run against a database at a
+ * different user_version; minimoni-migrate upgrades older databases. */
 #define MINIMONI_APPLICATION_ID 0x6D6F6E69
 #define MINIMONI_SCHEMA_VERSION 2
 
@@ -40,9 +42,11 @@ typedef struct {
     sqlite3_stmt *stmt_insert;
     sqlite3_stmt *stmt_prune_metrics;
     sqlite3_stmt *stmt_prune_alerts;
-    sqlite3_stmt *stmt_alert_check; /* SELECT COUNT from alert_log by name + cutoff */
-    sqlite3_stmt *stmt_alert_fire;  /* INSERT into alert_log */
-    char         *sql_consolidate;  /* buffer allocated in db_open, refilled per pass */
+    sqlite3_stmt *stmt_alert_check;   /* SELECT COUNT from alert_log by name + cutoff */
+    sqlite3_stmt *stmt_alert_fire;    /* INSERT into alert_log */
+    sqlite3_stmt *stmt_alert_firing;  /* SELECT COUNT of a name's rows not yet resolved */
+    sqlite3_stmt *stmt_alert_resolve; /* UPDATE a name's open row with resolved_at */
+    char         *sql_consolidate;    /* buffer allocated in db_open, refilled per pass */
 } db_t;
 
 /* Open (or create) the database at path. Enables WAL mode, sets cache to 64 KB, creates the schema,
@@ -145,13 +149,19 @@ void db_release_memory(db_t *db);
 
 /* --- Alert log --- */
 
-/* Check whether alert_name fired within the last cooldown_seconds.
- * Returns 0 if cooled down (safe to fire), 1 if still on cooldown,
- * -1 on database error. */
-int db_alert_on_cooldown(db_t *db, const char *alert_name, long cooldown_seconds);
+/* Each firing of an alert is a row of alert_log: fired_at when it started, resolved_at when it
+ * ended, NULL while it lasts. The times are UTC seconds. */
 
-/* Record a fire event for alert_name in alert_log with the current UTC time.
- * Returns 0 on success, -1 on error. */
-[[nodiscard]] int db_alert_log_fire(db_t *db, const char *alert_name);
+/* 1 if alert_name fired less than cooldown_seconds before now, 0 if not, -1 on database error. */
+int db_alert_on_cooldown(db_t *db, const char *alert_name, long cooldown_seconds, time_t now);
+
+/* 1 if alert_name is firing (a row not yet resolved), 0 if not, -1 on database error. */
+int db_alert_firing(db_t *db, const char *alert_name);
+
+/* Record that alert_name started firing at now. Returns 0 on success, -1 on error. */
+[[nodiscard]] int db_alert_log_fire(db_t *db, const char *alert_name, time_t now);
+
+/* Record that alert_name stopped firing at now. Returns 0 on success, -1 on error. */
+[[nodiscard]] int db_alert_log_resolve(db_t *db, const char *alert_name, time_t now);
 
 #endif /* MINIMONI_DB_H */

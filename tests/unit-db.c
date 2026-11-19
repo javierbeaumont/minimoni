@@ -993,7 +993,8 @@ static int make_db_v01(const char *path)
 }
 
 /* A database with v0.2's tables at user_version `version`, its memory, disk, swap and uptime
- * columns given by `columns`: V02_COLUMNS for v0.2's, CURRENT_COLUMNS for the current schema's. */
+ * columns given by `columns`: V02_COLUMNS for v0.2's, CURRENT_COLUMNS for the current schema's.
+ * alert_log has resolved_at from the current version on. */
 #define V02_COLUMNS                                                                                \
     "mem_total_mb REAL, mem_used_mb REAL, mem_available_mb REAL, mem_percent REAL,"                \
     " disk_total_gb REAL, disk_used_gb REAL, disk_free_gb REAL, disk_percent REAL,"                \
@@ -1018,9 +1019,10 @@ static int make_db_at(const char *path, int version, const char *columns)
              "  bucket_sec INTEGER"
              ");"
              "CREATE INDEX idx_metrics_ts ON metrics(timestamp);"
-             "CREATE TABLE alert_log (alert_name TEXT NOT NULL, fired_at TEXT NOT NULL);"
+             "CREATE TABLE alert_log (alert_name TEXT NOT NULL, fired_at TEXT NOT NULL%s);"
              "CREATE INDEX idx_alert_log_name ON alert_log(alert_name);",
-             MINIMONI_APPLICATION_ID, version, columns);
+             MINIMONI_APPLICATION_ID, version, columns,
+             version >= MINIMONI_SCHEMA_VERSION ? ", resolved_at TEXT" : "");
 
     return sql_exec(path, sql);
 }
@@ -1445,7 +1447,58 @@ static int test_db_open_no_warning_otherwise(void)
     return ok && !strstr(err, "writable") ? 0 : 1;
 }
 
-/* --- Alert log --- */
+/* --- Alert log: each firing a row, open until it resolves --- */
+
+static int test_alert_fired_is_firing_until_resolved(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    time_t now = time(NULL);
+    int    ok = db_alert_firing(&db, "a") == 0 && db_alert_log_fire(&db, "a", now) == 0 &&
+                db_alert_firing(&db, "a") == 1 && db_alert_firing(&db, "b") == 0 &&
+                db_alert_log_resolve(&db, "a", now + 60) == 0 && db_alert_firing(&db, "a") == 0;
+
+    close_test_db(&db);
+
+    return ok ? 0 : 1;
+}
+
+/* The cooldown counts from fired_at, to the second: a check exactly one cooldown later may fire
+ * again. */
+static int test_alert_cooldown_ends_exactly_one_cooldown_after_firing(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    time_t fired = time(NULL) - 7200;
+    int    ok = db_alert_log_fire(&db, "a", fired) == 0 &&
+                db_alert_on_cooldown(&db, "a", 3600, fired + 3599) == 1 &&
+                db_alert_on_cooldown(&db, "a", 3600, fired + 3600) == 0 &&
+                db_alert_on_cooldown(&db, "b", 3600, fired + 1) == 0;
+
+    close_test_db(&db);
+
+    return ok ? 0 : 1;
+}
+
+static int test_alert_cooldown_outlasts_the_resolve(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    time_t fired = time(NULL);
+    int    ok = db_alert_log_fire(&db, "a", fired) == 0 &&
+                db_alert_log_resolve(&db, "a", fired + 60) == 0 &&
+                db_alert_on_cooldown(&db, "a", 3600, fired + 120) == 1;
+
+    close_test_db(&db);
+
+    return ok ? 0 : 1;
+}
 
 /* A lookup that returns a row resets its statement: one left mid-read keeps a read transaction open
  * on the writer's connection, and the WAL never restarts. */
@@ -1455,8 +1508,10 @@ static int test_alert_lookups_leave_no_statement_busy(void)
     if (open_test_db(&db) != 0)
         return 1;
 
-    int ok = db_alert_log_fire(&db, "a") == 0 && db_alert_on_cooldown(&db, "a", 3600) == 1 &&
-             !sqlite3_stmt_busy(db.stmt_alert_check);
+    time_t now = time(NULL);
+    int    ok = db_alert_log_fire(&db, "a", now) == 0 && db_alert_firing(&db, "a") == 1 &&
+                db_alert_on_cooldown(&db, "a", 3600, now) == 1 &&
+                !sqlite3_stmt_busy(db.stmt_alert_firing) && !sqlite3_stmt_busy(db.stmt_alert_check);
 
     close_test_db(&db);
 
@@ -1652,6 +1707,9 @@ static const test_t ALL_TESTS[] = {
     T(consolidate_sql_reads_no_clock),
     T(consolidate_boundary_bucket_is_aggregated),
     T(consolidate_boundary_bucket_not_due),
+    T(alert_fired_is_firing_until_resolved),
+    T(alert_cooldown_ends_exactly_one_cooldown_after_firing),
+    T(alert_cooldown_outlasts_the_resolve),
     T(alert_lookups_leave_no_statement_busy),
 };
 

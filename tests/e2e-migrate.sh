@@ -215,6 +215,22 @@ t_v02_migrates() {
     fi
 }
 
+# v0.2 kept no alert state.
+t_v02_alert_log_rows_arrive_resolved() {
+    db=$TMP/v02-alerts.db
+    make_v02_db "$db"
+    sqlite3 "$db" "INSERT INTO alert_log VALUES ('disk', strftime('%Y-%m-%dT%H:%M:%SZ','now'))"
+
+    "$MIG" --use "$MIN" "$db" >/dev/null 2>&1
+    got=$(sqlite3 "$db" "SELECT count(*) || ':' || sum(resolved_at = fired_at) FROM alert_log")
+
+    if [ "$got" = "1:1" ]; then
+        report "a v0.2 alert_log row arrives resolved" ok
+    else
+        report "a v0.2 alert_log row arrives resolved" "rows:resolved=$got"
+    fi
+}
+
 t_schema_after_migration() {
     db=$TMP/schema.db
     make_v01_db "$db"
@@ -847,6 +863,7 @@ t_remigrate_is_noop() {
 
 t_basic_v01_to_v1
 t_v02_migrates
+t_v02_alert_log_rows_arrive_resolved
 t_schema_after_migration
 t_migrated_matches_a_new_database
 t_bps_computed_from_byte_deltas

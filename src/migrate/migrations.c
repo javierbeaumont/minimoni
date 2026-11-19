@@ -171,7 +171,8 @@ static const char SCRIPT_V0_TO_V1[] =
 /* Swap columns, NULL in the rows from before the migration. The used memory, the used disk and
  * their percents are dropped: minimoni works them out from the total and the available as it reads
  * a row. disk_free_gb already held the available space, so it is only renamed. The uptime is
- * dropped too: minimoni reads it from /proc/uptime when it needs it. */
+ * dropped too: minimoni reads it from /proc/uptime when it needs it. alert_log gains resolved_at,
+ * NULL while an alert fires; v0.2 kept no such state, so its rows are marked resolved. */
 static const char SCRIPT_V1_TO_V2[] =
     "BEGIN;"
     "ALTER TABLE metrics ADD COLUMN swap_total_mb REAL;"
@@ -184,6 +185,8 @@ static const char SCRIPT_V1_TO_V2[] =
     "ALTER TABLE metrics DROP COLUMN disk_percent;"
     "ALTER TABLE metrics RENAME COLUMN disk_free_gb TO disk_available_gb;"
     "ALTER TABLE metrics DROP COLUMN uptime_seconds;"
+    "ALTER TABLE alert_log ADD COLUMN resolved_at TEXT;"
+    "UPDATE alert_log SET resolved_at = fired_at;"
     "PRAGMA user_version = 2;"
     "COMMIT;";
 

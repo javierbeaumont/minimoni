@@ -26,6 +26,8 @@
  * report any verdict, where the real engine only produces one per certificate it is handed. That
  * the policy plus real BearSSL actually delivers a webhook is asserted in tests/e2e-webhook.sh. */
 
+#define _POSIX_C_SOURCE 200809L
+
 #include "runner.h"
 
 #include "alerts.h"
@@ -165,18 +167,20 @@ int json_escape(char *dst, size_t cap, const char *src)
     return 0;
 }
 
-int db_alert_on_cooldown(db_t *db, const char *alert_name, long cooldown_seconds)
+int db_alert_on_cooldown(db_t *db, const char *alert_name, long cooldown_seconds, time_t now)
 {
     (void)db;
     (void)alert_name;
     (void)cooldown_seconds;
+    (void)now;
     return 1;
 }
 
-int db_alert_log_fire(db_t *db, const char *alert_name)
+int db_alert_log_fire(db_t *db, const char *alert_name, time_t now)
 {
     (void)db;
     (void)alert_name;
+    (void)now;
     return 0;
 }
 

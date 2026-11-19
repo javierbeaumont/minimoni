@@ -637,39 +637,40 @@ int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double t
         snprintf(hostname, sizeof(hostname), "unknown");
 
     for (int i = 0; i < cfg->alert_count; i++) {
-        const alert_cfg_t *a = &cfg->alerts[i];
+        const alert_cfg_t *alert = &cfg->alerts[i];
 
         int    valid;
-        double value = metric_value(row, a->metric, cfg, temp_critical, net_ref, cores,
+        double value = metric_value(row, alert->metric, cfg, temp_critical, net_ref, cores,
                                     uptime_valid, uptime, &valid);
+
         if (!valid)
             continue;
 
-        if (!eval_op(value, a->op, a->threshold))
+        if (!eval_op(value, alert->op, alert->threshold))
             continue;
 
-        if (db_alert_on_cooldown(db, a->name, a->cooldown_seconds) != 0)
+        if (db_alert_on_cooldown(db, alert->name, alert->cooldown_seconds, time(NULL)) != 0)
             continue;
 
-        fprintf(stderr, "alerts: firing '%s' (%.6g %s %.6g)\n", a->name, value, a->op,
-                a->threshold);
+        fprintf(stderr, "alerts: firing '%s' (%.6g %s %.6g)\n", alert->name, value, alert->op,
+                alert->threshold);
 
         /* The cooldown starts only if an action succeeded; otherwise the alert fires again next
          * cycle. */
         int delivered = 0;
-        if (a->webhook[0])
-            delivered |= post_webhook(cfg, a, value, row->timestamp, hostname);
-        if (a->command[0])
-            delivered |= run_command(a, value);
+        if (alert->webhook[0])
+            delivered |= post_webhook(cfg, alert, value, row->timestamp, hostname);
+        if (alert->command[0])
+            delivered |= run_command(alert, value);
 
         if (!delivered)
             continue;
 
-        if (db_alert_log_fire(db, a->name) != 0)
+        if (db_alert_log_fire(db, alert->name, time(NULL)) != 0)
             fprintf(stderr,
                     "alerts: '%s' fired but its cooldown was not recorded; it will fire "
                     "again next cycle\n",
-                    a->name);
+                    alert->name);
     }
 
     return 0;
