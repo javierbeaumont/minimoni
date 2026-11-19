@@ -43,8 +43,8 @@ long parse_duration(const char *s);
 /* 1 if `name` is in the NULL-terminated `list`. */
 int in_list(const char *name, const char *const *list);
 
-/* The [alerts] TLS keys, then each [[alert]], into cfg. Returns -1 when the load must fail; a value
- * too long for its field sets *too_long instead. */
+/* [alerts], then each [[alert]] on top of it, into cfg. Returns -1 when the load must fail; a value
+ * too long for its field sets *too_long instead, so that every such value is reported. */
 int load_alerts(config_t *cfg, toml_datum_t root, int *too_long);
 
 #endif /* MINIMONI_CONFIG_INTERNAL_H */

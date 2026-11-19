@@ -1040,9 +1040,10 @@ static int test_keys_all_known(void)
     return count_unknown("[server]\nlisten = \"0.0.0.0:1\"\nmax_dashboards = 4\n"
                          "[collect]\ninterval = 60\ndb = \"x\"\ndisk_path = \"/\"\n"
                          "[alerts]\ninsecure_skip_verify = true\nca_file = \"c\"\n"
+                         "webhook = \"w\"\ncommand = \"c\"\ncooldown = \"5m\"\n"
                          "[dashboard]\ntitle = \"t\"\ntheme = \"dark\"\nranges = [\"1d\"]\n"
                          "[[alert]]\nname = \"a\"\nwhen = \"m > 1\"\n"
-                         "webhook = \"w\"\ncommand = \"c\"\ncooldown = \"5m\"\n") == 0
+                         "webhook = \"w\"\ncooldown = \"5m\"\n") == 0
                ? 0
                : 1;
 }

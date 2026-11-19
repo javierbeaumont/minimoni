@@ -180,7 +180,6 @@ static int known_name(const char *name, const char *const *known, const char *ke
 static const char *const SERVER_KEYS[] = {"listen", "max_dashboards", "sse_keepalive"};
 static const char *const COLLECT_KEYS[] = {
     "db", "disk_path", "interval", "net_max_speed", "temp_critical", "temp_scale"};
-static const char *const ALERTS_KEYS[] = {"ca_file", "insecure_skip_verify"};
 /* One key per line, so a new one never reflows the list. */
 /* clang-format off */
 static const char *const DASHBOARD_KEYS[] = {"cards",
@@ -206,7 +205,7 @@ static const char *const DASHBOARD_KEYS[] = {"cards",
                                              "title",
                                              "uptime_unit"};
 /* clang-format on */
-/* Includes the TLS keys, which load_alert refuses with its own error. */
+/* Shared by [alerts] and [[alert]]: load_alerts and load_alert reject a key in the wrong one. */
 static const char *const ALERT_KEYS[] = {"ca_file", "command", "cooldown", "insecure_skip_verify",
                                          "name",    "webhook", "when"};
 
@@ -313,7 +312,7 @@ static int config_warn_unknown(toml_datum_t root)
             }
         } else if (strcmp(k, "alerts") == 0) {
             if (v.type == TOML_TABLE)
-                unknown += warn_unknown_in(v, k, ALERTS_KEYS, N_KEYS(ALERTS_KEYS));
+                unknown += warn_unknown_in(v, k, ALERT_KEYS, N_KEYS(ALERT_KEYS));
         } else if (strcmp(k, "collect") == 0) {
             if (v.type == TOML_TABLE)
                 unknown += warn_unknown_in(v, k, COLLECT_KEYS, N_KEYS(COLLECT_KEYS));

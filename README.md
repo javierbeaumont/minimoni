@@ -341,11 +341,11 @@ A value past its limit is never cut or dropped: the config fails to load, and th
 key and the limit.
 
 - **String length**, in bytes: `listen` 63, `db` and `disk_path` 255, `title` 127, each `charts` or
-  `cards` entry 15, each `ranges` entry 7, `ca_file` 255, and in an alert `name` 63, `webhook` 511
-  and `command` 255.
+  `cards` entry 15, each `ranges` entry 7, `ca_file` 255, `webhook` 511, `command` 255 and an
+  alert's `name` 63.
 - **List size**: at most 16 `[[alert]]` blocks and 8 `ranges`.
 - **Alerts are an array of tables**: each one starts with `[[alert]]`, and a single `[alert]` table
-  is an error rather than no alerts.
+  is an error rather than no alerts. What they share goes in `[alerts]`.
 
 ### Collection
 
@@ -546,22 +546,26 @@ if the parameter is missing.
 ### Alerts
 
 Alerts are evaluated after every collect cycle. Each `[[alert]]` block is one alert, and
-`[alerts]` holds the webhook TLS keys.
+`[alerts]` holds their defaults and the webhook TLS keys.
 
 ```toml
-[[alert]]
-when     = "disk_available_percent < 10" # metric, operator and number
-webhook  = "https://ntfy.sh/my-server"   # POST JSON to this URL when the alert fires
-command  = "/usr/local/bin/notify.sh"    # execute this command when the alert fires
-cooldown = "1h"                          # minimum time between repeated firings
+[alerts]
+webhook  = "https://ntfy.sh/my-server" # POST JSON to this URL when an alert fires
+command  = "/usr/local/bin/notify.sh"  # execute this command when an alert fires
+cooldown = "1h"                        # minimum time between repeated firings
 
 [[alert]]
-name    = "hot"                          # shown in logs (default: the condition)
+when = "disk_available_percent < 10"   # metric, operator and number
+
+[[alert]]
+name    = "hot"                        # shown in logs (default: the condition)
 when    = "temp_degrees > 80"
-command = "/usr/local/bin/notify.sh"
+webhook = ""                           # "" clears the default
 ```
 
-Every alert needs `when` and a `webhook` or `command` (or both); `name` and `cooldown` are optional.
+Every alert needs `when` and a `webhook` or `command` (or both), its own or from `[alerts]`; `name`
+and `cooldown` are optional. A `webhook`, `command` or `cooldown` in an alert replaces the one in
+`[alerts]`, and an empty string clears it.
 
 `when` is a metric from the table below, an operator (`>`, `<`, `>=` or `<=`) and a threshold (a
 plain decimal number, 0 or more, of at most 23 characters) in the metric's own unit; spaces around
@@ -569,8 +573,9 @@ the operator are optional. An alert whose `name` is missing, empty or not a stri
 named after its condition, with one space on each side of the operator. Two alerts with one name
 fail the load, since cooldowns are kept by name.
 
-A missing or malformed `when`, an unknown metric or operator, or an entry that is not a table fails
-the load, and the error says which alert.
+A missing or malformed `when`, an unknown metric or operator, a `webhook` or `command` that is not a
+string, or an entry that is not a table fails the load, and the error says which alert. `when` and
+`name` go only in an alert: in `[alerts]` they fail the load.
 
 **Available metrics** (any other name fails the load):
 
@@ -645,10 +650,11 @@ delay the next collect cycle.
 elapsed. The cooldown starts only when at least one of the alert's actions succeeds: a webhook that
 gets a 2xx reply, or a command that exits 0. If none succeeds, the alert fires again on the next
 cycle. `cooldown` takes a positive whole number and a unit, `s`, `m`, `h` or `d` (`30s`, `90m`,
-`1d`), up to 10 years. Any other value is reported at startup and leaves the alert without a
-cooldown, so it fires every cycle while its condition holds. Cooldown state is stored in the
-database by alert name (`alert_log` table) and survives restarts. It is deleted with the metrics
-older than the retention period (see `ranges`), so a longer cooldown ends there.
+`1d`), up to 10 years, or `""` for none. Any other value is reported at startup, and the alert keeps
+the cooldown in `[alerts]`; with none there, it fires every cycle while its condition holds.
+Cooldown state is stored in the database by alert name (`alert_log` table) and survives restarts. It
+is deleted with the metrics older than the retention period (see `ranges`), so a longer cooldown
+ends there.
 
 #### Webhook TLS
 
@@ -721,19 +727,21 @@ listen = "127.0.0.1:8080"
 **Multiple alerts (disk, CPU load, and temperature):**
 
 ```toml
+[alerts]
+webhook = "https://ntfy.sh/my-server"
+
 [[alert]]
 when     = "disk_available_percent < 15"
-webhook  = "https://ntfy.sh/my-server"
 cooldown = "6h"
 
 [[alert]]
 when     = "load_5m_percent >= 100"
-webhook  = "https://ntfy.sh/my-server"
 cooldown = "30m"
 
 [[alert]]
 name     = "overheating"
 when     = "temp_degrees > 80"
+webhook  = ""
 command  = "/usr/local/bin/thermal-alert.sh"
 cooldown = "15m"
 ```

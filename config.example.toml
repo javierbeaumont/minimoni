@@ -43,16 +43,18 @@ disk_path = "/"
 # uptime_unit            = "auto"    # uptime display: "auto" | "h" | "d"
 
 [alerts]
+webhook  = "https://ntfy.sh/my-server" # every alert's, unless it sets its own ("" clears it)
+cooldown = "1h"
+# command = "/usr/local/bin/alert.sh"
 # ca_file = "/etc/minimoni/ca.pem"     # CAs to trust (default: the host's CA store)
 # insecure_skip_verify = true          # POST to HTTPS webhooks without checking their certificate
 
 [[alert]]
-when     = "disk_available_percent < 10" # metric, operator and number; also the default name
-webhook  = "https://ntfy.sh/my-server"
-cooldown = "1h"
+when = "disk_available_percent < 10" # metric, operator and number; also the default name
 
 [[alert]]
 name     = "high-temp"
 when     = "temp_degrees > 80"
+webhook  = ""
 command  = "/usr/local/bin/alert.sh"
 cooldown = "30m"

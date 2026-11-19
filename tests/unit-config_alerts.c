@@ -179,8 +179,8 @@ static int test_ca_file_ignored_while_insecure(void)
 
 /* --- parse_duration: per-unit 10-year caps --- */
 
-/* An invalid cooldown warns; the alert is kept, with none. */
-static int test_alert_invalid_cooldown_warns(void)
+/* With no cooldown in [alerts], an invalid one warns; the alert is kept, with none. */
+static int test_alert_invalid_cooldown_without_default_warns(void)
 {
     config_t cfg;
     char     err[512];
@@ -418,6 +418,128 @@ static int test_alert_with_v02_keys_fails(void)
                : 1;
 }
 
+/* --- [alerts]: the defaults every alert takes --- */
+
+static int test_alerts_defaults_taken(void)
+{
+    config_t cfg;
+
+    if (load_cfg(&cfg, "[alerts]\nwebhook = \"http://d\"\ncommand = \"notify\"\ncooldown = \"5m\"\n"
+                       "[[alert]]\nwhen = \"load_1m > 1\"\n") != 0)
+        return 1;
+
+    const alert_cfg_t *alert = &cfg.alerts[0];
+
+    return strcmp(alert->webhook, "http://d") == 0 && strcmp(alert->command, "notify") == 0 &&
+                   alert->cooldown_seconds == 300
+               ? 0
+               : 1;
+}
+
+static int test_alert_overrides_the_defaults(void)
+{
+    config_t cfg;
+
+    if (load_cfg(&cfg, "[alerts]\nwebhook = \"http://d\"\ncommand = \"notify\"\ncooldown = \"5m\"\n"
+                       "[[alert]]\nwhen = \"load_1m > 1\"\nwebhook = \"http://a\"\n"
+                       "command = \"own\"\ncooldown = \"1h\"\n") != 0)
+        return 1;
+
+    const alert_cfg_t *alert = &cfg.alerts[0];
+
+    return strcmp(alert->webhook, "http://a") == 0 && strcmp(alert->command, "own") == 0 &&
+                   alert->cooldown_seconds == 3600
+               ? 0
+               : 1;
+}
+
+/* Clearing the cooldown does not warn. */
+static int test_alert_empty_string_clears_a_default(void)
+{
+    config_t cfg;
+    char     err[512];
+
+    if (load_cfg_err(&cfg,
+                     "[alerts]\nwebhook = \"http://d\"\ncommand = \"notify\"\ncooldown = \"5m\"\n"
+                     "[[alert]]\nwhen = \"load_1m > 1\"\nwebhook = \"\"\ncooldown = \"\"\n"
+                     "[[alert]]\nwhen = \"load_5m > 1\"\ncommand = \"\"\n",
+                     err, sizeof(err)) != 0)
+        return 1;
+
+    const alert_cfg_t *alert = &cfg.alerts[0];
+    const alert_cfg_t *second = &cfg.alerts[1];
+
+    return alert->webhook[0] == '\0' && strcmp(alert->command, "notify") == 0 &&
+                   alert->cooldown_seconds == 0 && strcmp(second->webhook, "http://d") == 0 &&
+                   second->command[0] == '\0' && err[0] == '\0'
+               ? 0
+               : 1;
+}
+
+static int test_alert_with_every_destination_cleared_fails(void)
+{
+    return fails_with("[alerts]\nwebhook = \"http://d\"\n"
+                      "[[alert]]\nwhen = \"load_1m > 1\"\nwebhook = \"\"\n",
+                      "config: alert 'load_1m > 1': needs a webhook or a command; aborting")
+               ? 0
+               : 1;
+}
+
+static int test_alerts_invalid_cooldown_warns(void)
+{
+    config_t cfg;
+    char     err[512];
+    int      rc = load_cfg_err(&cfg,
+                               "[alerts]\nwebhook = \"w\"\ncooldown = \"5x\"\n"
+                               "[[alert]]\nwhen = \"load_1m > 1\"\n",
+                               err, sizeof(err));
+
+    return rc == 0 && cfg.alerts[0].cooldown_seconds == 0 &&
+                   strstr(err, "config: alerts: invalid cooldown '5x'; no cooldown, alerts "
+                               "without one fire every cycle")
+               ? 0
+               : 1;
+}
+
+/* An invalid cooldown in an alert leaves the one in [alerts] in its place. */
+static int test_alert_invalid_cooldown_keeps_the_default(void)
+{
+    config_t cfg;
+    char     err[512];
+    int      rc = load_cfg_err(&cfg,
+                               "[alerts]\nwebhook = \"w\"\ncooldown = \"1h\"\n"
+                               "[[alert]]\nwhen = \"load_1m > 1\"\ncooldown = \"5x\"\n"
+                               "[[alert]]\nwhen = \"load_5m > 1\"\ncooldown = 300\n",
+                               err, sizeof(err));
+
+    return rc == 0 && cfg.alerts[0].cooldown_seconds == 3600 &&
+                   cfg.alerts[1].cooldown_seconds == 3600 &&
+                   strstr(err, "config: alert 'load_1m > 1': invalid cooldown '5x'; it keeps the "
+                               "one in [alerts]") &&
+                   strstr(err, "config: alert 'load_5m > 1': cooldown is not a duration string "
+                               "such as \"5m\"; it keeps the one in [alerts]")
+               ? 0
+               : 1;
+}
+
+/* A destination that is not a string fails the load: going on would send the alert to the default
+ * one, or nowhere. */
+static int test_destination_not_a_string_fails(void)
+{
+    return fails_with("[alerts]\nwebhook = \"http://d\"\n"
+                      "[[alert]]\nwhen = \"load_1m > 1\"\nwebhook = 5\n",
+                      "config: alert 'load_1m > 1': webhook is not a string; aborting") &&
+                   fails_with("[[alert]]\nwhen = \"load_1m > 1\"\nwebhook = \"w\"\n"
+                              "command = [\"notify\"]\n",
+                              "config: alert 'load_1m > 1': command is not a string; aborting") &&
+                   fails_with("[alerts]\nwebhook = true\n",
+                              "config: alerts: webhook is not a string; aborting") &&
+                   fails_with("[alerts]\ncommand = 5\n",
+                              "config: alerts: command is not a string; aborting")
+               ? 0
+               : 1;
+}
+
 static int test_alert_decimal_numbers_load(void)
 {
     config_t cfg;
@@ -465,6 +587,16 @@ static int test_alerts_as_an_array_fails(void)
                : 1;
 }
 
+static int test_alert_keys_in_alerts_fail(void)
+{
+    return fails_with("[alerts]\nwhen = \"load_1m > 1\"\nwebhook = \"w\"\n",
+                      "config: alerts.when goes in an [[alert]]; aborting") &&
+                   fails_with("[alerts]\nname = \"a\"\n",
+                              "config: alerts.name goes in an [[alert]]; aborting")
+               ? 0
+               : 1;
+}
+
 /* The TLS keys hold for every webhook: in one alert they fail the load. */
 static int test_tls_keys_in_an_alert_fail(void)
 {
@@ -508,21 +640,25 @@ static int test_keys_typo_in_alert(void)
     return count_unknown("[[alert]]\nname = \"a\"\ncoolddown = \"5m\"\n") == 1 ? 0 : 1;
 }
 
+/* A key two edits from a known one is hinted; three edits away, it is not. */
 static int test_keys_typo_in_alerts(void)
 {
     config_t cfg;
     char     err[512];
-    int rc = load_cfg_err(&cfg, "[alerts]\ncooldown = \"5m\"\nca_fil = \"c\"\n", err, sizeof(err));
+    int rc = load_cfg_err(&cfg, "[alerts]\ncoldwn = \"5m\"\ncldwn = \"5m\"\n", err, sizeof(err));
 
-    return rc == 0 && strstr(err, "config: unknown key 'alerts.cooldown'\n") &&
-                   strstr(err, "config: unknown key 'alerts.ca_fil' (typo of 'ca_file'?)\n")
+    return rc == 0 && strstr(err, "config: unknown key 'alerts.coldwn' (typo of 'cooldown'?)\n") &&
+                   strstr(err, "config: unknown key 'alerts.cldwn'\n")
                ? 0
                : 1;
 }
 
 static int test_keys_refused_with_their_own_error_not_warned(void)
 {
-    return count_unknown("[[alert]]\nca_file = \"c\"\ninsecure_skip_verify = true\n") == 0 ? 0 : 1;
+    return count_unknown("[alerts]\nwhen = \"x\"\nname = \"x\"\n"
+                         "[[alert]]\nca_file = \"c\"\ninsecure_skip_verify = true\n") == 0
+               ? 0
+               : 1;
 }
 
 /* --- Values that do not fit their field --- */
@@ -564,6 +700,30 @@ static int test_webhook_over_max_fails(void)
                : 1;
 }
 
+static int test_alerts_webhook_over_max_fails(void)
+{
+    config_t cfg;
+    char     url[520], toml[700], err[512];
+    snprintf(toml, sizeof(toml), "[alerts]\nwebhook = \"%s\"\n", xs(url, 512));
+
+    return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 &&
+                   strstr(err, "config: alerts.webhook is 512 bytes; the maximum is 511")
+               ? 0
+               : 1;
+}
+
+static int test_alerts_command_over_max_fails(void)
+{
+    config_t cfg;
+    char     cmd[300], toml[512], err[512];
+    snprintf(toml, sizeof(toml), "[alerts]\ncommand = \"%s\"\n", xs(cmd, 256));
+
+    return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 &&
+                   strstr(err, "config: alerts.command is 256 bytes; the maximum is 255")
+               ? 0
+               : 1;
+}
+
 /* Each name past its maximum is reported, and no false duplicate: meanwhile the first alert is
  * named after its condition, which the third shares. */
 static int test_alert_names_over_max_report_only_their_length(void)
@@ -588,16 +748,23 @@ static int test_alert_names_over_max_report_only_their_length(void)
 static int test_destinations_over_max_report_only_their_length(void)
 {
     config_t cfg;
-    char     url[520], cmd[300], toml[1024], err[1024];
-    snprintf(toml, sizeof(toml),
+    char     url[520], cmd[300], own[1024], shared[700], own_err[1024], shared_err[1024];
+    snprintf(own, sizeof(own),
              "[[alert]]\nwhen = \"load_1m > 1\"\nwebhook = \"%s\"\n"
              "[[alert]]\nwhen = \"load_5m > 1\"\ncommand = \"%s\"\n",
              xs(url, 512), xs(cmd, 256));
+    snprintf(shared, sizeof(shared),
+             "[alerts]\nwebhook = \"%s\"\n[[alert]]\nwhen = \"load_1m > 1\"\n", xs(url, 512));
 
-    return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 &&
-                   strstr(err, "config: alert[0].webhook is 512 bytes; the maximum is 511") &&
-                   strstr(err, "config: alert[1].command is 256 bytes; the maximum is 255") &&
-                   !strstr(err, "needs a webhook")
+    int own_rc = load_cfg_err(&cfg, own, own_err, sizeof(own_err));
+    int shared_rc = load_cfg_err(&cfg, shared, shared_err, sizeof(shared_err));
+
+    return own_rc == -1 &&
+                   strstr(own_err, "config: alert[0].webhook is 512 bytes; the maximum is 511") &&
+                   strstr(own_err, "config: alert[1].command is 256 bytes; the maximum is 255") &&
+                   !strstr(own_err, "needs a webhook") && shared_rc == -1 &&
+                   strstr(shared_err, "config: alerts.webhook is 512 bytes; the maximum is 511") &&
+                   !strstr(shared_err, "needs a webhook")
                ? 0
                : 1;
 }
@@ -605,11 +772,13 @@ static int test_destinations_over_max_report_only_their_length(void)
 static int test_ca_file_over_max_reports_only_its_length(void)
 {
     config_t cfg;
-    char     path[300], toml[512], err[1024];
-    snprintf(toml, sizeof(toml), "[alerts]\nca_file = \"%s\"\n", xs(path, 256));
+    char     path[300], url[520], toml[1024], err[1024];
+    snprintf(toml, sizeof(toml), "[alerts]\nca_file = \"%s\"\nwebhook = \"%s\"\n", xs(path, 256),
+             xs(url, 512));
 
     return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 &&
                    strstr(err, "config: alerts.ca_file is 256 bytes; the maximum is 255") &&
+                   strstr(err, "config: alerts.webhook is 512 bytes; the maximum is 511") &&
                    !strstr(err, "No such file")
                ? 0
                : 1;
@@ -694,8 +863,8 @@ static int test_alert_as_a_single_table_fails(void)
     int rc = load_cfg_err(&cfg, "[alert]\nname = \"a\"\nwhen = \"load_1m > 1\"\nwebhook = \"w\"\n",
                           err, sizeof(err));
 
-    return rc == -1 && strstr(err, "config: [alert] must be an array of tables, written [[alert]]; "
-                                   "aborting")
+    return rc == -1 && strstr(err, "config: [alert] must be an array of tables, written [[alert]] "
+                                   "(the defaults go in [alerts]); aborting")
                ? 0
                : 1;
 }
@@ -993,7 +1162,7 @@ static int test_net_alert_metrics_accepted(void)
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
-    T(alert_invalid_cooldown_warns),
+    T(alert_invalid_cooldown_without_default_warns),
     /* alerts */
     T(alert_full_entry),
     T(alert_when_spacing),
@@ -1008,10 +1177,18 @@ static const test_t ALL_TESTS[] = {
     T(alert_when_not_a_string_fails),
     T(alert_name_not_a_string_warns),
     T(alert_with_v02_keys_fails),
+    T(alerts_defaults_taken),
+    T(alert_overrides_the_defaults),
+    T(alert_empty_string_clears_a_default),
+    T(alert_with_every_destination_cleared_fails),
+    T(alerts_invalid_cooldown_warns),
+    T(alert_invalid_cooldown_keeps_the_default),
+    T(destination_not_a_string_fails),
     T(alert_decimal_numbers_load),
     T(when_number_of_23_characters_loads),
     T(when_parts_too_long_fail),
     T(alerts_as_an_array_fails),
+    T(alert_keys_in_alerts_fail),
     T(tls_keys_in_an_alert_fail),
     T(alerts_with_one_name_fail),
     T(alerts_with_one_condition_fail),
@@ -1033,6 +1210,8 @@ static const test_t ALL_TESTS[] = {
     T(command_over_max_fails),
     T(command_at_max_loads),
     T(webhook_over_max_fails),
+    T(alerts_webhook_over_max_fails),
+    T(alerts_command_over_max_fails),
     T(alert_names_over_max_report_only_their_length),
     T(destinations_over_max_report_only_their_length),
     T(ca_file_over_max_fails),

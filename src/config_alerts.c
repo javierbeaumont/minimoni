@@ -145,6 +145,30 @@ static int split_when(const char *text, when_t *parts)
     return WHEN_OK;
 }
 
+/* A cooldown in seconds: a duration string, or "" for none. Anything else warns, naming `who` and
+ * what it is `left_with`, and gives `fallback`. */
+static long cooldown_value(toml_datum_t value, const char *who, long fallback,
+                           const char *left_with)
+{
+    if (value.type == TOML_STRING && value.u.s[0] == '\0')
+        return 0;
+
+    if (value.type != TOML_STRING) {
+        fprintf(stderr, "config: %s: cooldown is not a duration string such as \"5m\"; %s\n", who,
+                left_with);
+        return fallback;
+    }
+
+    long seconds = parse_duration(value.u.s);
+
+    if (seconds <= 0) {
+        fprintf(stderr, "config: %s: invalid cooldown '%s'; %s\n", who, value.u.s, left_with);
+        return fallback;
+    }
+
+    return seconds;
+}
+
 /* Returns 1, after an error naming `who` and `key`, when `value` is set but is not a string. */
 static int not_a_string(toml_datum_t value, const char *who, const char *key)
 {
@@ -199,9 +223,10 @@ static int load_tls(config_t *cfg, toml_datum_t alerts_table, int *too_long)
     return 0;
 }
 
-/* One [[alert]]. Returns -1 when the load must fail; a name, webhook or command too long for its
- * field sets *too_long instead, so that every such value is reported. */
-static int load_alert(alert_cfg_t *alert, toml_datum_t table, int index, int *too_long)
+/* One [[alert]], built on `defaults`. Returns -1 when the load must fail; a name, webhook or
+ * command too long for its field sets *too_long instead, so that every such value is reported. */
+static int load_alert(alert_cfg_t *alert, const alert_cfg_t *defaults, toml_datum_t table,
+                      int index, int *too_long)
 {
     if (table.type != TOML_TABLE) {
         fprintf(stderr, "config: alert[%d]: not a table; aborting\n", index);
@@ -287,7 +312,7 @@ static int load_alert(alert_cfg_t *alert, toml_datum_t table, int index, int *to
         return -1;
     }
 
-    memset(alert, 0, sizeof(*alert));
+    *alert = *defaults;
     memcpy(alert->metric, parts.metric, sizeof(parts.metric));
     memcpy(alert->op, parts.op, sizeof(parts.op));
     alert->threshold = strtod(parts.num, NULL);
@@ -303,28 +328,23 @@ static int load_alert(alert_cfg_t *alert, toml_datum_t table, int index, int *to
     char who[96];
     snprintf(who, sizeof(who), "alert '%s'", alert->name);
 
-    *too_long |= str_copy(alert->webhook, sizeof(alert->webhook), toml_get(table, "webhook"),
-                          "alert[%d].webhook", index) != 0;
-    *too_long |= str_copy(alert->command, sizeof(alert->command), toml_get(table, "command"),
-                          "alert[%d].command", index) != 0;
+    toml_datum_t webhook = toml_get(table, "webhook");
+    toml_datum_t command = toml_get(table, "command");
+
+    if (not_a_string(webhook, who, "webhook") || not_a_string(command, who, "command"))
+        return -1;
+
+    *too_long |=
+        str_copy(alert->webhook, sizeof(alert->webhook), webhook, "alert[%d].webhook", index) != 0;
+    *too_long |=
+        str_copy(alert->command, sizeof(alert->command), command, "alert[%d].command", index) != 0;
 
     toml_datum_t cooldown = toml_get(table, "cooldown");
-
-    if (cooldown.type == TOML_STRING) {
-        long seconds = parse_duration(cooldown.u.s);
-
-        if (seconds > 0)
-            alert->cooldown_seconds = seconds;
-        else
-            fprintf(stderr,
-                    "config: %s: invalid cooldown '%s'; no cooldown, it fires every cycle\n", who,
-                    cooldown.u.s);
-    } else if (cooldown.type != TOML_UNKNOWN) {
-        fprintf(stderr,
-                "config: %s: cooldown is not a duration string such as \"5m\"; no cooldown, it "
-                "fires every cycle\n",
-                who);
-    }
+    if (cooldown.type != TOML_UNKNOWN)
+        alert->cooldown_seconds =
+            cooldown_value(cooldown, who, defaults->cooldown_seconds,
+                           defaults->cooldown_seconds > 0 ? "it keeps the one in [alerts]"
+                                                          : "no cooldown, it fires every cycle");
 
     /* A refused value already fails the load, and a refused webhook or command would look
      * missing. */
@@ -346,14 +366,41 @@ int load_alerts(config_t *cfg, toml_datum_t root, int *too_long)
         return -1;
     }
 
+    static const char *const ALERT_ONLY_KEYS[] = {"name", "when"};
+    for (int i = 0; i < N_KEYS(ALERT_ONLY_KEYS); i++) {
+        if (toml_get(alerts_table, ALERT_ONLY_KEYS[i]).type != TOML_UNKNOWN) {
+            fprintf(stderr, "config: alerts.%s goes in an [[alert]]; aborting\n",
+                    ALERT_ONLY_KEYS[i]);
+            return -1;
+        }
+    }
+
     if (load_tls(cfg, alerts_table, too_long) != 0)
         return -1;
+
+    toml_datum_t webhook = toml_get(alerts_table, "webhook");
+    toml_datum_t command = toml_get(alerts_table, "command");
+
+    if (not_a_string(webhook, "alerts", "webhook") || not_a_string(command, "alerts", "command"))
+        return -1;
+
+    alert_cfg_t defaults = {0};
+    *too_long |=
+        str_copy(defaults.webhook, sizeof(defaults.webhook), webhook, "alerts.webhook") != 0;
+    *too_long |=
+        str_copy(defaults.command, sizeof(defaults.command), command, "alerts.command") != 0;
+
+    toml_datum_t cooldown = toml_get(alerts_table, "cooldown");
+    if (cooldown.type != TOML_UNKNOWN)
+        defaults.cooldown_seconds = cooldown_value(
+            cooldown, "alerts", 0, "no cooldown, alerts without one fire every cycle");
 
     toml_datum_t list = toml_seek(root, "alert");
 
     if (list.type != TOML_ARRAY && list.type != TOML_UNKNOWN) {
         fprintf(stderr,
-                "config: [alert] must be an array of tables, written [[alert]]; aborting\n");
+                "config: [alert] must be an array of tables, written [[alert]] (the defaults go "
+                "in [alerts]); aborting\n");
         return -1;
     }
 
@@ -366,7 +413,7 @@ int load_alerts(config_t *cfg, toml_datum_t root, int *too_long)
     }
 
     for (int i = 0; i < table_count; i++) {
-        if (load_alert(&cfg->alerts[i], list.u.arr.elem[i], i, too_long) != 0)
+        if (load_alert(&cfg->alerts[i], &defaults, list.u.arr.elem[i], i, too_long) != 0)
             return -1;
 
         cfg->alert_count = i + 1;
