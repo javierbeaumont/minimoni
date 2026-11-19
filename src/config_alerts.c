@@ -30,6 +30,10 @@
 
 static const char *const METRIC_NAMES[] = {ALERT_METRICS, NULL};
 
+/* Shared by [alerts] and [[alert]]: load_alerts and load_alert reject a key in the wrong one. */
+static const char *const ALERT_KEYS[] = {"ca_file", "command", "cooldown", "insecure_skip_verify",
+                                         "name",    "webhook", "when"};
+
 /* 1 when a line opens a PEM certificate, 0 when none does, -1 with errno when the file cannot be
  * read. Only a first check: the anchors are decoded at delivery. */
 static int has_certificate(const char *path)
@@ -145,6 +149,29 @@ static int split_when(const char *text, when_t *parts)
     return WHEN_OK;
 }
 
+/* An unknown key in [alerts] or an [[alert]] may be a misnamed webhook or command, which would
+ * leave the alert another destination or none. Returns 1, having said so, when `table` has one. */
+static int has_unknown_alert_key(toml_datum_t table, const char *label)
+{
+    for (int i = 0; i < table.u.tab.size; i++) {
+        const char *key = table.u.tab.key[i];
+
+        if (is_known(key, ALERT_KEYS, N_KEYS(ALERT_KEYS)))
+            continue;
+
+        const char *hint = closest(key, ALERT_KEYS, N_KEYS(ALERT_KEYS));
+        if (hint)
+            fprintf(stderr, "config: %s: unknown key '%s' (typo of '%s'?); aborting\n", label, key,
+                    hint);
+        else
+            fprintf(stderr, "config: %s: unknown key '%s'; aborting\n", label, key);
+
+        return 1;
+    }
+
+    return 0;
+}
+
 /* A cooldown in seconds: a duration string, or "" for none. Anything else warns, naming `who` and
  * what it is `left_with`, and gives `fallback`. */
 static long cooldown_value(toml_datum_t value, const char *who, long fallback,
@@ -257,6 +284,9 @@ static int load_alert(alert_cfg_t *alert, const alert_cfg_t *defaults, toml_datu
                 label);
         return -1;
     }
+
+    if (has_unknown_alert_key(table, label))
+        return -1;
 
     when_t parts = {0};
     int    split = split_when(when.u.s, &parts);
@@ -374,6 +404,9 @@ int load_alerts(config_t *cfg, toml_datum_t root, int *too_long)
             return -1;
         }
     }
+
+    if (has_unknown_alert_key(alerts_table, "alerts"))
+        return -1;
 
     if (load_tls(cfg, alerts_table, too_long) != 0)
         return -1;

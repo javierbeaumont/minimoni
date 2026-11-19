@@ -314,6 +314,33 @@ static int test_alert_malformed_when_fails(void)
     return 0;
 }
 
+/* Any unknown key fails: a misnamed destination would leave the alert the default one. */
+static int test_alert_unknown_key_fails(void)
+{
+    return fails_with("[alerts]\nwebhook = \"https://ntfy.sh/public\"\n"
+                      "[[alert]]\nname = \"private\"\nwhen = \"load_1m > 1\"\n"
+                      "url = \"https://internal/hook\"\n",
+                      "config: alert 'private': unknown key 'url'; aborting") &&
+                   fails_with(
+                       "[[alert]]\nwhen = \"load_1m > 1\"\nwebhook = \"w\"\ncommands = \"c\"\n",
+                       "config: alert[0]: unknown key 'commands' (typo of 'command'?); aborting") &&
+                   fails_with(
+                       "[[alert]]\nwhen = \"load_1m > 1\"\nwebhook = \"w\"\ncoldown = \"5m\"\n",
+                       "config: alert[0]: unknown key 'coldown' (typo of 'cooldown'?); aborting")
+               ? 0
+               : 1;
+}
+
+/* In [alerts] too: an alert that sets only a webhook would lose the default command. */
+static int test_alerts_unknown_key_fails(void)
+{
+    return fails_with("[alerts]\ncommands = \"notify\"\n"
+                      "[[alert]]\nwhen = \"load_1m > 1\"\nwebhook = \"w\"\n",
+                      "config: alerts: unknown key 'commands' (typo of 'command'?); aborting")
+               ? 0
+               : 1;
+}
+
 static int test_alert_with_negative_number_fails(void)
 {
     return fails_with("[[alert]]\nname = \"cold\"\nwhen = \"temp_degrees < -5\"\nwebhook = \"w\"\n",
@@ -400,7 +427,7 @@ static int test_alert_name_not_a_string_warns(void)
                : 1;
 }
 
-/* v0.2's condition keys are unknown keys, and the alert has no `when`. */
+/* An alert in v0.2's format is told only that it has no `when`. */
 static int test_alert_with_v02_keys_fails(void)
 {
     config_t cfg;
@@ -410,10 +437,8 @@ static int test_alert_with_v02_keys_fails(void)
                           "operator = \"<\"\nthreshold = 10\nwebhook = \"w\"\n",
                           err, sizeof(err));
 
-    return rc == -1 && strstr(err, "config: unknown key 'alert[0].metric'") &&
-                   strstr(err, "config: unknown key 'alert[0].operator'") &&
-                   strstr(err, "config: unknown key 'alert[0].threshold'") &&
-                   strstr(err, "config: alert 'disk-full': missing when; aborting")
+    return rc == -1 && strstr(err, "config: alert 'disk-full': missing when; aborting") &&
+                   !strstr(err, "unknown key")
                ? 0
                : 1;
 }
@@ -635,28 +660,22 @@ static int test_alerts_with_one_condition_fail(void)
 
 /* --- Unknown keys --- */
 
-static int test_keys_typo_in_alert(void)
-{
-    return count_unknown("[[alert]]\nname = \"a\"\ncoolddown = \"5m\"\n") == 1 ? 0 : 1;
-}
-
 /* A key two edits from a known one is hinted; three edits away, it is not. */
 static int test_keys_typo_in_alerts(void)
 {
-    config_t cfg;
-    char     err[512];
-    int rc = load_cfg_err(&cfg, "[alerts]\ncoldwn = \"5m\"\ncldwn = \"5m\"\n", err, sizeof(err));
-
-    return rc == 0 && strstr(err, "config: unknown key 'alerts.coldwn' (typo of 'cooldown'?)\n") &&
-                   strstr(err, "config: unknown key 'alerts.cldwn'\n")
+    return fails_with("[alerts]\ncoldwn = \"5m\"\n",
+                      "config: alerts: unknown key 'coldwn' (typo of 'cooldown'?); aborting") &&
+                   fails_with("[alerts]\ncldwn = \"5m\"\n",
+                              "config: alerts: unknown key 'cldwn'; aborting")
                ? 0
                : 1;
 }
 
 static int test_keys_refused_with_their_own_error_not_warned(void)
 {
-    return count_unknown("[alerts]\nwhen = \"x\"\nname = \"x\"\n"
-                         "[[alert]]\nca_file = \"c\"\ninsecure_skip_verify = true\n") == 0
+    return count_unknown("[alerts]\nwhen = \"x\"\nname = \"x\"\nwebhok = \"w\"\ncommands = \"c\"\n"
+                         "[[alert]]\nca_file = \"c\"\ninsecure_skip_verify = true\nwebhok = \"w\"\n"
+                         "commands = \"c\"\nurl = \"u\"\n") == 0
                ? 0
                : 1;
 }
@@ -1169,6 +1188,8 @@ static const test_t ALL_TESTS[] = {
     T(alert_without_name_is_named_after_its_condition),
     T(alert_without_when_fails),
     T(alert_malformed_when_fails),
+    T(alert_unknown_key_fails),
+    T(alerts_unknown_key_fails),
     T(alert_with_negative_number_fails),
     T(alert_with_unknown_operator_fails),
     T(alert_with_equals_operator_fails),
@@ -1203,7 +1224,6 @@ static const test_t ALL_TESTS[] = {
     T(ca_file_without_a_certificate_fails),
     T(ca_file_not_a_string_fails),
     T(ca_file_ignored_while_insecure),
-    T(keys_typo_in_alert),
     T(keys_typo_in_alerts),
     T(keys_refused_with_their_own_error_not_warned),
     /* values that do not fit their field */

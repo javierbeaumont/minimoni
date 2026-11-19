@@ -43,6 +43,12 @@ long parse_duration(const char *s);
 /* 1 if `name` is in the NULL-terminated `list`. */
 int in_list(const char *name, const char *const *list);
 
+/* The name in `names` closest to `key`, within two edits; NULL when none is. */
+const char *closest(const char *key, const char *const *names, int count);
+
+/* 1 if `key` is one of the `count` names in `known`. */
+int is_known(const char *key, const char *const *known, int count);
+
 /* [alerts], then each [[alert]] on top of it, into cfg. Returns -1 when the load must fail; a value
  * too long for its field sets *too_long instead, so that every such value is reported. */
 int load_alerts(config_t *cfg, toml_datum_t root, int *too_long);

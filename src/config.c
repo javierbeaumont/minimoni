@@ -205,10 +205,6 @@ static const char *const DASHBOARD_KEYS[] = {"cards",
                                              "title",
                                              "uptime_unit"};
 /* clang-format on */
-/* Shared by [alerts] and [[alert]]: load_alerts and load_alert reject a key in the wrong one. */
-static const char *const ALERT_KEYS[] = {"ca_file", "command", "cooldown", "insecure_skip_verify",
-                                         "name",    "webhook", "when"};
-
 /* Levenshtein distance, for the did-you-mean hint. */
 static int key_distance(const char *a, const char *b)
 {
@@ -235,8 +231,7 @@ static int key_distance(const char *a, const char *b)
     return row[lb];
 }
 
-/* The name in `names` closest to `key`, within two edits; NULL when none is. */
-static const char *closest(const char *key, const char *const *names, int count)
+const char *closest(const char *key, const char *const *names, int count)
 {
     const char *best = NULL;
     int         best_distance = 3;
@@ -253,7 +248,7 @@ static const char *closest(const char *key, const char *const *names, int count)
     return best;
 }
 
-static int is_known(const char *key, const char *const *known, int count)
+int is_known(const char *key, const char *const *known, int count)
 {
     for (int i = 0; i < count; i++) {
         if (strcmp(key, known[i]) == 0)
@@ -288,8 +283,9 @@ static int warn_unknown_in(toml_datum_t table, const char *where, const char *co
     return unknown;
 }
 
-/* Walk the parsed document's top level and every known table one level deep.
- * Exact-named tables of the wrong type are left to the readers' own checks. */
+/* Walk the parsed document's top level and every known table one level deep, except [alerts] and
+ * [[alert]], whose unknown keys load_alerts refuses. Exact-named tables of the wrong type are left
+ * to the readers' own checks. */
 static int config_warn_unknown(toml_datum_t root)
 {
     int unknown = 0;
@@ -298,22 +294,10 @@ static int config_warn_unknown(toml_datum_t root)
         const char  *k = root.u.tab.key[i];
         toml_datum_t v = root.u.tab.value[i];
 
-        if (strcmp(k, "alert") == 0) {
-            if (v.type != TOML_ARRAY)
-                continue;
+        if (strcmp(k, "alert") == 0 || strcmp(k, "alerts") == 0)
+            continue;
 
-            for (int j = 0; j < v.u.arr.size; j++) {
-                if (v.u.arr.elem[j].type != TOML_TABLE)
-                    continue;
-
-                char where[24];
-                snprintf(where, sizeof(where), "alert[%d]", j);
-                unknown += warn_unknown_in(v.u.arr.elem[j], where, ALERT_KEYS, N_KEYS(ALERT_KEYS));
-            }
-        } else if (strcmp(k, "alerts") == 0) {
-            if (v.type == TOML_TABLE)
-                unknown += warn_unknown_in(v, k, ALERT_KEYS, N_KEYS(ALERT_KEYS));
-        } else if (strcmp(k, "collect") == 0) {
+        if (strcmp(k, "collect") == 0) {
             if (v.type == TOML_TABLE)
                 unknown += warn_unknown_in(v, k, COLLECT_KEYS, N_KEYS(COLLECT_KEYS));
         } else if (strcmp(k, "dashboard") == 0) {

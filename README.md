@@ -574,8 +574,9 @@ named after its condition, with one space on each side of the operator. Two aler
 fail the load, since cooldowns are kept by name.
 
 A missing or malformed `when`, an unknown metric or operator, a `webhook` or `command` that is not a
-string, or an entry that is not a table fails the load, and the error says which alert. `when` and
-`name` go only in an alert: in `[alerts]` they fail the load.
+string, or an entry that is not a table fails the load, and the error says which alert. So does any
+unknown key in an alert or in `[alerts]`, such as `webhok`. `when` and `name` go only in an alert:
+in `[alerts]` they fail the load.
 
 **Available metrics** (any other name fails the load):
 
