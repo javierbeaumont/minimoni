@@ -70,7 +70,8 @@ static const char SQL_INSERT[] = "INSERT INTO metrics ("
 
 static const char SQL_PRUNE_METRICS[] = "DELETE FROM metrics WHERE timestamp < ?";
 
-static const char SQL_PRUNE_ALERTS[] = "DELETE FROM alert_log WHERE fired_at < ?";
+static const char SQL_PRUNE_ALERTS[] =
+    "DELETE FROM alert_log WHERE fired_at < ? AND resolved_at IS NOT NULL";
 
 static const char SQL_ALERT_CHECK[] =
     "SELECT COUNT(*) FROM alert_log WHERE alert_name = ? AND fired_at > ?";

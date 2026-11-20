@@ -190,8 +190,8 @@ static int test_alert_invalid_cooldown_without_default_warns(void)
                                err, sizeof(err));
 
     return rc == 0 && cfg.alert_count == 1 && cfg.alerts[0].cooldown_seconds == 0 &&
-                   strstr(err, "config: alert 'a': invalid cooldown '999999999d'; no cooldown, "
-                               "it fires every cycle")
+                   strstr(err, "config: alert 'a': invalid cooldown '999999999d'; it has no "
+                               "cooldown")
                ? 0
                : 1;
 }
@@ -520,8 +520,8 @@ static int test_alerts_invalid_cooldown_warns(void)
                                err, sizeof(err));
 
     return rc == 0 && cfg.alerts[0].cooldown_seconds == 0 &&
-                   strstr(err, "config: alerts: invalid cooldown '5x'; no cooldown, alerts "
-                               "without one fire every cycle")
+                   strstr(err, "config: alerts: invalid cooldown '5x'; alerts without their own "
+                               "have no cooldown")
                ? 0
                : 1;
 }

@@ -371,10 +371,9 @@ static int load_alert(alert_cfg_t *alert, const alert_cfg_t *defaults, toml_datu
 
     toml_datum_t cooldown = toml_get(table, "cooldown");
     if (cooldown.type != TOML_UNKNOWN)
-        alert->cooldown_seconds =
-            cooldown_value(cooldown, who, defaults->cooldown_seconds,
-                           defaults->cooldown_seconds > 0 ? "it keeps the one in [alerts]"
-                                                          : "no cooldown, it fires every cycle");
+        alert->cooldown_seconds = cooldown_value(
+            cooldown, who, defaults->cooldown_seconds,
+            defaults->cooldown_seconds > 0 ? "it keeps the one in [alerts]" : "it has no cooldown");
 
     /* A refused value already fails the load, and a refused webhook or command would look
      * missing. */
@@ -425,8 +424,8 @@ int load_alerts(config_t *cfg, toml_datum_t root, int *too_long)
 
     toml_datum_t cooldown = toml_get(alerts_table, "cooldown");
     if (cooldown.type != TOML_UNKNOWN)
-        defaults.cooldown_seconds = cooldown_value(
-            cooldown, "alerts", 0, "no cooldown, alerts without one fire every cycle");
+        defaults.cooldown_seconds =
+            cooldown_value(cooldown, "alerts", 0, "alerts without their own have no cooldown");
 
     toml_datum_t list = toml_seek(root, "alert");
 
@@ -457,8 +456,7 @@ int load_alerts(config_t *cfg, toml_datum_t root, int *too_long)
     if (*too_long)
         return 0;
 
-    /* alert_log keeps firings by name: of two alerts with one name, the first to fire would put the
-     * other on cooldown. */
+    /* alert_log keeps each alert's state by name: two alerts with one name would share it. */
     for (int i = 0; i < cfg->alert_count; i++) {
         for (int j = i + 1; j < cfg->alert_count; j++) {
             if (strcmp(cfg->alerts[i].name, cfg->alerts[j].name) == 0) {

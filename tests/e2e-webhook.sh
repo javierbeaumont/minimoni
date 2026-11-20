@@ -241,6 +241,7 @@ fire "https://127.0.0.1:$TLS_PORT/hook" 1
 check_has "https webhook completes the handshake and arrives" "$got" "POST /hook"
 check_has "the delivered payload names the alert" "$got" '"alert":"probe"'
 check_has "the delivered payload names the metric" "$got" '"metric":"uptime_seconds"'
+check_has "the delivered payload says the alert is firing" "$got" '"status":"firing"'
 check_lacks "a delivered webhook reports no failure" "$out" "not delivered"
 
 fire "https://127.0.0.1:$TCP_PORT/hook" 1
@@ -256,7 +257,7 @@ check_has "a peer that resets in the handshake is reported, not polled" "$out" "
 # Regression: a write after the peer's reset raised SIGPIPE and killed collect; without the signal,
 # the TLS close looped forever. A race, so 15 deliveries to a peer that resets after the handshake,
 # then an alert that must still run.
-alert_firing() { # NAME: an alert table that always fires, missing its action
+alert_firing() { # NAME: an alert table whose condition always holds, missing its action
     printf '[[alert]]\nname = "%s"\nwhen = "uptime_seconds > 0"\n' "$1"
 }
 
@@ -310,14 +311,13 @@ for run in 1 2; do
     check_has "the alert after it still runs ($run)" "$ran" yes
 done
 
-# The cooldown starts only when an action succeeds: a webhook that gets a 2xx reply, or a command
-# that exits 0. Each case runs collect twice on the same database, with a one-hour cooldown.
+# An alert counts as firing only once an action succeeds: a webhook that gets a 2xx reply, or a
+# command that exits 0. Each case runs collect twice on the same database.
 twice() { # WEBHOOK|- COMMAND|- -> sets $first and $second (stderr of each run)
     rm -f "$work/metrics.db"
     {
         printf '[collect]\ndb = "%s"\n' "$work/metrics.db"
         alert_firing cool
-        printf 'cooldown = "1h"\n'
         [ "$1" = - ] || printf 'webhook = "%s"\n' "$1"
         [ "$2" = - ] || printf 'command = "%s"\n' "$2"
     } >"$work/config.toml"
@@ -328,14 +328,54 @@ twice() { # WEBHOOK|- COMMAND|- -> sets $first and $second (stderr of each run)
 
 twice "http://127.0.0.1:$TCP_PORT/hook" -
 check_has "a webhook that gets a 2xx reply fires" "$first" "firing 'cool'"
-check_lacks "and the next run is in cooldown" "$second" "firing 'cool'"
+check_lacks "and the next run sends nothing while it holds" "$second" "firing 'cool'"
 twice "http://127.0.0.1:$FAIL_PORT/hook" -
 check_has "a webhook that gets a 500 reports it" "$first" "answered HTTP 500"
 check_has "and the next run fires again" "$second" "firing 'cool'"
 twice - /bin/false
 check_has "a failing command fires again on the next run" "$second" "firing 'cool'"
 twice "http://127.0.0.1:$FAIL_PORT/hook" /bin/true
-check_lacks "one successful action is enough to start the cooldown" "$second" "firing 'cool'"
+check_lacks "one successful action is enough to count it as firing" "$second" "firing 'cool'"
+
+# One alert across runs on the same database, its condition changed between them:
+# `uptime_seconds > 0` always holds, `< 0` never.
+alert_run() { # WHEN COOLDOWN|- WEBHOOK|- COMMAND|- -> sets $out (stderr of one collect)
+    {
+        printf '[collect]\ndb = "%s"\n' "$work/metrics.db"
+        printf '[[alert]]\nname = "cool"\nwhen = "%s"\n' "$1"
+        [ "$2" = - ] || printf 'cooldown = "%s"\n' "$2"
+        [ "$3" = - ] || printf 'webhook = "%s"\n' "$3"
+        [ "$4" = - ] || printf 'command = "%s"\n' "$4"
+    } >"$work/config.toml"
+
+    out=$(timeout 30 "$BIN" collect --config "$work/config.toml" 2>&1 >/dev/null)
+}
+
+rm -f "$work/metrics.db"
+: >"$received"
+alert_run "uptime_seconds > 0" - "http://127.0.0.1:$TCP_PORT/hook" -
+alert_run "uptime_seconds < 0" - "http://127.0.0.1:$TCP_PORT/hook" -
+check_has "a firing alert resolves once its condition stops holding" "$out" "resolved 'cool'"
+sleep 3 # the handler holds the connection for up to 2s before replying
+check_has "the payload says the alert is resolved" "$(tr -d '\000' <"$received")" \
+    '"status":"resolved"'
+alert_run "uptime_seconds < 0" - "http://127.0.0.1:$TCP_PORT/hook" -
+check_lacks "and the next run sends nothing more" "$out" "resolved 'cool'"
+
+rm -f "$work/metrics.db"
+alert_run "uptime_seconds > 0" 1h - /bin/true
+check_has "an alert with a cooldown fires" "$out" "firing 'cool'"
+alert_run "uptime_seconds < 0" 1h - /bin/true
+check_has "and resolves" "$out" "resolved 'cool'"
+alert_run "uptime_seconds > 0" 1h - /bin/true
+check_lacks "an alert that holds again within its cooldown sends nothing" "$out" "firing 'cool'"
+
+rm -f "$work/metrics.db"
+alert_run "uptime_seconds > 0" - - /bin/true
+alert_run "uptime_seconds < 0" - - /bin/false
+alert_run "uptime_seconds < 0" - - /bin/false
+check_has "a resolved message that no action delivers is sent again on the next run" "$out" \
+    "resolved 'cool'"
 
 # Deliberate: the opt-out drops the trust verdict, not the validity dates. br_x509_minimal withholds
 # the key on an expired chain, so the handshake cannot complete.

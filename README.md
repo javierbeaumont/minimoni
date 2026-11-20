@@ -19,7 +19,7 @@ and homelab servers) where every MB counts.
 - CPU load and usage, memory, swap use and I/O, disk, temperature, network throughput, and uptime
 - Interactive canvas dashboard, responsive, accessible, dark/light theme, live updates via SSE
 - SQLite storage with configurable retention
-- Webhook and command alerts with per-alert cooldown
+- Webhook and command alerts, sent when a condition starts to hold and when it stops
 - TOML configuration, sensible defaults, works with zero config
 - Runs comfortably on small arm64 boards (a Raspberry Pi 3B, or a 512 MB Pi Zero 2 W); 32-bit
   ARMv7 and ARMv6 binaries are published too, down to the original Pi Zero
@@ -545,14 +545,15 @@ if the parameter is missing.
 
 ### Alerts
 
-Alerts are evaluated after every collect cycle. Each `[[alert]]` block is one alert, and
-`[alerts]` holds their defaults and the webhook TLS keys.
+Alerts are evaluated after every collect cycle. An alert sends `firing` when its condition starts
+to hold and `resolved` when it stops, and nothing in between. Each `[[alert]]` block is one alert,
+and `[alerts]` holds their defaults and the webhook TLS keys.
 
 ```toml
 [alerts]
-webhook  = "https://ntfy.sh/my-server" # POST JSON to this URL when an alert fires
-command  = "/usr/local/bin/notify.sh"  # execute this command when an alert fires
-cooldown = "1h"                        # minimum time between repeated firings
+webhook  = "https://ntfy.sh/my-server" # POST JSON to this URL when an alert fires or resolves
+command  = "/usr/local/bin/notify.sh"  # execute this command when an alert fires or resolves
+cooldown = "1h"                        # least time between two firings of an alert
 
 [[alert]]
 when = "disk_available_percent < 10"   # metric, operator and number
@@ -571,7 +572,7 @@ and `cooldown` are optional. A `webhook`, `command` or `cooldown` in an alert re
 plain decimal number, 0 or more, of at most 23 characters) in the metric's own unit; spaces around
 the operator are optional. An alert whose `name` is missing, empty or not a string (which warns) is
 named after its condition, with one space on each side of the operator. Two alerts with one name
-fail the load, since cooldowns are kept by name.
+fail the load, since an alert's state is kept by name.
 
 A missing or malformed `when`, an unknown metric or operator, a `webhook` or `command` that is not a
 string, or an entry that is not a table fails the load, and the error says which alert. So does any
@@ -634,6 +635,7 @@ connect included, is given up and reported.
 ```json
 {
     "alert":     "disk_available_percent < 10",
+    "status":    "firing",
     "metric":    "disk_available_percent",
     "value":     8.7,
     "threshold": 10,
@@ -643,19 +645,26 @@ connect included, is given up and reported.
 }
 ```
 
-When `command` is set, it is executed via `system()` with the same user and privileges
-as the minimoni process. Keep commands short and non-blocking; long-running commands
-delay the next collect cycle.
+`status` is `firing` or `resolved`, and `value` is the metric's value at that check.
 
-`cooldown` prevents repeated firings: the alert will not fire again until the cooldown period has
-elapsed. The cooldown starts only when at least one of the alert's actions succeeds: a webhook that
-gets a 2xx reply, or a command that exits 0. If none succeeds, the alert fires again on the next
-cycle. `cooldown` takes a positive whole number and a unit, `s`, `m`, `h` or `d` (`30s`, `90m`,
-`1d`), up to 10 years, or `""` for none. Any other value is reported at startup, and the alert keeps
-the cooldown in `[alerts]`; with none there, it fires every cycle while its condition holds.
-Cooldown state is stored in the database by alert name (`alert_log` table) and survives restarts. It
-is deleted with the metrics older than the retention period (see `ranges`), so a longer cooldown
-ends there.
+When `command` is set, it is executed via `system()` with the same user and privileges
+as the minimoni process, on `firing` and on `resolved` alike; `MINIMONI_ALERT_STATUS` says which.
+Keep commands short and non-blocking; long-running commands delay the next collect cycle.
+
+A message counts only when at least one of the alert's actions succeeds: a webhook that gets a 2xx
+reply, or a command that exits 0. If none succeeds, the message is sent again on the next cycle. An
+alert's state is stored in the database by its name (`alert_log` table) and survives restarts: an
+alert whose condition stopped holding while minimoni was down sends `resolved` on the first cycle.
+An alert whose metric has no value keeps its state.
+
+`cooldown` is the least time between two firings of an alert, counted from the check that sent the
+first: if its condition holds again sooner, the alert sends nothing until the cooldown ends, and
+fires then if the condition still holds. `resolved` is never held back. `cooldown` takes a positive
+whole number and a unit, `s`, `m`, `h` or `d` (`30s`, `90m`, `1d`), up to 10 years, or `""` for
+none. Any other value is reported at startup, and the alert keeps the cooldown in `[alerts]`; with
+none there, a condition that comes and goes sends a `firing` and a `resolved` each time. A resolved
+firing older than the retention period (see `ranges`) is deleted with the metrics, so a longer
+cooldown ends there.
 
 #### Webhook TLS
 

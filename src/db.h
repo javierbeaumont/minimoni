@@ -69,8 +69,8 @@ void db_close(db_t *db);
  * success, -1 on error. */
 [[nodiscard]] int db_insert(db_t *db, const metrics_t *m);
 
-/* Delete rows older than retention_days from metrics and alert_log.
- * Returns 0 on success, -1 on error. */
+/* Delete the rows older than retention_days from metrics, and from alert_log those already
+ * resolved: a firing alert keeps its row. Returns 0 on success, -1 on error. */
 int db_prune(db_t *db, int retention_days);
 
 /* Run write-time tiered consolidation. Five transitions in a single
@@ -150,7 +150,8 @@ void db_release_memory(db_t *db);
 /* --- Alert log --- */
 
 /* Each firing of an alert is a row of alert_log: fired_at when it started, resolved_at when it
- * ended, NULL while it lasts. The times are UTC seconds. */
+ * ended, NULL while it lasts. The times are UTC seconds; `now` is the time of the check that
+ * decided. */
 
 /* 1 if alert_name fired less than cooldown_seconds before now, 0 if not, -1 on database error. */
 int db_alert_on_cooldown(db_t *db, const char *alert_name, long cooldown_seconds, time_t now);

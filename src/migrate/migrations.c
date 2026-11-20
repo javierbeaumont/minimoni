@@ -172,7 +172,8 @@ static const char SCRIPT_V0_TO_V1[] =
  * their percents are dropped: minimoni works them out from the total and the available as it reads
  * a row. disk_free_gb already held the available space, so it is only renamed. The uptime is
  * dropped too: minimoni reads it from /proc/uptime when it needs it. alert_log gains resolved_at,
- * NULL while an alert fires; v0.2 kept no such state, so its rows are marked resolved. */
+ * NULL while an alert fires; v0.2 kept no such state, so its rows are marked resolved, or the
+ * first check would send a "resolved" for each. */
 static const char SCRIPT_V1_TO_V2[] =
     "BEGIN;"
     "ALTER TABLE metrics ADD COLUMN swap_total_mb REAL;"

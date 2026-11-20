@@ -215,7 +215,7 @@ t_v02_migrates() {
     fi
 }
 
-# v0.2 kept no alert state.
+# v0.2 kept no alert state: its rows arrive resolved, so the first check sends no "resolved".
 t_v02_alert_log_rows_arrive_resolved() {
     db=$TMP/v02-alerts.db
     make_v02_db "$db"

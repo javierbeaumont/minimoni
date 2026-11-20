@@ -1465,8 +1465,8 @@ static int test_alert_fired_is_firing_until_resolved(void)
     return ok ? 0 : 1;
 }
 
-/* The cooldown counts from fired_at, to the second: a check exactly one cooldown later may fire
- * again. */
+/* The cooldown counts from the check that fired, to the second: a check exactly one cooldown later
+ * may fire again. */
 static int test_alert_cooldown_ends_exactly_one_cooldown_after_firing(void)
 {
     db_t db;
@@ -1512,6 +1512,24 @@ static int test_alert_lookups_leave_no_statement_busy(void)
     int    ok = db_alert_log_fire(&db, "a", now) == 0 && db_alert_firing(&db, "a") == 1 &&
                 db_alert_on_cooldown(&db, "a", 3600, now) == 1 &&
                 !sqlite3_stmt_busy(db.stmt_alert_firing) && !sqlite3_stmt_busy(db.stmt_alert_check);
+
+    close_test_db(&db);
+
+    return ok ? 0 : 1;
+}
+
+static int test_prune_keeps_a_firing_alert(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    time_t old = time(NULL) - 40L * 86400L;
+    int    ok = db_alert_log_fire(&db, "firing", old) == 0 &&
+                db_alert_log_fire(&db, "resolved", old) == 0 &&
+                db_alert_log_resolve(&db, "resolved", old + 60) == 0 && db_prune(&db, 7) == 0 &&
+                db_alert_firing(&db, "firing") == 1 &&
+                db_alert_on_cooldown(&db, "resolved", 365L * 86400L, time(NULL)) == 0;
 
     close_test_db(&db);
 
@@ -1711,6 +1729,7 @@ static const test_t ALL_TESTS[] = {
     T(alert_cooldown_ends_exactly_one_cooldown_after_firing),
     T(alert_cooldown_outlasts_the_resolve),
     T(alert_lookups_leave_no_statement_busy),
+    T(prune_keeps_a_firing_alert),
 };
 
 int main(void)

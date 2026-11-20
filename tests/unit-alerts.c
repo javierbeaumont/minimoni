@@ -167,16 +167,35 @@ int json_escape(char *dst, size_t cap, const char *src)
     return 0;
 }
 
+/* What the fake alert log answers: whether an alert is firing, and whether a cooldown holds it. */
+static int g_firing;
+static int g_cooling = 1;
+
 int db_alert_on_cooldown(db_t *db, const char *alert_name, long cooldown_seconds, time_t now)
 {
     (void)db;
     (void)alert_name;
     (void)cooldown_seconds;
     (void)now;
-    return 1;
+    return g_cooling;
+}
+
+int db_alert_firing(db_t *db, const char *alert_name)
+{
+    (void)db;
+    (void)alert_name;
+    return g_firing;
 }
 
 int db_alert_log_fire(db_t *db, const char *alert_name, time_t now)
+{
+    (void)db;
+    (void)alert_name;
+    (void)now;
+    return 0;
+}
+
+int db_alert_log_resolve(db_t *db, const char *alert_name, time_t now)
 {
     (void)db;
     (void)alert_name;
@@ -671,6 +690,100 @@ static int test_keep_head_keeps_only_what_fits(void)
     return h.len == sizeof(h.text) - 1 && strncmp(h.text, "HTTP/1.1 200 OK", 15) == 0 ? 0 : 1;
 }
 
+/* --- The step: what an alert sends on each check --- */
+
+static int test_alert_fires_when_its_condition_starts_to_hold(void)
+{
+    return alert_step(1, 0, 0) == ALERT_FIRE ? 0 : 1;
+}
+
+static int test_alert_within_its_cooldown_does_not_fire(void)
+{
+    return alert_step(1, 0, 1) == ALERT_KEEP ? 0 : 1;
+}
+
+static int test_firing_alert_sends_nothing_while_it_holds(void)
+{
+    return alert_step(1, 1, 0) == ALERT_KEEP && alert_step(1, 1, 1) == ALERT_KEEP ? 0 : 1;
+}
+
+static int test_firing_alert_resolves_when_it_stops_holding(void)
+{
+    return alert_step(0, 1, 0) == ALERT_RESOLVE && alert_step(0, 1, 1) == ALERT_RESOLVE ? 0 : 1;
+}
+
+static int test_quiet_alert_sends_nothing_while_it_does_not_hold(void)
+{
+    return alert_step(0, 0, 0) == ALERT_KEEP && alert_step(0, 0, 1) == ALERT_KEEP ? 0 : 1;
+}
+
+/* --- A check: what alerts_evaluate logs, from the alert log's answers --- */
+
+/* The log of one check of an alert named 'a' on `metric` > 1 with no action, so nothing is
+ * delivered: the load is `load`, the uptime 100 s, readable or not. */
+static const char *check_log(const char *metric, double load, int uptime_valid)
+{
+    static config_t cfg;
+    static char     log[1024];
+    db_row_t        row = {.load_1m = load};
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.alert_count = 1;
+    snprintf(cfg.title, sizeof(cfg.title), "host");
+    snprintf(cfg.alerts[0].name, sizeof(cfg.alerts[0].name), "a");
+    snprintf(cfg.alerts[0].metric, sizeof(cfg.alerts[0].metric), "%s", metric);
+    snprintf(cfg.alerts[0].op, sizeof(cfg.alerts[0].op), ">");
+    cfg.alerts[0].threshold = 1;
+
+    char path[64];
+    snprintf(path, sizeof(path), "/tmp/minimoni-alerts-check-%d.log", (int)getpid());
+    fflush(stderr);
+    if (!freopen(path, "w", stderr))
+        return "";
+
+    alerts_evaluate(NULL, &cfg, &row, 85, 1e9, 1, uptime_valid, 100);
+    fflush(stderr);
+    if (!freopen("/dev/null", "w", stderr))
+        return "";
+
+    FILE  *file = fopen(path, "r");
+    size_t len = file ? fread(log, 1, sizeof(log) - 1, file) : 0;
+    if (file)
+        fclose(file);
+    log[len] = '\0';
+    unlink(path);
+
+    return log;
+}
+
+static int test_check_logs_the_resolve_of_a_firing_alert(void)
+{
+    g_firing = 1;
+    int ok = strstr(check_log("load_1m", 0.5, 1), "alerts: resolved 'a'") != NULL;
+    g_firing = 0;
+
+    return ok ? 0 : 1;
+}
+
+static int test_check_after_a_failed_lookup_sends_nothing(void)
+{
+    g_firing = -1;
+    int ok = strstr(check_log("load_1m", 0.5, 1), "alerts:") == NULL &&
+             strstr(check_log("load_1m", 2, 1), "alerts:") == NULL;
+    g_firing = 0;
+
+    return ok ? 0 : 1;
+}
+
+static int test_firing_alert_whose_metric_has_no_value_keeps_its_state(void)
+{
+    g_firing = 1;
+    int ok = strstr(check_log("uptime_seconds", 0, 0), "alerts:") == NULL;
+    g_firing = 0;
+
+    return ok ? 0 : 1;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
@@ -709,6 +822,14 @@ static const test_t ALL_TESTS[] = {
     T(reply_other_codes_do_not_count),
     T(reply_that_is_not_http_does_not_count),
     T(keep_head_keeps_only_what_fits),
+    T(alert_fires_when_its_condition_starts_to_hold),
+    T(alert_within_its_cooldown_does_not_fire),
+    T(firing_alert_sends_nothing_while_it_holds),
+    T(firing_alert_resolves_when_it_stops_holding),
+    T(quiet_alert_sends_nothing_while_it_does_not_hold),
+    T(check_logs_the_resolve_of_a_firing_alert),
+    T(check_after_a_failed_lookup_sends_nothing),
+    T(firing_alert_whose_metric_has_no_value_keeps_its_state),
 };
 
 int main(void)

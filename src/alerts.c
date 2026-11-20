@@ -453,31 +453,32 @@ static int reply_ok(const head_t *h)
 
 /* Returns 1 when the endpoint answered 2xx. Any failure returns 0 and is reported in a single
  * line. */
-static int post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
-                        const char *timestamp, const char *hostname)
+static int post_webhook(const config_t *cfg, const alert_cfg_t *alert, const char *status,
+                        double value, const char *timestamp, const char *hostname)
 {
     char host[256], port_str[8], path[512];
-    int  scheme =
-        parse_url(a->webhook, host, sizeof(host), port_str, sizeof(port_str), path, sizeof(path));
+    int  scheme = parse_url(alert->webhook, host, sizeof(host), port_str, sizeof(port_str), path,
+                            sizeof(path));
 
     if (scheme < 0)
         return 0;
 
     /* Not op: valid_op() checks it at load. The other three are free-form. */
     char ename[256], emetric[256], ehost[512];
-    if (json_escape(ename, sizeof(ename), a->name) < 0 ||
-        json_escape(emetric, sizeof(emetric), a->metric) < 0 ||
+    if (json_escape(ename, sizeof(ename), alert->name) < 0 ||
+        json_escape(emetric, sizeof(emetric), alert->metric) < 0 ||
         json_escape(ehost, sizeof(ehost), hostname) < 0) {
-        fprintf(stderr, "alerts: '%.32s' does not fit escaped; webhook skipped\n", a->name);
+        fprintf(stderr, "alerts: '%.32s' does not fit escaped; webhook skipped\n", alert->name);
         return 0;
     }
 
     char body[1024];
-    int  blen = fit_printf(body, sizeof(body),
-                           "{\"alert\":\"%s\",\"metric\":\"%s\",\"value\":%.6g,"
-                           "\"threshold\":%.6g,\"operator\":\"%s\","
-                           "\"timestamp\":\"%s\",\"hostname\":\"%s\"}",
-                           ename, emetric, value, a->threshold, a->op, timestamp, ehost);
+    int  blen =
+        fit_printf(body, sizeof(body),
+                   "{\"alert\":\"%s\",\"status\":\"%s\",\"metric\":\"%s\","
+                   "\"value\":%.6g,\"threshold\":%.6g,\"operator\":\"%s\","
+                   "\"timestamp\":\"%s\",\"hostname\":\"%s\"}",
+                   ename, status, emetric, value, alert->threshold, alert->op, timestamp, ehost);
 
     /* RFC 9110: the port goes in Host unless it is the scheme's default. */
     int port_shown = strcmp(port_str, scheme == 1 ? "443" : "80") != 0;
@@ -496,7 +497,7 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
                                       blen, body);
 
     if (rlen < 0) {
-        fprintf(stderr, "alerts: '%.32s' webhook does not fit in %zu bytes; skipped\n", a->name,
+        fprintf(stderr, "alerts: '%.32s' webhook does not fit in %zu bytes; skipped\n", alert->name,
                 sizeof(req));
         return 0;
     }
@@ -526,17 +527,17 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
         return 0;
     }
 
-    conn_t  c = {fd, deadline};
+    conn_t  conn = {fd, deadline};
     head_t  head = {"", 0};
     int     tls_failed = 0;
     char    buf[256];
-    ssize_t n;
+    ssize_t read_len;
 
     if (scheme == 0) {
-        write_all(&c, req, (size_t)rlen);
+        write_all(&conn, req, (size_t)rlen);
 
-        while (in_time(&c) && (n = read(fd, buf, sizeof(buf))) > 0)
-            keep_head(&head, buf, (size_t)n);
+        while (in_time(&conn) && (read_len = read(fd, buf, sizeof(buf))) > 0)
+            keep_head(&head, buf, (size_t)read_len);
     } else {
         br_ssl_client_context   sc;
         br_x509_minimal_context xc;
@@ -553,14 +554,14 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
             xc.vtable = &insecure_vt;
         br_ssl_engine_set_buffer(&sc.eng, iobuf, sizeof(iobuf), 1);
         br_ssl_client_reset(&sc, host, 0);
-        br_sslio_init(&ioc, &sc.eng, tls_sock_read, &c, tls_sock_write, &c);
+        br_sslio_init(&ioc, &sc.eng, tls_sock_read, &conn, tls_sock_write, &conn);
 
         /* Only delivery is checked: plenty of endpoints close without close_notify, which BearSSL
          * reports as an error even though the POST did arrive. */
         if (br_sslio_write_all(&ioc, req, (size_t)rlen) != 0 || br_sslio_flush(&ioc) != 0) {
             tls_failed = 1;
             int err = br_ssl_engine_last_error(&sc.eng);
-            if (in_time(&c))
+            if (in_time(&conn))
                 fprintf(stderr, "alerts: webhook to %s not delivered, TLS error %d%s\n", host, err,
                         tls_error_name(err));
         } else {
@@ -578,10 +579,11 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
     trust_free(&trust);
 
     int ok = reply_ok(&head);
+
     if (ok || tls_failed)
         return ok;
 
-    if (!in_time(&c))
+    if (!in_time(&conn))
         fprintf(stderr, "alerts: webhook to %s timed out after %d s\n", host, DELIVERY_SECONDS);
     else if (strncmp(head.text, "HTTP/", 5) == 0 && strchr(head.text, ' '))
         fprintf(stderr, "alerts: webhook to %s answered HTTP %.3s\n", host,
@@ -594,32 +596,50 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *a, double value,
 
 /* --- Command execution --- */
 
-static int run_command(const alert_cfg_t *a, double value)
+static int run_command(const alert_cfg_t *alert, const char *status, double value)
 {
     char val_str[32], thr_str[32];
     snprintf(val_str, sizeof(val_str), "%.6g", value);
-    snprintf(thr_str, sizeof(thr_str), "%.6g", a->threshold);
+    snprintf(thr_str, sizeof(thr_str), "%.6g", alert->threshold);
 
-    setenv("MINIMONI_ALERT_NAME", a->name, 1);
-    setenv("MINIMONI_ALERT_METRIC", a->metric, 1);
+    setenv("MINIMONI_ALERT_NAME", alert->name, 1);
+    setenv("MINIMONI_ALERT_STATUS", status, 1);
+    setenv("MINIMONI_ALERT_METRIC", alert->metric, 1);
     setenv("MINIMONI_ALERT_VALUE", val_str, 1);
     setenv("MINIMONI_ALERT_THRESHOLD", thr_str, 1);
-    setenv("MINIMONI_ALERT_OPERATOR", a->op, 1);
+    setenv("MINIMONI_ALERT_OPERATOR", alert->op, 1);
 
-    /* a->command is a static value from the operator's config; the dynamic alert
+    /* alert->command is a static value from the operator's config; the dynamic alert
      * data is exported via the MINIMONI_ALERT_* env vars above, never the string. */
     /* NOLINTNEXTLINE(bugprone-command-processor) no untrusted input reaches the command */
-    int ret = system(a->command);
+    int ret = system(alert->command);
+
     if (ret != 0)
-        fprintf(stderr, "alerts: command '%s' exited %d\n", a->command, ret);
+        fprintf(stderr, "alerts: command '%s' exited %d\n", alert->command, ret);
 
     unsetenv("MINIMONI_ALERT_NAME");
+    unsetenv("MINIMONI_ALERT_STATUS");
     unsetenv("MINIMONI_ALERT_METRIC");
     unsetenv("MINIMONI_ALERT_VALUE");
     unsetenv("MINIMONI_ALERT_THRESHOLD");
     unsetenv("MINIMONI_ALERT_OPERATOR");
 
     return ret == 0;
+}
+
+/* What an alert does on this check, from whether its condition holds, whether it is firing, and
+ * whether a cooldown holds back a new firing. */
+typedef enum { ALERT_KEEP, ALERT_FIRE, ALERT_RESOLVE } alert_step_t;
+
+static alert_step_t alert_step(int holds, int firing, int cooling)
+{
+    if (holds && !firing && !cooling)
+        return ALERT_FIRE;
+
+    if (!holds && firing)
+        return ALERT_RESOLVE;
+
+    return ALERT_KEEP;
 }
 
 /* --- Public API --- */
@@ -629,6 +649,8 @@ int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double t
 {
     if (cfg->alert_count == 0)
         return 0;
+
+    time_t now = time(NULL);
 
     char hostname[128];
     if (cfg->title[0])
@@ -646,31 +668,47 @@ int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double t
         if (!valid)
             continue;
 
-        if (!eval_op(value, alert->op, alert->threshold))
+        int holds = eval_op(value, alert->op, alert->threshold);
+        int firing = db_alert_firing(db, alert->name);
+        int cooling = holds && firing == 0
+                          ? db_alert_on_cooldown(db, alert->name, alert->cooldown_seconds, now)
+                          : 0;
+
+        if (firing < 0 || cooling < 0)
             continue;
 
-        if (db_alert_on_cooldown(db, alert->name, alert->cooldown_seconds, time(NULL)) != 0)
+        alert_step_t step = alert_step(holds, firing, cooling);
+
+        if (step == ALERT_KEEP)
             continue;
 
-        fprintf(stderr, "alerts: firing '%s' (%.6g %s %.6g)\n", alert->name, value, alert->op,
-                alert->threshold);
+        const char *status = step == ALERT_FIRE ? "firing" : "resolved";
+        if (step == ALERT_FIRE)
+            fprintf(stderr, "alerts: firing '%s' (%.6g %s %.6g)\n", alert->name, value, alert->op,
+                    alert->threshold);
+        else
+            fprintf(stderr, "alerts: resolved '%s' (%.6g, no longer %s %.6g)\n", alert->name, value,
+                    alert->op, alert->threshold);
 
-        /* The cooldown starts only if an action succeeded; otherwise the alert fires again next
+        /* The state changes only if an action succeeded; otherwise the message is sent again next
          * cycle. */
         int delivered = 0;
         if (alert->webhook[0])
-            delivered |= post_webhook(cfg, alert, value, row->timestamp, hostname);
+            delivered |= post_webhook(cfg, alert, status, value, row->timestamp, hostname);
         if (alert->command[0])
-            delivered |= run_command(alert, value);
+            delivered |= run_command(alert, status, value);
 
         if (!delivered)
             continue;
 
-        if (db_alert_log_fire(db, alert->name, time(NULL)) != 0)
+        int recorded = step == ALERT_FIRE ? db_alert_log_fire(db, alert->name, now)
+                                          : db_alert_log_resolve(db, alert->name, now);
+
+        if (recorded != 0)
             fprintf(stderr,
-                    "alerts: '%s' fired but its cooldown was not recorded; it will fire "
-                    "again next cycle\n",
-                    alert->name);
+                    "alerts: sent %s for '%s' but did not record it; it is sent again next "
+                    "cycle\n",
+                    status, alert->name);
     }
 
     return 0;

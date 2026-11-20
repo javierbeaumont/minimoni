@@ -147,11 +147,13 @@ db = "$work/load.db"
 [[alert]]
 name = "load"
 when = "load_1m_percent >= 0"
-command = "echo \$MINIMONI_ALERT_METRIC=\$MINIMONI_ALERT_VALUE > $work/load.out"
+command = "env > $work/load.out"
 EOF
 "$BIN" collect --config "$work/load.toml" >/dev/null 2>&1
 check_has "collect fires a load_1m_percent alert" "$(cat "$work/load.out" 2>/dev/null)" \
-    "load_1m_percent="
+    "MINIMONI_ALERT_METRIC=load_1m_percent"
+check_has "its command is told the alert is firing" "$(cat "$work/load.out" 2>/dev/null)" \
+    "MINIMONI_ALERT_STATUS=firing"
 
 # --- db info ---
 info=$("$BIN" db info "$work/metrics.db" 2>/dev/null)
