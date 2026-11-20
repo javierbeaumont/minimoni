@@ -464,10 +464,10 @@ All keys are optional. The values above are the defaults, with three exceptions:
 to `minimoni`, and `charts` and `cards` are unset by default, which shows every metric in the
 order listed above.
 
-**`title`**: browser tab text, dashboard header, and the `hostname` field in webhook alert
-payloads. If omitted, the dashboard shows "minimoni" and webhook payloads use the system
-hostname from `gethostname()`. Set this when running multiple instances so alert notifications
-identify the source host.
+**`title`**: browser tab text, dashboard header, and the host named in webhook alerts (`json`'s
+`hostname` field, the end of `text`'s line). If omitted, the dashboard shows "minimoni" and webhook
+alerts name the system hostname from `gethostname()`. Set this when running multiple instances so
+alert notifications identify the source host.
 
 **`theme`**: when set to `"light"` or `"dark"`, the theme is fixed and the toggle button is
 hidden. `"auto"` (default) follows the OS preference and shows the toggle.
@@ -553,7 +553,7 @@ and `[alerts]` holds their defaults and the webhook TLS keys.
 [alerts]
 command  = "/usr/local/bin/notify.sh"  # execute this command when an alert fires or resolves
 cooldown = "1h"                        # least time between two firings of an alert
-format   = "json"                      # the body POSTed to the webhook (default: json)
+format   = "json"                      # "json" | "text": the body POSTed (default: json)
 webhook  = "https://ntfy.sh/my-server" # POST to this URL when an alert fires or resolves
 
 [[alert]]
@@ -576,9 +576,9 @@ named after its condition, with one space on each side of the operator. Two aler
 fail the load, since an alert's state is kept by name.
 
 A missing or malformed `when`, an unknown metric or operator, a `command` or `webhook` that is not a
-string, a `format` other than `json`, or an entry that is not a table fails the load, and the error
-says which alert. So does any unknown key in an alert or in `[alerts]`, such as `webhok`. `when`
-and `name` go only in an alert: in `[alerts]` they fail the load.
+string, a `format` other than `json` or `text`, or an entry that is not a table fails the load, and
+the error says which alert. So does any unknown key in an alert or in `[alerts]`, such as `webhok`.
+`when` and `name` go only in an alert: in `[alerts]` they fail the load.
 
 **Available metrics** (any other name fails the load):
 
@@ -630,7 +630,10 @@ Dashboard unit settings do not affect alert thresholds: alerts work from the dat
 dashboard's units. The `swap_*` metrics are skipped on a host without swap.
 
 When `webhook` is set, minimoni sends a POST request whose body is the one `format` names. The
-`json` body, below, is sent as `application/json`.
+`json` body, below, is sent as `application/json`. `text` sends one line as `text/plain`, which an
+ntfy topic URL shows as the message: `[firing] disk_available_percent 7.7 < 10 on my-server`, or
+`[firing] hot: temp_degrees 81.5 > 80 on my-server` for an alert with `name = "hot"`. A resolve
+reads `[resolved] disk_available_percent 12.3, no longer < 10 on my-server`.
 **Requires outbound HTTP connectivity from the server.** A delivery that takes over 10 s, DNS and
 connect included, is given up and reported.
 

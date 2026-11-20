@@ -37,10 +37,11 @@
         "swap_in_bps", "swap_out_bps", "swap_in_ram", "swap_out_ram"
 
 /* The body POSTed to an alert's webhook. */
-typedef enum { ALERT_FORMAT_JSON } alert_format_t;
+typedef enum { ALERT_FORMAT_JSON, ALERT_FORMAT_TEXT } alert_format_t;
 
 typedef struct {
     char           name[64];
+    int            named; /* 1 when the config gave the name, 0 when it is the condition */
     char           metric[32];
     char           op[4];
     double         threshold;

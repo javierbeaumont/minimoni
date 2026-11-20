@@ -205,7 +205,7 @@ if [ "$ready" -ne 1 ]; then
 fi
 
 ca_file=""
-fire() { # URL INSECURE(0|1) [NAME] [TITLE] -> sets $out (stderr) and $got (bytes the server read)
+fire() { # URL INSECURE(0|1) [NAME] [TITLE] [FORMAT] -> sets $out (stderr) and $got (bytes received)
     # $ca_file, when set, goes under [alerts] too.
     : >"$received"
     rm -f "$work/metrics.db"
@@ -218,6 +218,9 @@ when = "uptime_seconds > 0"
 webhook = "$1"
 cooldown = "1h"
 EOF
+    if [ -n "${5:-}" ]; then
+        printf 'format = "%s"\n' "$5" >>"$work/config.toml"
+    fi
     printf '[alerts]\n' >>"$work/config.toml"
     if [ "$2" = 1 ]; then
         printf 'insecure_skip_verify = true\n' >>"$work/config.toml"
@@ -242,6 +245,7 @@ check_has "https webhook completes the handshake and arrives" "$got" "POST /hook
 check_has "the delivered payload names the alert" "$got" '"alert":"probe"'
 check_has "the delivered payload names the metric" "$got" '"metric":"uptime_seconds"'
 check_has "the delivered payload says the alert is firing" "$got" '"status":"firing"'
+check_has "the json format is sent as application/json" "$got" "Content-Type: application/json"
 check_lacks "a delivered webhook reports no failure" "$out" "not delivered"
 
 fire "https://127.0.0.1:$TCP_PORT/hook" 1
@@ -336,6 +340,12 @@ twice - /bin/false
 check_has "a failing command fires again on the next run" "$second" "firing 'cool'"
 twice "http://127.0.0.1:$FAIL_PORT/hook" /bin/true
 check_lacks "one successful action is enough to count it as firing" "$second" "firing 'cool'"
+
+fire "http://127.0.0.1:$TCP_PORT/hook" 0 cool web-01 text
+check_has "the text format is sent as plain text" "$got" "Content-Type: text/plain; charset=utf-8"
+check_has "its line names the alert" "$got" "[firing] cool: uptime_seconds "
+check_has "then the condition and the host" "$got" " > 0 on web-01"
+check_lacks "and no JSON body" "$got" '"alert":'
 
 # One alert across runs on the same database, its condition changed between them:
 # `uptime_seconds > 0` always holds, `< 0` never.

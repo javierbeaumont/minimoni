@@ -19,12 +19,12 @@
  * along with minimoni. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Unit tests for the X.509 policy in src/alerts.c (zero-dependency, no framework).
+/* Unit tests for src/alerts.c (zero-dependency, no framework).
  * Build with: make test. The module is #included directly.
  *
  * BearSSL is replaced at the link seam, the way unit-http.c replaces civetweb: a fake vtable can
  * report any verdict, where the real engine only produces one per certificate it is handed. That
- * the policy plus real BearSSL actually delivers a webhook is asserted in tests/e2e-webhook.sh. */
+ * the X.509 policy plus real BearSSL delivers a webhook is asserted in tests/e2e-webhook.sh. */
 
 #define _POSIX_C_SOURCE 200809L
 
@@ -726,6 +726,86 @@ static int test_quiet_alert_sends_nothing_while_it_does_not_hold(void)
     return alert_step(0, 0, 0) == ALERT_KEEP && alert_step(0, 0, 1) == ALERT_KEEP ? 0 : 1;
 }
 
+/* --- The text format's line --- */
+
+static int line_is(const alert_cfg_t *alert, const char *status, double value, const char *want)
+{
+    char line[256];
+
+    return alert_line(alert, status, value, "my-server", line, sizeof(line)) == (int)strlen(want) &&
+           strcmp(line, want) == 0;
+}
+
+static int test_text_line_does_not_repeat_the_condition(void)
+{
+    alert_cfg_t alert = {.name = "disk_available_percent < 10",
+                         .metric = "disk_available_percent",
+                         .op = "<",
+                         .threshold = 10};
+
+    return line_is(&alert, "firing", 7.7, "[firing] disk_available_percent 7.7 < 10 on my-server")
+               ? 0
+               : 1;
+}
+
+static int test_text_line_puts_a_configured_name_first(void)
+{
+    alert_cfg_t alert = {
+        .name = "hot", .named = 1, .metric = "temp_degrees", .op = ">", .threshold = 80};
+
+    return line_is(&alert, "firing", 81.5, "[firing] hot: temp_degrees 81.5 > 80 on my-server") ? 0
+                                                                                                : 1;
+}
+
+static int test_text_line_of_a_resolve(void)
+{
+    alert_cfg_t alert = {.name = "disk_available_percent < 10",
+                         .metric = "disk_available_percent",
+                         .op = "<",
+                         .threshold = 10};
+
+    return line_is(&alert, "resolved", 12.3,
+                   "[resolved] disk_available_percent 12.3, no longer < 10 on my-server")
+               ? 0
+               : 1;
+}
+
+static int test_text_line_stays_one_line(void)
+{
+    alert_cfg_t alert = {.name = "disk\nfull\x01",
+                         .named = 1,
+                         .metric = "disk_available_percent",
+                         .op = "<",
+                         .threshold = 10};
+    char        line[256];
+
+    return alert_line(&alert, "firing", 7.7,
+                      "web\x1f"
+                      "01\x7f",
+                      line, sizeof(line)) > 0 &&
+                   strcmp(line,
+                          "[firing] disk full : disk_available_percent 7.7 < 10 on web 01 ") == 0
+               ? 0
+               : 1;
+}
+
+static int test_text_line_keeps_utf_8(void)
+{
+    alert_cfg_t alert = {
+        .name = "Z\xc3\xbcrich", .named = 1, .metric = "load_1m", .op = ">", .threshold = 1};
+
+    return line_is(&alert, "firing", 2, "[firing] Z\xc3\xbcrich: load_1m 2 > 1 on my-server") ? 0
+                                                                                              : 1;
+}
+
+static int test_text_line_that_does_not_fit_is_refused(void)
+{
+    alert_cfg_t alert = {.metric = "disk_available_percent", .op = "<", .threshold = 10};
+    char        line[16];
+
+    return alert_line(&alert, "firing", 7.7, "my-server", line, sizeof(line)) == -1 ? 0 : 1;
+}
+
 /* --- A check: what alerts_evaluate logs, from the alert log's answers --- */
 
 /* The log of one check of an alert named 'a' on `metric` > 1 with no action, so nothing is
@@ -836,6 +916,12 @@ static const test_t ALL_TESTS[] = {
     T(firing_alert_sends_nothing_while_it_holds),
     T(firing_alert_resolves_when_it_stops_holding),
     T(quiet_alert_sends_nothing_while_it_does_not_hold),
+    T(text_line_does_not_repeat_the_condition),
+    T(text_line_puts_a_configured_name_first),
+    T(text_line_of_a_resolve),
+    T(text_line_stays_one_line),
+    T(text_line_keeps_utf_8),
+    T(text_line_that_does_not_fit_is_refused),
     T(check_logs_the_resolve_of_a_firing_alert),
     T(check_after_a_failed_lookup_sends_nothing),
     T(firing_alert_whose_metric_has_no_value_keeps_its_state),

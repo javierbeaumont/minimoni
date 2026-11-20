@@ -34,7 +34,8 @@ static const char *const METRIC_NAMES[] = {ALERT_METRICS, NULL};
 static const char *const ALERT_KEYS[] = {
     "ca_file", "command", "cooldown", "format", "insecure_skip_verify", "name", "webhook", "when"};
 
-static const char *const FORMAT_NAMES[] = {[ALERT_FORMAT_JSON] = "json"};
+static const char *const FORMAT_NAMES[] = {[ALERT_FORMAT_JSON] = "json",
+                                           [ALERT_FORMAT_TEXT] = "text"};
 
 /* 1 when a line opens a PEM certificate, 0 when none does, -1 with errno when the file cannot be
  * read. Only a first check: the anchors are decoded at delivery. */
@@ -378,9 +379,10 @@ static int load_alert(alert_cfg_t *alert, const alert_cfg_t *defaults, toml_datu
 
     if (name.type != TOML_STRING && name.type != TOML_UNKNOWN)
         fprintf(stderr, "config: %s: name is not a string; it is named '%s'\n", label, alert->name);
-    else if (name.type == TOML_STRING && name.u.s[0] &&
-             str_copy(alert->name, sizeof(alert->name), name, "alert[%d].name", index) != 0)
-        *too_long = 1;
+    else if (name.type == TOML_STRING && name.u.s[0]) {
+        alert->named = 1;
+        *too_long |= str_copy(alert->name, sizeof(alert->name), name, "alert[%d].name", index) != 0;
+    }
 
     char who[96];
     snprintf(who, sizeof(who), "alert '%s'", alert->name);

@@ -648,13 +648,35 @@ static int test_format_json_loads_in_alerts_and_in_an_alert(void)
                : 1;
 }
 
+static int test_alerts_format_is_the_default(void)
+{
+    config_t cfg;
+
+    return load_cfg(&cfg, "[alerts]\nformat = \"text\"\n[[alert]]\nwhen = \"load_1m > 1\"\n"
+                          "webhook = \"w\"\n") == 0 &&
+                   cfg.alerts[0].format == ALERT_FORMAT_TEXT
+               ? 0
+               : 1;
+}
+
+static int test_alert_format_replaces_the_default(void)
+{
+    config_t cfg;
+
+    return load_cfg(&cfg, "[alerts]\nformat = \"text\"\n[[alert]]\nwhen = \"load_1m > 1\"\n"
+                          "webhook = \"w\"\nformat = \"json\"\n") == 0 &&
+                   cfg.alerts[0].format == ALERT_FORMAT_JSON
+               ? 0
+               : 1;
+}
+
 static int test_unknown_format_fails(void)
 {
     return fails_with("[alerts]\nformat = \"jsonl\"\n",
-                      "config: alerts: unknown format 'jsonl' (use json); aborting") &&
+                      "config: alerts: unknown format 'jsonl' (use json, text); aborting") &&
                    fails_with("[[alert]]\nname = \"a\"\nwhen = \"load_1m > 1\"\nwebhook = \"w\"\n"
                               "format = \"\"\n",
-                              "config: alert 'a': unknown format '' (use json); aborting")
+                              "config: alert 'a': unknown format '' (use json, text); aborting")
                ? 0
                : 1;
 }
@@ -688,6 +710,19 @@ static int test_alerts_with_one_condition_fail(void)
     return fails_with("[[alert]]\nwhen = \"load_1m>1\"\nwebhook = \"w\"\n"
                       "[[alert]]\nwhen = \"load_1m > 1\"\ncommand = \"c\"\n",
                       "config: two alerts are named 'load_1m > 1'; aborting")
+               ? 0
+               : 1;
+}
+
+static int test_alert_named_only_when_the_config_names_it(void)
+{
+    config_t cfg;
+
+    return load_cfg(&cfg,
+                    "[[alert]]\nname = \"hot\"\nwhen = \"load_1m > 1\"\nwebhook = \"w\"\n"
+                    "[[alert]]\nwhen = \"load_5m > 1\"\nwebhook = \"w\"\n"
+                    "[[alert]]\nname = \"\"\nwhen = \"load_15m > 1\"\nwebhook = \"w\"\n") == 0 &&
+                   cfg.alerts[0].named == 1 && cfg.alerts[1].named == 0 && cfg.alerts[2].named == 0
                ? 0
                : 1;
 }
@@ -861,6 +896,16 @@ static int test_every_overlong_value_is_reported(void)
                    strstr(err, "alert[0].command is 256 bytes")
                ? 0
                : 1;
+}
+
+static int test_value_over_max_before_a_named_alert_fails(void)
+{
+    config_t cfg;
+    char     db[300], err[512], toml[512];
+    snprintf(toml, sizeof(toml), "[collect]\ndb = \"%s\"\n" ALERT_HEAD "webhook = \"w\"\n",
+             xs(db, 256));
+
+    return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 ? 0 : 1;
 }
 
 /* --- Cooldown: anything but a duration warns and leaves none --- */
@@ -1246,10 +1291,13 @@ static const test_t ALL_TESTS[] = {
     T(alert_keys_in_alerts_fail),
     T(tls_keys_in_an_alert_fail),
     T(format_json_loads_in_alerts_and_in_an_alert),
+    T(alerts_format_is_the_default),
+    T(alert_format_replaces_the_default),
     T(unknown_format_fails),
     T(format_not_a_string_fails),
     T(alerts_with_one_name_fail),
     T(alerts_with_one_condition_fail),
+    T(alert_named_only_when_the_config_names_it),
     /* [alerts] TLS */
     T(insecure_skip_verify_default_false),
     T(insecure_skip_verify_true),
@@ -1274,6 +1322,7 @@ static const test_t ALL_TESTS[] = {
     T(ca_file_over_max_fails),
     T(ca_file_over_max_reports_only_its_length),
     T(every_overlong_value_is_reported),
+    T(value_over_max_before_a_named_alert_fails),
     /* cooldown: anything but a duration */
     T(cooldown_integer_warns),
     T(cooldown_absent_is_silent),

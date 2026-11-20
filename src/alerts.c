@@ -451,6 +451,26 @@ static int reply_ok(const head_t *h)
            isdigit((unsigned char)code[2]) && isdigit((unsigned char)code[3]);
 }
 
+/* The line the text format sends: "[firing] disk_available_percent 7.7 < 10 on my-server", with
+ * "12.3, no longer < 10" on a resolve and the alert's name before the metric when the config gave
+ * one. An ASCII control character in the name or host becomes a space, so it stays one line.
+ * Returns its length, or -1 when it does not fit. */
+static int alert_line(const alert_cfg_t *alert, const char *status, double value,
+                      const char *hostname, char *line, size_t size)
+{
+    int resolved = strcmp(status, "resolved") == 0;
+    int len =
+        fit_printf(line, size, "[%s] %s%s%s %.6g%s %s %.6g on %s", status,
+                   alert->named ? alert->name : "", alert->named ? ": " : "", alert->metric, value,
+                   resolved ? ", no longer" : "", alert->op, alert->threshold, hostname);
+
+    for (int i = 0; i < len; i++)
+        if ((unsigned char)line[i] < 0x20 || line[i] == 0x7f)
+            line[i] = ' ';
+
+    return len;
+}
+
 /* Returns 1 when the endpoint answered 2xx. Any failure returns 0 and is reported in a single
  * line. */
 static int post_webhook(const config_t *cfg, const alert_cfg_t *alert, const char *status,
@@ -463,22 +483,29 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *alert, const cha
     if (scheme < 0)
         return 0;
 
-    /* Not op: valid_op() checks it at load. The other three are free-form. */
-    char ename[256], emetric[256], ehost[512];
-    if (json_escape(ename, sizeof(ename), alert->name) < 0 ||
-        json_escape(emetric, sizeof(emetric), alert->metric) < 0 ||
-        json_escape(ehost, sizeof(ehost), hostname) < 0) {
-        fprintf(stderr, "alerts: '%.32s' does not fit escaped; webhook skipped\n", alert->name);
-        return 0;
-    }
+    int         blen;
+    char        body[1024];
+    const char *media_type = "application/json";
 
-    char body[1024];
-    int  blen =
-        fit_printf(body, sizeof(body),
-                   "{\"alert\":\"%s\",\"status\":\"%s\",\"metric\":\"%s\","
-                   "\"value\":%.6g,\"threshold\":%.6g,\"operator\":\"%s\","
-                   "\"timestamp\":\"%s\",\"hostname\":\"%s\"}",
-                   ename, status, emetric, value, alert->threshold, alert->op, timestamp, ehost);
+    if (alert->format == ALERT_FORMAT_JSON) {
+        /* The name and the host are free-form; the metric and the operator are checked at load. */
+        char ehost[512], ename[256];
+        if (json_escape(ehost, sizeof(ehost), hostname) < 0 ||
+            json_escape(ename, sizeof(ename), alert->name) < 0) {
+            fprintf(stderr, "alerts: '%.32s' does not fit escaped; webhook skipped\n", alert->name);
+            return 0;
+        }
+
+        blen = fit_printf(body, sizeof(body),
+                          "{\"alert\":\"%s\",\"status\":\"%s\",\"metric\":\"%s\","
+                          "\"value\":%.6g,\"threshold\":%.6g,\"operator\":\"%s\","
+                          "\"timestamp\":\"%s\",\"hostname\":\"%s\"}",
+                          ename, status, alert->metric, value, alert->threshold, alert->op,
+                          timestamp, ehost);
+    } else {
+        media_type = "text/plain; charset=utf-8";
+        blen = alert_line(alert, status, value, hostname, body, sizeof(body));
+    }
 
     /* RFC 9110: the port goes in Host unless it is the scheme's default. */
     int port_shown = strcmp(port_str, scheme == 1 ? "443" : "80") != 0;
@@ -488,13 +515,13 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *alert, const cha
                          : fit_printf(req, sizeof(req),
                                       "POST %s HTTP/1.0\r\n"
                                       "Host: %s%s%s\r\n"
-                                      "Content-Type: application/json\r\n"
+                                      "Content-Type: %s\r\n"
                                       "Content-Length: %d\r\n"
                                       "Connection: close\r\n"
                                       "\r\n"
                                       "%s",
                                       path, host, port_shown ? ":" : "", port_shown ? port_str : "",
-                                      blen, body);
+                                      media_type, blen, body);
 
     if (rlen < 0) {
         fprintf(stderr, "alerts: '%.32s' webhook does not fit in %zu bytes; skipped\n", alert->name,
@@ -516,6 +543,7 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *alert, const cha
     if (getaddrinfo(host, port_str, &hints, &res) != 0) {
         fprintf(stderr, "alerts: webhook dns failed for %s\n", host);
         trust_free(&trust);
+
         return 0;
     }
 
