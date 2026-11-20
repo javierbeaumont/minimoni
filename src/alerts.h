@@ -42,4 +42,8 @@
 int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double temp_critical,
                     double net_ref, int cores, int uptime_valid, long uptime);
 
+/* Resolve, with no message, the firing alerts that are not in cfg: removed or renamed since they
+ * fired. Call once, after opening the database; failures are logged to stderr. */
+void alerts_resolve_removed(db_t *db, const config_t *cfg);
+
 #endif /* MINIMONI_ALERTS_H */

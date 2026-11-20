@@ -1500,6 +1500,40 @@ static int test_alert_cooldown_outlasts_the_resolve(void)
     return ok ? 0 : 1;
 }
 
+static int test_alert_resolve_others_spares_the_names_given(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    time_t            now = time(NULL);
+    const char *const kept[] = {"a", "c"};
+    int ok = db_alert_log_fire(&db, "a", now) == 0 && db_alert_log_fire(&db, "b", now) == 0 &&
+             db_alert_log_fire(&db, "c", now) == 0 &&
+             db_alert_resolve_others(&db, kept, 2, now + 60) == 0 &&
+             db_alert_firing(&db, "a") == 1 && db_alert_firing(&db, "b") == 0 &&
+             db_alert_firing(&db, "c") == 1;
+
+    close_test_db(&db);
+
+    return ok ? 0 : 1;
+}
+
+static int test_alert_resolve_others_with_no_names_resolves_all(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    time_t now = time(NULL);
+    int ok = db_alert_log_fire(&db, "a", now) == 0 &&
+             db_alert_resolve_others(&db, NULL, 0, now + 60) == 0 && db_alert_firing(&db, "a") == 0;
+
+    close_test_db(&db);
+
+    return ok ? 0 : 1;
+}
+
 /* A lookup that returns a row resets its statement: one left mid-read keeps a read transaction open
  * on the writer's connection, and the WAL never restarts. */
 static int test_alert_lookups_leave_no_statement_busy(void)
@@ -1728,6 +1762,8 @@ static const test_t ALL_TESTS[] = {
     T(alert_fired_is_firing_until_resolved),
     T(alert_cooldown_ends_exactly_one_cooldown_after_firing),
     T(alert_cooldown_outlasts_the_resolve),
+    T(alert_resolve_others_spares_the_names_given),
+    T(alert_resolve_others_with_no_names_resolves_all),
     T(alert_lookups_leave_no_statement_busy),
     T(prune_keeps_a_firing_alert),
 };

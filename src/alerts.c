@@ -644,6 +644,15 @@ static alert_step_t alert_step(int holds, int firing, int cooling)
 
 /* --- Public API --- */
 
+void alerts_resolve_removed(db_t *db, const config_t *cfg)
+{
+    const char *names[MAX_ALERTS];
+    for (int i = 0; i < cfg->alert_count; i++)
+        names[i] = cfg->alerts[i].name;
+
+    db_alert_resolve_others(db, names, cfg->alert_count, time(NULL));
+}
+
 int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double temp_critical,
                     double net_ref, int cores, int uptime_valid, long uptime)
 {

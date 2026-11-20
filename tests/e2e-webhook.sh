@@ -377,6 +377,14 @@ alert_run "uptime_seconds < 0" - - /bin/false
 check_has "a resolved message that no action delivers is sent again on the next run" "$out" \
     "resolved 'cool'"
 
+# A firing alert left out of the config is resolved: back in it, it fires again.
+rm -f "$work/metrics.db"
+alert_run "uptime_seconds > 0" - - /bin/true
+printf '[collect]\ndb = "%s"\n' "$work/metrics.db" >"$work/config.toml"
+timeout 30 "$BIN" collect --config "$work/config.toml" >/dev/null 2>&1
+alert_run "uptime_seconds > 0" - - /bin/true
+check_has "a firing alert removed from the config is resolved" "$out" "firing 'cool'"
+
 # Deliberate: the opt-out drops the trust verdict, not the validity dates. br_x509_minimal withholds
 # the key on an expired chain, so the handshake cannot complete.
 fire "https://127.0.0.1:$EXPIRED_PORT/hook" 1

@@ -165,4 +165,8 @@ int db_alert_firing(db_t *db, const char *alert_name);
 /* Record that alert_name stopped firing at now. Returns 0 on success, -1 on error. */
 [[nodiscard]] int db_alert_log_resolve(db_t *db, const char *alert_name, time_t now);
 
+/* Resolve at now every firing alert whose name is not among the `count` in `names`, such as one
+ * removed from the config. Returns 0 on success, -1 on error. */
+int db_alert_resolve_others(db_t *db, const char *const names[], int count, time_t now);
+
 #endif /* MINIMONI_DB_H */

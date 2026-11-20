@@ -503,6 +503,57 @@ int db_alert_log_resolve(db_t *db, const char *alert_name, time_t now)
     return 0;
 }
 
+int db_alert_resolve_others(db_t *db, const char *const names[], int count, time_t now)
+{
+    /* One placeholder per name: no name is spliced into the SQL. */
+    static const char HEAD[] = "UPDATE alert_log SET resolved_at = ? WHERE resolved_at IS NULL"
+                               " AND alert_name NOT IN (";
+
+    size_t len = sizeof(HEAD) - 1;
+    char  *sql = malloc(len + 2 * (size_t)count + 2);
+
+    if (!sql) {
+        fprintf(stderr, "db: alert cleanup: out of memory\n");
+        return -1;
+    }
+
+    memcpy(sql, HEAD, len);
+    for (int i = 0; i < count; i++) {
+        if (i > 0)
+            sql[len++] = ',';
+        sql[len++] = '?';
+    }
+    sql[len++] = ')';
+    sql[len] = '\0';
+
+    sqlite3_stmt *stmt;
+    int           prepared = sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL);
+    free(sql);
+
+    if (prepared != SQLITE_OK) {
+        fprintf(stderr, "db: alert cleanup prepare: %s\n", sqlite3_errmsg(db->handle));
+        return -1;
+    }
+
+    char resolved_at[24];
+    iso_time(now, resolved_at, sizeof(resolved_at));
+    sqlite3_bind_text(stmt, 1, resolved_at, -1, SQLITE_TRANSIENT);
+    for (int i = 0; i < count; i++)
+        sqlite3_bind_text(stmt, i + 2, names[i], -1, SQLITE_TRANSIENT);
+
+    int rc = step_with_retry(stmt);
+
+    if (rc != SQLITE_DONE) {
+        fprintf(stderr, "db: alert cleanup error: %s\n", sqlite3_errmsg(db->handle));
+        sqlite3_finalize(stmt);
+        return -1;
+    }
+
+    sqlite3_finalize(stmt);
+
+    return 0;
+}
+
 /* --- Query helpers --- */
 
 /* Read one db_row_t from the current row of stmt: columns 0-19, in the order of the SELECT lists of

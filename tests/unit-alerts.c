@@ -203,6 +203,15 @@ int db_alert_log_resolve(db_t *db, const char *alert_name, time_t now)
     return 0;
 }
 
+int db_alert_resolve_others(db_t *db, const char *const names[], int count, time_t now)
+{
+    (void)db;
+    (void)names;
+    (void)count;
+    (void)now;
+    return 0;
+}
+
 #include "../src/alerts.c"
 
 /* --- The policy: which verdicts the opt-out drops --- */

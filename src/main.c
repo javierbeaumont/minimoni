@@ -125,6 +125,8 @@ static int run_collect(const char *config_path)
     if (db_open(&db, cfg.db_path, cfg.interval_seconds) != 0)
         return 1;
 
+    alerts_resolve_removed(&db, &cfg);
+
     metrics_t m;
     if (metrics_collect(&m, cfg.disk_path) != 0) {
         fprintf(stderr, "minimoni: metrics_collect failed\n");
@@ -182,6 +184,8 @@ static int run_serve(const char *config_path)
     db_t db;
     if (db_open(&db, cfg.db_path, cfg.interval_seconds) != 0)
         return 1;
+
+    alerts_resolve_removed(&db, &cfg);
 
     db_t db_ro;
     if (db_open_readonly(&db_ro, cfg.db_path) != 0) {

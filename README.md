@@ -655,7 +655,8 @@ A message counts only when at least one of the alert's actions succeeds: a webho
 reply, or a command that exits 0. If none succeeds, the message is sent again on the next cycle. An
 alert's state is stored in the database by its name (`alert_log` table) and survives restarts: an
 alert whose condition stopped holding while minimoni was down sends `resolved` on the first cycle.
-An alert whose metric has no value keeps its state.
+An alert whose metric has no value keeps its state, and a firing alert that leaves the config, or
+is renamed, is resolved with no message.
 
 `cooldown` is the least time between two firings of an alert, counted from the check that sent the
 first: if its condition holds again sooner, the alert sends nothing until the cooldown ends, and
