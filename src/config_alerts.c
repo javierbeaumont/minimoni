@@ -31,8 +31,10 @@
 static const char *const METRIC_NAMES[] = {ALERT_METRICS, NULL};
 
 /* Shared by [alerts] and [[alert]]: load_alerts and load_alert reject a key in the wrong one. */
-static const char *const ALERT_KEYS[] = {"ca_file", "command", "cooldown", "insecure_skip_verify",
-                                         "name",    "webhook", "when"};
+static const char *const ALERT_KEYS[] = {
+    "ca_file", "command", "cooldown", "format", "insecure_skip_verify", "name", "webhook", "when"};
+
+static const char *const FORMAT_NAMES[] = {[ALERT_FORMAT_JSON] = "json"};
 
 /* 1 when a line opens a PEM certificate, 0 when none does, -1 with errno when the file cannot be
  * read. Only a first check: the anchors are decoded at delivery. */
@@ -207,6 +209,31 @@ static int not_a_string(toml_datum_t value, const char *who, const char *key)
     return 1;
 }
 
+/* Sets *format to the one `value` names, if set. Returns -1, after an error naming `who`, when
+ * `value` is not a string or names no format. */
+static int format_value(toml_datum_t value, const char *who, alert_format_t *format)
+{
+    if (value.type == TOML_UNKNOWN)
+        return 0;
+
+    if (not_a_string(value, who, "format"))
+        return -1;
+
+    for (int i = 0; i < N_KEYS(FORMAT_NAMES); i++) {
+        if (strcmp(value.u.s, FORMAT_NAMES[i]) == 0) {
+            *format = (alert_format_t)i;
+            return 0;
+        }
+    }
+
+    fprintf(stderr, "config: %s: unknown format '%s' (use ", who, value.u.s);
+    for (int i = 0; i < N_KEYS(FORMAT_NAMES); i++)
+        fprintf(stderr, "%s%s", i ? ", " : "", FORMAT_NAMES[i]);
+    fprintf(stderr, "); aborting\n");
+
+    return -1;
+}
+
 /* [alerts]: the TLS keys every webhook uses. Returns -1 when the load must fail; a value too long
  * for its field sets *too_long instead. */
 static int load_tls(config_t *cfg, toml_datum_t alerts_table, int *too_long)
@@ -375,6 +402,9 @@ static int load_alert(alert_cfg_t *alert, const alert_cfg_t *defaults, toml_datu
             cooldown, who, defaults->cooldown_seconds,
             defaults->cooldown_seconds > 0 ? "it keeps the one in [alerts]" : "it has no cooldown");
 
+    if (format_value(toml_get(table, "format"), who, &alert->format) != 0)
+        return -1;
+
     /* A refused value already fails the load, and a refused webhook or command would look
      * missing. */
     if (!*too_long && !alert->webhook[0] && !alert->command[0]) {
@@ -426,6 +456,9 @@ int load_alerts(config_t *cfg, toml_datum_t root, int *too_long)
     if (cooldown.type != TOML_UNKNOWN)
         defaults.cooldown_seconds =
             cooldown_value(cooldown, "alerts", 0, "alerts without their own have no cooldown");
+
+    if (format_value(toml_get(alerts_table, "format"), "alerts", &defaults.format) != 0)
+        return -1;
 
     toml_datum_t list = toml_seek(root, "alert");
 

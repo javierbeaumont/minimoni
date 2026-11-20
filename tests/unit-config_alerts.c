@@ -635,6 +635,40 @@ static int test_tls_keys_in_an_alert_fail(void)
                : 1;
 }
 
+/* --- format --- */
+
+static int test_format_json_loads_in_alerts_and_in_an_alert(void)
+{
+    config_t cfg;
+
+    return load_cfg(&cfg, "[alerts]\nformat = \"json\"\n[[alert]]\nwhen = \"load_1m > 1\"\n"
+                          "webhook = \"w\"\nformat = \"json\"\n") == 0 &&
+                   cfg.alerts[0].format == ALERT_FORMAT_JSON
+               ? 0
+               : 1;
+}
+
+static int test_unknown_format_fails(void)
+{
+    return fails_with("[alerts]\nformat = \"jsonl\"\n",
+                      "config: alerts: unknown format 'jsonl' (use json); aborting") &&
+                   fails_with("[[alert]]\nname = \"a\"\nwhen = \"load_1m > 1\"\nwebhook = \"w\"\n"
+                              "format = \"\"\n",
+                              "config: alert 'a': unknown format '' (use json); aborting")
+               ? 0
+               : 1;
+}
+
+static int test_format_not_a_string_fails(void)
+{
+    return fails_with("[alerts]\nformat = 1\n",
+                      "config: alerts: format is not a string; aborting") &&
+                   fails_with("[[alert]]\nwhen = \"load_1m > 1\"\nwebhook = \"w\"\nformat = 1\n",
+                              "config: alert 'load_1m > 1': format is not a string; aborting")
+               ? 0
+               : 1;
+}
+
 /* --- Names --- */
 
 static int test_alerts_with_one_name_fail(void)
@@ -1211,6 +1245,9 @@ static const test_t ALL_TESTS[] = {
     T(alerts_as_an_array_fails),
     T(alert_keys_in_alerts_fail),
     T(tls_keys_in_an_alert_fail),
+    T(format_json_loads_in_alerts_and_in_an_alert),
+    T(unknown_format_fails),
+    T(format_not_a_string_fails),
     T(alerts_with_one_name_fail),
     T(alerts_with_one_condition_fail),
     /* [alerts] TLS */

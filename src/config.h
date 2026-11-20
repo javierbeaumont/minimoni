@@ -36,14 +36,18 @@
         "net_rx_percent", "net_tx_percent", "uptime_seconds", "swap_free_mb", "swap_free_percent", \
         "swap_in_bps", "swap_out_bps", "swap_in_ram", "swap_out_ram"
 
+/* The body POSTed to an alert's webhook. */
+typedef enum { ALERT_FORMAT_JSON } alert_format_t;
+
 typedef struct {
-    char   name[64];
-    char   metric[32];
-    char   op[4];
-    double threshold;
-    char   webhook[512];
-    char   command[256];
-    long   cooldown_seconds;
+    char           name[64];
+    char           metric[32];
+    char           op[4];
+    double         threshold;
+    char           command[256];
+    char           webhook[512];
+    long           cooldown_seconds;
+    alert_format_t format; /* default: ALERT_FORMAT_JSON */
 } alert_cfg_t;
 
 typedef struct {

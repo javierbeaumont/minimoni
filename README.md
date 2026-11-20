@@ -551,9 +551,10 @@ and `[alerts]` holds their defaults and the webhook TLS keys.
 
 ```toml
 [alerts]
-webhook  = "https://ntfy.sh/my-server" # POST JSON to this URL when an alert fires or resolves
 command  = "/usr/local/bin/notify.sh"  # execute this command when an alert fires or resolves
 cooldown = "1h"                        # least time between two firings of an alert
+format   = "json"                      # the body POSTed to the webhook (default: json)
+webhook  = "https://ntfy.sh/my-server" # POST to this URL when an alert fires or resolves
 
 [[alert]]
 when = "disk_available_percent < 10"   # metric, operator and number
@@ -564,9 +565,9 @@ when    = "temp_degrees > 80"
 webhook = ""                           # "" clears the default
 ```
 
-Every alert needs `when` and a `webhook` or `command` (or both), its own or from `[alerts]`; `name`
-and `cooldown` are optional. A `webhook`, `command` or `cooldown` in an alert replaces the one in
-`[alerts]`, and an empty string clears it.
+Every alert needs `when` and a `command` or `webhook` (or both), its own or from `[alerts]`;
+`cooldown`, `format` and `name` are optional. A `command`, `cooldown`, `format` or `webhook` in an
+alert replaces the one in `[alerts]`, and an empty `command`, `cooldown` or `webhook` clears it.
 
 `when` is a metric from the table below, an operator (`>`, `<`, `>=` or `<=`) and a threshold (a
 plain decimal number, 0 or more, of at most 23 characters) in the metric's own unit; spaces around
@@ -574,10 +575,10 @@ the operator are optional. An alert whose `name` is missing, empty or not a stri
 named after its condition, with one space on each side of the operator. Two alerts with one name
 fail the load, since an alert's state is kept by name.
 
-A missing or malformed `when`, an unknown metric or operator, a `webhook` or `command` that is not a
-string, or an entry that is not a table fails the load, and the error says which alert. So does any
-unknown key in an alert or in `[alerts]`, such as `webhok`. `when` and `name` go only in an alert:
-in `[alerts]` they fail the load.
+A missing or malformed `when`, an unknown metric or operator, a `command` or `webhook` that is not a
+string, a `format` other than `json`, or an entry that is not a table fails the load, and the error
+says which alert. So does any unknown key in an alert or in `[alerts]`, such as `webhok`. `when`
+and `name` go only in an alert: in `[alerts]` they fail the load.
 
 **Available metrics** (any other name fails the load):
 
@@ -628,7 +629,8 @@ matches its yellow or its red.
 Dashboard unit settings do not affect alert thresholds: alerts work from the database, never in the
 dashboard's units. The `swap_*` metrics are skipped on a host without swap.
 
-When `webhook` is set, minimoni sends a POST request (`Content-Type: application/json`).
+When `webhook` is set, minimoni sends a POST request whose body is the one `format` names. The
+`json` body, below, is sent as `application/json`.
 **Requires outbound HTTP connectivity from the server.** A delivery that takes over 10 s, DNS and
 connect included, is given up and reported.
 
@@ -640,7 +642,7 @@ connect included, is given up and reported.
     "value":     8.7,
     "threshold": 10,
     "operator":  "<",
-    "timestamp": "2026-06-08T14:30:00Z",
+    "timestamp": "2000-01-01T00:00:00Z",
     "hostname":  "my-server"
 }
 ```
