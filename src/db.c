@@ -79,7 +79,7 @@ static const char SQL_ALERT_CHECK[] =
 static const char SQL_ALERT_FIRE[] = "INSERT INTO alert_log (alert_name, fired_at) VALUES (?, ?)";
 
 static const char SQL_ALERT_FIRING[] =
-    "SELECT COUNT(*) FROM alert_log WHERE alert_name = ? AND resolved_at IS NULL";
+    "SELECT MIN(fired_at) FROM alert_log WHERE alert_name = ? AND resolved_at IS NULL";
 
 static const char SQL_ALERT_RESOLVE[] =
     "UPDATE alert_log SET resolved_at = ? WHERE alert_name = ? AND resolved_at IS NULL";
@@ -444,7 +444,7 @@ int db_alert_on_cooldown(db_t *db, const char *alert_name, long cooldown_seconds
     return cooling;
 }
 
-int db_alert_firing(db_t *db, const char *alert_name)
+int db_alert_firing(db_t *db, const char *alert_name, char *fired_at, size_t size)
 {
     sqlite3_stmt *stmt = db->stmt_alert_firing;
     sqlite3_reset(stmt);
@@ -457,7 +457,16 @@ int db_alert_firing(db_t *db, const char *alert_name)
         return -1;
     }
 
-    int firing = sqlite3_column_int(stmt, 0) > 0;
+    int firing = sqlite3_column_type(stmt, 0) != SQLITE_NULL;
+
+    if (firing && fired_at && size) {
+        const unsigned char *start = sqlite3_column_text(stmt, 0);
+        int                  len = snprintf(fired_at, size, "%s", start ? (const char *)start : "");
+
+        if (len < 0 || (size_t)len >= size)
+            fired_at[0] = '\0';
+    }
+
     sqlite3_reset(stmt);
 
     return firing;

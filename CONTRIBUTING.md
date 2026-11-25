@@ -51,8 +51,8 @@ of one function that are duplicated on purpose, and `runner.h` is the harness th
 Neither is a test tier.
 
 Some checks run before each release rather than on every push, and a failure blocks it; run them
-by hand after changing what they cover. The source builds on Debian 13, Fedora 44 and Ubuntu 26.04
-run `make release`, check the binaries are PIE (static with musl, dynamic with glibc), then run the
+by hand after changing what they cover. The source builds on Fedora 44 and Ubuntu 26.04 run
+`make release`, check the binaries are PIE (static with musl, dynamic with glibc), then run the
 `e2e-*` suites. All of them run in Docker:
 
 ```sh

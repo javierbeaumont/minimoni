@@ -1456,9 +1456,60 @@ static int test_alert_fired_is_firing_until_resolved(void)
         return 1;
 
     time_t now = time(NULL);
-    int    ok = db_alert_firing(&db, "a") == 0 && db_alert_log_fire(&db, "a", now) == 0 &&
-                db_alert_firing(&db, "a") == 1 && db_alert_firing(&db, "b") == 0 &&
-                db_alert_log_resolve(&db, "a", now + 60) == 0 && db_alert_firing(&db, "a") == 0;
+    int ok = db_alert_firing(&db, "a", NULL, 0) == 0 && db_alert_log_fire(&db, "a", now) == 0 &&
+             db_alert_firing(&db, "a", NULL, 0) == 1 && db_alert_firing(&db, "b", NULL, 0) == 0 &&
+             db_alert_log_resolve(&db, "a", now + 60) == 0 &&
+             db_alert_firing(&db, "a", NULL, 0) == 0;
+
+    close_test_db(&db);
+
+    return ok ? 0 : 1;
+}
+
+static int test_alert_firing_says_when_it_started(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    /* 2000-01-01T00:00:00Z. */
+    time_t fired = 946684800;
+    char   started[24] = "";
+    int    ok = db_alert_log_fire(&db, "a", fired) == 0 &&
+                db_alert_firing(&db, "a", started, sizeof(started)) == 1 &&
+                strcmp(started, "2000-01-01T00:00:00Z") == 0;
+
+    close_test_db(&db);
+
+    return ok ? 0 : 1;
+}
+
+static int test_alert_firing_gives_no_start_that_does_not_fit(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    /* One byte short of the start and its NUL. */
+    char started[20] = "x";
+    int  ok = db_alert_log_fire(&db, "a", time(NULL)) == 0 &&
+              db_alert_firing(&db, "a", started, sizeof(started)) == 1 && started[0] == '\0';
+
+    close_test_db(&db);
+
+    return ok ? 0 : 1;
+}
+
+static int test_alert_firing_writes_no_start_into_no_room(void)
+{
+    db_t db;
+    if (open_test_db(&db) != 0)
+        return 1;
+
+    char started[2] = "x";
+    int  ok = db_alert_log_fire(&db, "a", time(NULL)) == 0 &&
+              db_alert_firing(&db, "a", started, 0) == 1 && strcmp(started, "x") == 0 &&
+              db_alert_firing(&db, "a", NULL, sizeof(started)) == 1;
 
     close_test_db(&db);
 
@@ -1511,8 +1562,8 @@ static int test_alert_resolve_others_spares_the_names_given(void)
     int ok = db_alert_log_fire(&db, "a", now) == 0 && db_alert_log_fire(&db, "b", now) == 0 &&
              db_alert_log_fire(&db, "c", now) == 0 &&
              db_alert_resolve_others(&db, kept, 2, now + 60) == 0 &&
-             db_alert_firing(&db, "a") == 1 && db_alert_firing(&db, "b") == 0 &&
-             db_alert_firing(&db, "c") == 1;
+             db_alert_firing(&db, "a", NULL, 0) == 1 && db_alert_firing(&db, "b", NULL, 0) == 0 &&
+             db_alert_firing(&db, "c", NULL, 0) == 1;
 
     close_test_db(&db);
 
@@ -1526,8 +1577,9 @@ static int test_alert_resolve_others_with_no_names_resolves_all(void)
         return 1;
 
     time_t now = time(NULL);
-    int ok = db_alert_log_fire(&db, "a", now) == 0 &&
-             db_alert_resolve_others(&db, NULL, 0, now + 60) == 0 && db_alert_firing(&db, "a") == 0;
+    int    ok = db_alert_log_fire(&db, "a", now) == 0 &&
+                db_alert_resolve_others(&db, NULL, 0, now + 60) == 0 &&
+                db_alert_firing(&db, "a", NULL, 0) == 0;
 
     close_test_db(&db);
 
@@ -1543,7 +1595,7 @@ static int test_alert_lookups_leave_no_statement_busy(void)
         return 1;
 
     time_t now = time(NULL);
-    int    ok = db_alert_log_fire(&db, "a", now) == 0 && db_alert_firing(&db, "a") == 1 &&
+    int    ok = db_alert_log_fire(&db, "a", now) == 0 && db_alert_firing(&db, "a", NULL, 0) == 1 &&
                 db_alert_on_cooldown(&db, "a", 3600, now) == 1 &&
                 !sqlite3_stmt_busy(db.stmt_alert_firing) && !sqlite3_stmt_busy(db.stmt_alert_check);
 
@@ -1562,7 +1614,7 @@ static int test_prune_keeps_a_firing_alert(void)
     int    ok = db_alert_log_fire(&db, "firing", old) == 0 &&
                 db_alert_log_fire(&db, "resolved", old) == 0 &&
                 db_alert_log_resolve(&db, "resolved", old + 60) == 0 && db_prune(&db, 7) == 0 &&
-                db_alert_firing(&db, "firing") == 1 &&
+                db_alert_firing(&db, "firing", NULL, 0) == 1 &&
                 db_alert_on_cooldown(&db, "resolved", 365L * 86400L, time(NULL)) == 0;
 
     close_test_db(&db);
@@ -1583,7 +1635,7 @@ static int test_prune_keeps_a_firing_alert(void)
  * threshold) is an exact multiple of 5, so the bucket ends exactly on the
  * cutoff. That is the only bucket the two statements could disagree on. */
 
-#define PINNED_NOW 1800000000L
+#define PINNED_NOW 946684800L
 #define T1_BUCKET 5
 #define T1_THRESHOLD 7200L
 
@@ -1760,6 +1812,9 @@ static const test_t ALL_TESTS[] = {
     T(consolidate_boundary_bucket_is_aggregated),
     T(consolidate_boundary_bucket_not_due),
     T(alert_fired_is_firing_until_resolved),
+    T(alert_firing_says_when_it_started),
+    T(alert_firing_gives_no_start_that_does_not_fit),
+    T(alert_firing_writes_no_start_into_no_room),
     T(alert_cooldown_ends_exactly_one_cooldown_after_firing),
     T(alert_cooldown_outlasts_the_resolve),
     T(alert_resolve_others_spares_the_names_given),

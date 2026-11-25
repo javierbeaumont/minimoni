@@ -145,14 +145,15 @@ CycloneDX SBOM (`sbom.cdx.json`) listing the vendored dependencies compiled into
 
 ### Prerequisites
 
-Building from source needs **GCC 14 or newer**: minimoni is C23. Debian 13, Fedora 44 and
-Ubuntu 26.04 are checked before each release, with either C library:
+Building from source needs **GCC 15 or newer**: minimoni is C23 and uses `#embed`. With an older
+GCC, `make release-linux` builds in Docker instead. Fedora 44 and Ubuntu 26.04 are checked before
+each release, with either C library:
 
 ```sh
-# Debian 13 / Ubuntu 26.04, glibc
+# Ubuntu 26.04, glibc
 sudo apt-get install gcc make xxd git
 
-# Debian 13 / Ubuntu 26.04, musl
+# Ubuntu 26.04, musl
 sudo apt-get install gcc make xxd git musl-tools
 
 # Fedora 44, glibc
@@ -465,9 +466,9 @@ to `minimoni`, and `charts` and `cards` are unset by default, which shows every 
 order listed above.
 
 **`title`**: browser tab text, dashboard header, and the host named in webhook alerts (`json`'s
-`hostname` field, the end of `text`'s line). If omitted, the dashboard shows "minimoni" and webhook
-alerts name the system hostname from `gethostname()`. Set this when running multiple instances so
-alert notifications identify the source host.
+`hostname` field, `alertmanager`'s `instance` label, the end of `text`'s line). If omitted, the
+dashboard shows "minimoni" and webhook alerts name the system hostname from `gethostname()`. Set
+this when running multiple instances so alert notifications identify the source host.
 
 **`theme`**: when set to `"light"` or `"dark"`, the theme is fixed and the toggle button is
 hidden. `"auto"` (default) follows the OS preference and shows the toggle.
@@ -553,7 +554,7 @@ and `[alerts]` holds their defaults and the webhook TLS keys.
 [alerts]
 command  = "/usr/local/bin/notify.sh"  # execute this command when an alert fires or resolves
 cooldown = "1h"                        # least time between two firings of an alert
-format   = "json"                      # "json" | "slack" | "text": the body POSTed (default: json)
+format   = "json"                      # body POSTed: json (default), alertmanager, slack or text
 webhook  = "https://ntfy.sh/my-server" # POST to this URL when an alert fires or resolves
 
 [[alert]]
@@ -576,9 +577,10 @@ named after its condition, with one space on each side of the operator. Two aler
 fail the load, since an alert's state is kept by name.
 
 A missing or malformed `when`, an unknown metric or operator, a `command` or `webhook` that is not a
-string, a `format` other than `json`, `slack` or `text`, or an entry that is not a table fails the
-load, and the error says which alert. So does any unknown key in an alert or in `[alerts]`, such as
-`webhok`. `when` and `name` go only in an alert: in `[alerts]` they fail the load.
+string, a `format` other than `json`, `alertmanager`, `slack` or `text`, or an entry that is not a
+table fails the load, and the error says which alert. So does any unknown key in an alert or in
+`[alerts]`, such as `webhok`. `when` and `name` go only in an alert: in `[alerts]` they fail the
+load.
 
 **Available metrics** (any other name fails the load):
 
@@ -655,6 +657,19 @@ connect included, is given up and reported.
 
 `status` is `firing` or `resolved`, and `value` is the metric's value at that check.
 
+`alertmanager` sends the version 4 webhook body of Prometheus's Alertmanager
+([`<webhook_config>`][am]), holding the one alert: its labels are `alertname` (the alert's name) and
+`instance` (the host), and its `summary` annotation is `text`'s line without the leading `[firing]`
+or `[resolved]`. Alertmanager sends this body to its receivers; neither Prometheus nor Alertmanager
+takes it. Services with a Prometheus Alertmanager integration take it: Better Stack, Grafana IRM,
+ilert, ntfy with `?template=alertmanager` in its topic URL, SIGNL4 and Zenduty; SIGNL4 closes the
+alert on `resolved` only when its URL ends in
+`?ExtIDParam=groupKey&ExtStatusParam=status&ResolvedStatus=resolved`. The body has no `severity`, so
+the URL sets the priority: ntfy 2.32.0 or later reads its `priority` parameter as a template, and
+`{{if eq .status "resolved"}}low{{else}}high{{end}}`, percent-encoded, sends `resolved` at low
+priority.
+
+[am]: https://prometheus.io/docs/alerting/latest/configuration/#webhook_config
 [se]: https://docs.slack.dev/messaging/formatting-message-text/#escaping
 [sw]: https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/#posting_with_webhooks
 

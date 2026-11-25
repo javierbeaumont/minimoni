@@ -18,7 +18,7 @@
 # You should have received a copy of the GNU General Public License
 # along with minimoni. If not, see <https://www.gnu.org/licenses/>.
 
-# Usage: check-systemd.sh IMAGE (a Debian image, booted with systemd as PID 1)
+# Usage: check-systemd.sh IMAGE (an Ubuntu image, booted with systemd as PID 1)
 set -eu
 
 c=minimoni-check-systemd

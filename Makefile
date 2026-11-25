@@ -47,6 +47,8 @@ BEARSSL_INC = -Ivendor/bearssl/inc
 SRC = src/main.c src/alerts.c src/config.c src/config_alerts.c src/db.c src/db_cmd.c \
       src/downsample.c src/http.c src/json.c src/metrics.c src/trust.c src/units.c
 VENDOR = vendor/civetweb.c vendor/sqlite3.c vendor/tomlc17.c
+# Webhook body templates, which src/alerts.c embeds.
+TEMPLATES = src/alertmanager.json.j2
 
 # minimoni-migrate: standalone, links no vendored libs (calls `minimoni db exec`).
 MIGRATE_SRC = src/migrate/main.c src/migrate/consolidate.c src/migrate/exec.c \
@@ -94,7 +96,7 @@ build/debug/%.o: vendor/%.c | build/debug
 $(BEARSSL_LIB):
 	$(MAKE) -C vendor/bearssl lib CC="$(CC) -fstack-protector-strong"
 
-minimoni: $(SRC) $(VENDOR_OBJ_DEV) $(BEARSSL_LIB)
+minimoni: $(SRC) $(TEMPLATES) $(VENDOR_OBJ_DEV) $(BEARSSL_LIB)
 	$(CC) $(CFLAGS) $(OPT_DEV) $(SQLITE_FLAGS) $(CIVETWEB_FLAGS) $(BEARSSL_INC) \
 	  -Ivendor -Isrc -Ibuild -o $@ $(SRC) $(VENDOR_OBJ_DEV) $(BEARSSL_LIB) $(LDFLAGS)
 
@@ -190,7 +192,7 @@ test-integration: ci-image
 	    openssl req -quiet -x509 -newkey rsa:2048 -nodes -days 1 -outform DER \
 	      -keyout /dev/null -out build/x509-selfsigned.der -subj '/CN=minimoni.test' && \
 	    openssl req -quiet -x509 -newkey rsa:2048 -nodes -outform DER \
-	      -not_before 20200101000000Z -not_after 20200201000000Z \
+	      -not_before 20000101000000Z -not_after 20000101010000Z \
 	      -keyout /dev/null -out build/x509-expired.der -subj '/CN=minimoni.test' && \
 	    openssl req -quiet -x509 -newkey rsa:2048 -nodes -days 1 \
 	      -keyout build/trust-ca.key -out build/trust-ca.pem -subj '/CN=minimoni test CA' && \
@@ -228,8 +230,6 @@ check-pie:
 
 # Source-build checks (Docker). `make clean`, not clean-build: a host-built BearSSL would leak in.
 # Dependabot does not watch these digests: bump them by hand.
-DEBIAN_DIGEST = 913f6706df59a68922d1dd08f78c2476560a8d367897200a6005b00e5f67c2d5
-DEBIAN_IMAGE = debian:trixie@sha256:$(DEBIAN_DIGEST)
 FEDORA_DIGEST = 43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
 FEDORA_IMAGE = fedora:44@sha256:$(FEDORA_DIGEST)
 UBUNTU_DIGEST = f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7
@@ -247,17 +247,15 @@ source-build = docker run --rm -e DEBIAN_FRONTEND=noninteractive -v "$(PWD)":/sr
 	  sh tests/e2e-cli.sh && sh tests/e2e-webhook.sh && sh tests/e2e-migrate.sh"
 
 check-glibc:
-	$(call source-build,$(DEBIAN_IMAGE),$(APT_INSTALL))
 	$(call source-build,$(FEDORA_IMAGE),$(DNF_INSTALL))
 	$(call source-build,$(UBUNTU_IMAGE),$(APT_INSTALL))
 
 check-musl:
-	$(call source-build,$(DEBIAN_IMAGE),$(APT_INSTALL) musl-tools,CC=musl-gcc)
 	$(call source-build,$(FEDORA_IMAGE),$(DNF_INSTALL) musl-gcc musl-libc-static,CC=musl-gcc)
 	$(call source-build,$(UBUNTU_IMAGE),$(APT_INSTALL) musl-tools,CC=musl-gcc)
 
 check-systemd:
-	sh tools/check-systemd.sh $(DEBIAN_IMAGE)
+	sh tools/check-systemd.sh $(UBUNTU_IMAGE)
 
 test: test-unit test-integration test-e2e
 

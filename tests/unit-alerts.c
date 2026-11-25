@@ -192,10 +192,12 @@ int db_alert_on_cooldown(db_t *db, const char *alert_name, long cooldown_seconds
     return g_cooling;
 }
 
-int db_alert_firing(db_t *db, const char *alert_name)
+int db_alert_firing(db_t *db, const char *alert_name, char *fired_at, size_t size)
 {
     (void)db;
     (void)alert_name;
+    (void)fired_at;
+    (void)size;
     return g_firing;
 }
 
@@ -818,6 +820,342 @@ static int test_text_line_that_does_not_fit_is_refused(void)
     return alert_line(&alert, "firing", 7.7, "my-server", line, sizeof(line)) == -1 ? 0 : 1;
 }
 
+static int test_text_line_whose_status_does_not_fit_is_refused(void)
+{
+    alert_cfg_t alert = {.metric = "load_1m", .op = ">", .threshold = 1};
+    char        line[64], status[71];
+
+    memset(status, 's', sizeof(status) - 1);
+    status[sizeof(status) - 1] = '\0';
+
+    return alert_line(&alert, status, 2, "my-server", line, sizeof(line)) == -1 ? 0 : 1;
+}
+
+/* --- The body templates --- */
+
+static int template_is(const char *template, const mark_t *marks, size_t count, size_t size,
+                       const char *want)
+{
+    char  body[256];
+    out_t out = {.size = size, .start = body};
+
+    out_template(&out, template, marks, count);
+
+    return want ? out.len == (int)strlen(want) && strcmp(body, want) == 0 : out.len == -1;
+}
+
+static int test_template_drops_the_whitespace_outside_its_strings(void)
+{
+    return template_is("{\n    \"a b\": [ 1, 2 ]\n}\n", NULL, 0, 256, "{\"a b\":[1,2]}") ? 0 : 1;
+}
+
+static int test_template_keeps_an_escaped_quote_inside_a_string(void)
+{
+    return template_is("{\"k\": \"x\\\" y\"}", NULL, 0, 256, "{\"k\":\"x\\\" y\"}") ? 0 : 1;
+}
+
+static int test_template_that_ends_after_a_backslash_stops_there(void)
+{
+    return template_is("\"x\\", NULL, 0, 256, "\"x\\") ? 0 : 1;
+}
+
+static int test_template_escapes_each_mark(void)
+{
+    const mark_t marks[] = {{"name", "a \"b\""}, {"value", "1.5"}};
+
+    return template_is("{\"{{name}}\": {{value}}}", marks, 2, 256, "{\"a \\\"b\\\"\":1.5}") ? 0 : 1;
+}
+
+static int test_template_with_an_unknown_mark_is_refused(void)
+{
+    const mark_t marks[] = {{"name", "a"}};
+
+    return template_is("{\"k\": \"{{nme}}\"}", marks, 1, 256, NULL) ? 0 : 1;
+}
+
+static int test_template_with_an_unclosed_mark_is_refused(void)
+{
+    const mark_t marks[] = {{"name", "a"}};
+
+    return template_is("{\"k\": \"{{name\"}", marks, 1, 256, NULL) ? 0 : 1;
+}
+
+static int test_template_whose_mark_has_no_value_is_refused(void)
+{
+    const mark_t marks[] = {{"title", NULL}};
+
+    return template_is("{\"k\": \"{{title}}\"}", marks, 1, 256, NULL) ? 0 : 1;
+}
+
+static int test_template_exact_fit(void)
+{
+    const mark_t marks[] = {{"name", "ab"}};
+
+    return template_is("{\"k\": \"{{name}}\"}", marks, 1, 11, "{\"k\":\"ab\"}") &&
+                   template_is("{\"k\": \"{{name}}\"}", marks, 1, 10, NULL)
+               ? 0
+               : 1;
+}
+
+/* --- The alertmanager format's body --- */
+
+/* 2000-01-01T01:00:00Z. */
+#define NOW 946688400
+
+static int alertmanager_body_is(const alert_cfg_t *alert, const char *status, double value,
+                                const char *started, const char *want)
+{
+    char body[BODY_SIZE];
+
+    return alertmanager_body(alert, status, value, "my-server", started, NOW, body, sizeof(body)) ==
+               (int)strlen(want) &&
+           strcmp(body, want) == 0;
+}
+
+static int test_fingerprint_matches_prometheus(void)
+{
+    /* prometheus/common's model/signature_test.go: TestMetricToFingerprint. */
+    const char *const labels[][2] = {{"fear", "love is not enough"}, {"name", "garland, briggs"}};
+
+    return fingerprint(labels, 2) == UINT64_C(5799056148416392346) &&
+                   fingerprint(labels, 0) == UINT64_C(14695981039346656037)
+               ? 0
+               : 1;
+}
+
+static int test_alertmanager_body_of_a_firing(void)
+{
+    alert_cfg_t alert = {
+        .name = "hot", .named = 1, .metric = "temp_degrees", .op = ">", .threshold = 80};
+    const char *want =
+        "{\"receiver\":\"minimoni\",\"status\":\"firing\","
+        "\"alerts\":[{\"status\":\"firing\","
+        "\"labels\":{\"alertname\":\"hot\",\"instance\":\"my-server\"},"
+        "\"annotations\":{\"summary\":\"hot: temp_degrees 81.5 > 80 on my-server\"},"
+        "\"startsAt\":\"2000-01-01T01:00:00Z\",\"endsAt\":\"0001-01-01T00:00:00Z\","
+        "\"generatorURL\":\"\",\"fingerprint\":\"6e15b56a0a36cfd6\"}],"
+        "\"notification_reason\":\"first notification\","
+        "\"groupLabels\":{\"alertname\":\"hot\",\"instance\":\"my-server\"},"
+        "\"commonLabels\":{\"alertname\":\"hot\",\"instance\":\"my-server\"},"
+        "\"commonAnnotations\":{\"summary\":\"hot: temp_degrees 81.5 > 80 on my-server\"},"
+        "\"externalURL\":\"\",\"version\":\"4\","
+        "\"groupKey\":\"{}:{alertname=\\\"hot\\\", instance=\\\"my-server\\\"}\","
+        "\"truncatedAlerts\":0}";
+
+    return alertmanager_body_is(&alert, "firing", 81.5, "", want) ? 0 : 1;
+}
+
+static int test_alertmanager_body_of_a_firing_starts_now(void)
+{
+    alert_cfg_t alert = {.name = "a", .named = 1, .metric = "load_1m", .op = ">", .threshold = 1};
+    char        body[BODY_SIZE];
+
+    return alertmanager_body(&alert, "firing", 5, "web", "2000-01-01T00:00:00Z", NOW, body,
+                             sizeof(body)) > 0 &&
+                   strstr(body, "\"startsAt\":\"2000-01-01T01:00:00Z\"")
+               ? 0
+               : 1;
+}
+
+static int test_alertmanager_body_of_a_resolve_keeps_its_start(void)
+{
+    alert_cfg_t alert = {.name = "disk_available_percent < 10",
+                         .metric = "disk_available_percent",
+                         .op = "<",
+                         .threshold = 10};
+    const char *want =
+        "{\"receiver\":\"minimoni\",\"status\":\"resolved\","
+        "\"alerts\":[{\"status\":\"resolved\","
+        "\"labels\":{\"alertname\":\"disk_available_percent < 10\",\"instance\":\"my-server\"},"
+        "\"annotations\":{\"summary\":\"disk_available_percent 12.3, no longer < 10 on "
+        "my-server\"},"
+        "\"startsAt\":\"2000-01-01T00:00:00Z\",\"endsAt\":\"2000-01-01T01:00:00Z\","
+        "\"generatorURL\":\"\",\"fingerprint\":\"59fd074d5fd5c6e9\"}],"
+        "\"notification_reason\":\"all alerts resolved\","
+        "\"groupLabels\":{\"alertname\":\"disk_available_percent < 10\","
+        "\"instance\":\"my-server\"},"
+        "\"commonLabels\":{\"alertname\":\"disk_available_percent < 10\","
+        "\"instance\":\"my-server\"},"
+        "\"commonAnnotations\":{\"summary\":\"disk_available_percent 12.3, no longer < 10 on "
+        "my-server\"},"
+        "\"externalURL\":\"\",\"version\":\"4\","
+        "\"groupKey\":\"{}:{alertname=\\\"disk_available_percent < 10\\\", "
+        "instance=\\\"my-server\\\"}\","
+        "\"truncatedAlerts\":0}";
+
+    return alertmanager_body_is(&alert, "resolved", 12.3, "2000-01-01T00:00:00Z", want) ? 0 : 1;
+}
+
+static int test_alertmanager_body_of_a_resolve_with_no_start_starts_at_its_end(void)
+{
+    alert_cfg_t alert = {.name = "a", .named = 1, .metric = "load_1m", .op = ">", .threshold = 1};
+    char        body[BODY_SIZE];
+
+    return alertmanager_body(&alert, "resolved", 0.5, "", "", NOW, body, sizeof(body)) > 0 &&
+                   strstr(body, "\"startsAt\":\"2000-01-01T01:00:00Z\","
+                                "\"endsAt\":\"2000-01-01T01:00:00Z\"")
+               ? 0
+               : 1;
+}
+
+static int test_alertmanager_body_escapes_the_host_in_the_group_key_twice(void)
+{
+    alert_cfg_t alert = {.name = "a", .named = 1, .metric = "load_1m", .op = ">", .threshold = 1};
+    char        body[BODY_SIZE];
+
+    return alertmanager_body(&alert, "firing", 5, "web \"01\"", "", NOW, body, sizeof(body)) > 0 &&
+                   strstr(body, "\"groupKey\":\"{}:{alertname=\\\"a\\\", "
+                                "instance=\\\"web \\\\\\\"01\\\\\\\"\\\"}\"") &&
+                   strstr(body, "\"labels\":{\"alertname\":\"a\",\"instance\":\"web \\\"01\\\"\"}")
+               ? 0
+               : 1;
+}
+
+static int test_alertmanager_body_escapes_the_name_in_the_group_key_twice(void)
+{
+    alert_cfg_t alert = {
+        .name = "a \"b\"", .named = 1, .metric = "load_1m", .op = ">", .threshold = 1};
+    char body[BODY_SIZE];
+
+    return alertmanager_body(&alert, "firing", 5, "web \"01\"", "", NOW, body, sizeof(body)) > 0 &&
+                   strstr(body, "\"groupKey\":\"{}:{alertname=\\\"a \\\\\\\"b\\\\\\\"\\\", "
+                                "instance=\\\"web \\\\\\\"01\\\\\\\"\\\"}\"")
+               ? 0
+               : 1;
+}
+
+static int test_alertmanager_fingerprint_is_of_the_labels_unescaped(void)
+{
+    alert_cfg_t alert = {.name = "a", .named = 1, .metric = "load_1m", .op = ">", .threshold = 1};
+    char        body[BODY_SIZE];
+
+    return alertmanager_body(&alert, "firing", 5, "web \"01\"", "", NOW, body, sizeof(body)) > 0 &&
+                   strstr(body, "\"fingerprint\":\"b4cd0b12e5123d5f\"")
+               ? 0
+               : 1;
+}
+
+static int test_alertmanager_body_escapes_the_start(void)
+{
+    alert_cfg_t alert = {.name = "a", .named = 1, .metric = "load_1m", .op = ">", .threshold = 1};
+    char        body[BODY_SIZE];
+
+    return alertmanager_body(&alert, "resolved", 0.5, "", "a\"b", NOW, body, sizeof(body)) > 0 &&
+                   strstr(body, "\"startsAt\":\"a\\\"b\",")
+               ? 0
+               : 1;
+}
+
+static int test_alertmanager_summary_is_escaped(void)
+{
+    alert_cfg_t alert = {.name = "a", .named = 1, .metric = "load_1m", .op = ">", .threshold = 1};
+    char        body[BODY_SIZE];
+
+    return alertmanager_body(&alert, "firing", 5, "web \"01\"", "", NOW, body, sizeof(body)) > 0 &&
+                   strstr(body, "\"annotations\":{\"summary\":"
+                                "\"a: load_1m 5 > 1 on web \\\"01\\\"\"}")
+               ? 0
+               : 1;
+}
+
+static int test_alertmanager_body_of_the_longest_alert_fits(void)
+{
+    alert_cfg_t alert = {.named = 1, .op = ">=", .threshold = 1.23457e+22};
+    char        body[BODY_SIZE], host[sizeof(((config_t *)0)->title)];
+
+    memset(alert.name, 'n', sizeof(alert.name) - 1);
+    memset(alert.metric, 'm', sizeof(alert.metric) - 1);
+    memset(host, 'h', sizeof(host) - 1);
+    host[sizeof(host) - 1] = '\0';
+
+    return alertmanager_body(&alert, "resolved", -1.23457e+100, host, "2000-01-01T00:00:00Z", NOW,
+                             body, sizeof(body)) > 0
+               ? 0
+               : 1;
+}
+
+static int test_alertmanager_body_that_does_not_fit_is_refused(void)
+{
+    alert_cfg_t alert = {.metric = "load_1m", .op = ">", .threshold = 1};
+    char        body[256];
+
+    return alertmanager_body(&alert, "firing", 5, "my-server", "", NOW, body, sizeof(body)) == -1
+               ? 0
+               : 1;
+}
+
+static int test_alertmanager_body_that_does_not_fit_escaped_is_refused(void)
+{
+    alert_cfg_t alert = {.metric = "load_1m", .op = ">", .threshold = 1};
+    char        body[BODY_SIZE], host[sizeof(((config_t *)0)->title)];
+
+    memset(host, '"', sizeof(host) - 1);
+    host[sizeof(host) - 1] = '\0';
+
+    return alertmanager_body(&alert, "firing", 5, host, "", NOW, body, sizeof(body)) == -1 ? 0 : 1;
+}
+
+static int test_alertmanager_body_whose_summary_does_not_fit_is_refused(void)
+{
+    alert_cfg_t alert = {.metric = "load_1m", .op = ">", .threshold = 1};
+    char        body[16 * BODY_SIZE], host[PIECE_SIZE - 10];
+
+    memset(host, 'h', sizeof(host) - 1);
+    host[sizeof(host) - 1] = '\0';
+
+    return alertmanager_body(&alert, "firing", 5, host, "", NOW, body, sizeof(body)) == -1 ? 0 : 1;
+}
+
+static int test_alertmanager_body_whose_host_does_not_fit_escaped_is_refused(void)
+{
+    alert_cfg_t alert = {.metric = "load_1m", .op = ">", .threshold = 1};
+    char        body[16 * BODY_SIZE], host[PIECE_SIZE / 2 + 100];
+
+    memset(host, '"', sizeof(host) - 1);
+    host[sizeof(host) - 1] = '\0';
+
+    return alertmanager_body(&alert, "firing", 5, host, "", NOW, body, sizeof(body)) == -1 ? 0 : 1;
+}
+
+/* Refused before any connection, and the log says so. */
+static int test_alertmanager_webhook_whose_body_does_not_fit_is_not_sent(void)
+{
+    static config_t cfg;
+    alert_cfg_t     alert = {.metric = "load_1m",
+                             .op = ">",
+                             .threshold = 1,
+                             .webhook = "http://127.0.0.1:1/hook",
+                             .format = ALERT_FORMAT_ALERTMANAGER};
+    char            host[sizeof(cfg.title)], log[512], path[64];
+
+    memset(alert.name, '"', sizeof(alert.name) - 1);
+    memset(host, '"', sizeof(host) - 1);
+    host[sizeof(host) - 1] = '\0';
+    snprintf(path, sizeof(path), "/tmp/minimoni-alerts-post-%d.log", (int)getpid());
+    fflush(stderr);
+    if (!freopen(path, "w", stderr))
+        return 1;
+
+    int sent = post_webhook(&cfg, &alert, "firing", 5, "2000-01-01T00:00:00Z", host, "", NOW);
+
+    fflush(stderr);
+    if (!freopen("/dev/null", "w", stderr))
+        return 1;
+
+    FILE  *file = fopen(path, "r");
+    size_t len = file ? fread(log, 1, sizeof(log) - 1, file) : 0;
+
+    if (file)
+        fclose(file);
+    log[len] = '\0';
+    unlink(path);
+
+    return sent == 0 && strstr(log, "webhook body does not fit in 2048 bytes; skipped") &&
+                   !strstr(log, "connect")
+               ? 0
+               : 1;
+}
+
 /* --- The slack format's body --- */
 
 static int test_slack_body_holds_the_line_as_its_text(void)
@@ -879,19 +1217,20 @@ static int test_slack_escape_one_byte_short(void)
 
 static int test_slack_body_exact_fit(void)
 {
+    /* The body takes 58 bytes besides the host. */
     alert_cfg_t alert = {.metric = "disk_available_percent", .op = "<", .threshold = 10};
-    char        body[1024], host[966];
+    char        body[BODY_SIZE], host[BODY_SIZE - 58];
 
     memset(host, 'a', sizeof(host) - 1);
     host[sizeof(host) - 1] = '\0';
 
-    return slack_body(&alert, "firing", 7.7, host, body, sizeof(body)) == 1023 ? 0 : 1;
+    return slack_body(&alert, "firing", 7.7, host, body, sizeof(body)) == BODY_SIZE - 1 ? 0 : 1;
 }
 
 static int test_slack_body_that_does_not_fit_with_entities_is_refused(void)
 {
     alert_cfg_t alert = {.metric = "disk_available_percent", .op = "<", .threshold = 10};
-    char        body[4096], host[300];
+    char        body[4096], host[500];
 
     memset(host, '&', sizeof(host) - 1);
     host[sizeof(host) - 1] = '\0';
@@ -902,7 +1241,7 @@ static int test_slack_body_that_does_not_fit_with_entities_is_refused(void)
 static int test_slack_body_that_does_not_fit_json_escaped_is_refused(void)
 {
     alert_cfg_t alert = {.metric = "disk_available_percent", .op = "<", .threshold = 10};
-    char        body[4096], host[600];
+    char        body[4096], host[1100];
 
     memset(host, '"', sizeof(host) - 1);
     host[sizeof(host) - 1] = '\0';
@@ -1034,6 +1373,31 @@ static const test_t ALL_TESTS[] = {
     T(text_line_stays_one_line),
     T(text_line_keeps_utf_8),
     T(text_line_that_does_not_fit_is_refused),
+    T(text_line_whose_status_does_not_fit_is_refused),
+    T(template_drops_the_whitespace_outside_its_strings),
+    T(template_keeps_an_escaped_quote_inside_a_string),
+    T(template_that_ends_after_a_backslash_stops_there),
+    T(template_escapes_each_mark),
+    T(template_with_an_unknown_mark_is_refused),
+    T(template_with_an_unclosed_mark_is_refused),
+    T(template_whose_mark_has_no_value_is_refused),
+    T(template_exact_fit),
+    T(fingerprint_matches_prometheus),
+    T(alertmanager_body_of_a_firing),
+    T(alertmanager_body_of_a_firing_starts_now),
+    T(alertmanager_body_of_a_resolve_keeps_its_start),
+    T(alertmanager_body_of_a_resolve_with_no_start_starts_at_its_end),
+    T(alertmanager_body_escapes_the_host_in_the_group_key_twice),
+    T(alertmanager_body_escapes_the_name_in_the_group_key_twice),
+    T(alertmanager_fingerprint_is_of_the_labels_unescaped),
+    T(alertmanager_body_escapes_the_start),
+    T(alertmanager_summary_is_escaped),
+    T(alertmanager_body_of_the_longest_alert_fits),
+    T(alertmanager_body_that_does_not_fit_is_refused),
+    T(alertmanager_body_that_does_not_fit_escaped_is_refused),
+    T(alertmanager_body_whose_summary_does_not_fit_is_refused),
+    T(alertmanager_body_whose_host_does_not_fit_escaped_is_refused),
+    T(alertmanager_webhook_whose_body_does_not_fit_is_not_sent),
     T(slack_body_holds_the_line_as_its_text),
     T(slack_body_escapes_the_whole_line),
     T(slack_body_escapes_quotes_for_json),

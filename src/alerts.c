@@ -25,6 +25,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <netdb.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -451,24 +452,196 @@ static int reply_ok(const head_t *h)
            isdigit((unsigned char)code[2]) && isdigit((unsigned char)code[3]);
 }
 
-/* The line the text format sends: "[firing] disk_available_percent 7.7 < 10 on my-server", with
+/* Holds the longest body, alertmanager's, when the longest name, host and metric need no
+ * escaping. */
+#define BODY_SIZE 2048
+
+/* Holds each piece of an alertmanager body, even a name or a host whose every byte JSON escapes to
+ * six. */
+#define PIECE_SIZE 1024
+
+static_assert(6 * sizeof(((alert_cfg_t *)0)->name) <= PIECE_SIZE &&
+              6 * sizeof(((config_t *)0)->title) <= PIECE_SIZE);
+
+/* An alert's line without its status: "disk_available_percent 7.7 < 10 on my-server", with
  * "12.3, no longer < 10" on a resolve and the alert's name before the metric when the config gave
  * one. An ASCII control character in the name or host becomes a space, so it stays one line.
  * Returns its length, or -1 when it does not fit. */
-static int alert_line(const alert_cfg_t *alert, const char *status, double value,
-                      const char *hostname, char *line, size_t size)
+static int alert_summary(const alert_cfg_t *alert, const char *status, double value,
+                         const char *hostname, char *summary, size_t size)
 {
     int resolved = strcmp(status, "resolved") == 0;
     int len =
-        fit_printf(line, size, "[%s] %s%s%s %.6g%s %s %.6g on %s", status,
-                   alert->named ? alert->name : "", alert->named ? ": " : "", alert->metric, value,
-                   resolved ? ", no longer" : "", alert->op, alert->threshold, hostname);
+        fit_printf(summary, size, "%s%s%s %.6g%s %s %.6g on %s", alert->named ? alert->name : "",
+                   alert->named ? ": " : "", alert->metric, value, resolved ? ", no longer" : "",
+                   alert->op, alert->threshold, hostname);
 
     for (int i = 0; i < len; i++)
-        if ((unsigned char)line[i] < 0x20 || line[i] == 0x7f)
-            line[i] = ' ';
+        if ((unsigned char)summary[i] < 0x20 || summary[i] == 0x7f)
+            summary[i] = ' ';
 
     return len;
+}
+
+/* The line the text format sends: "[firing] disk_available_percent 7.7 < 10 on my-server". Returns
+ * its length, or -1 when it does not fit. */
+static int alert_line(const alert_cfg_t *alert, const char *status, double value,
+                      const char *hostname, char *line, size_t size)
+{
+    int tag_len = fit_printf(line, size, "[%s] ", status);
+
+    if (tag_len < 0)
+        return -1;
+
+    int len = alert_summary(alert, status, value, hostname, line + tag_len, size - (size_t)tag_len);
+
+    return len < 0 ? -1 : tag_len + len;
+}
+
+/* Alertmanager's fingerprint of a label set: FNV-1a, 64 bits, over each name and value, each
+ * followed by a 0xff byte. `labels` holds `count` name and value pairs, sorted by name. */
+static uint64_t fingerprint(const char *const labels[][2], int count)
+{
+    uint64_t hash = UINT64_C(14695981039346656037);
+
+    for (int i = 0; i < count; i++)
+        for (int j = 0; j < 2; j++) {
+            for (const unsigned char *byte = (const unsigned char *)labels[i][j]; *byte; byte++)
+                hash = (hash ^ *byte) * UINT64_C(1099511628211);
+            hash = (hash ^ 0xff) * UINT64_C(1099511628211);
+        }
+
+    return hash;
+}
+
+/* `instant` in the form alert_log stores. */
+static void iso_time(time_t instant, char *out, size_t size)
+{
+    struct tm utc;
+
+    gmtime_r(&instant, &utc);
+    strftime(out, size, "%Y-%m-%dT%H:%M:%SZ", &utc);
+}
+
+/* A text being written: `len` bytes of `start` so far, or -1 once a piece did not fit. */
+typedef struct {
+    int    len;
+    size_t size;
+    char  *start;
+} out_t;
+
+static void out_byte(out_t *out, char byte)
+{
+    if (out->len < 0)
+        return;
+
+    if ((size_t)out->len + 1 >= out->size) {
+        out->len = -1;
+        return;
+    }
+
+    out->start[out->len++] = byte;
+    out->start[out->len] = '\0';
+}
+
+/* Appends `src`, escaped for a JSON string. */
+static void out_json(out_t *out, const char *src)
+{
+    int piece_len = json_escape(out->start + out->len, out->size - (size_t)out->len, src);
+
+    out->len = piece_len >= 0 ? out->len + piece_len : -1;
+}
+
+/* A template's {{mark}} and its value. A NULL value refuses the template that uses it. */
+typedef struct {
+    const char *mark;
+    const char *value;
+} mark_t;
+
+/* Appends `template` without the whitespace outside its strings, each {{mark}} replaced by its
+ * value in `marks`, escaped for a JSON string. A mark not in `marks` refuses it. */
+static void out_template(out_t *out, const char *template, const mark_t *marks, size_t count)
+{
+    int in_string = 0;
+
+    for (const char *at = template; *at && out->len >= 0; at++) {
+        if (at[0] == '{' && at[1] == '{') {
+            const char *name = at + 2;
+            const char *end = strstr(name, "}}");
+            const char *value = NULL;
+
+            for (size_t i = 0; end && i < count; i++)
+                if (strlen(marks[i].mark) == (size_t)(end - name) &&
+                    strncmp(marks[i].mark, name, (size_t)(end - name)) == 0)
+                    value = marks[i].value;
+
+            if (!value) {
+                out->len = -1;
+                return;
+            }
+
+            out_json(out, value);
+            at = end + 1;
+        } else if (in_string && at[0] == '\\' && at[1]) {
+            out_byte(out, at[0]);
+            out_byte(out, *++at);
+        } else if (*at == '"') {
+            in_string = !in_string;
+            out_byte(out, *at);
+        } else if (in_string || !isspace((unsigned char)*at)) {
+            out_byte(out, *at);
+        }
+    }
+}
+
+/* Alertmanager's webhook body, version 4, in the order Alertmanager writes it. */
+static const char ALERTMANAGER_TEMPLATE[] = {
+#embed "alertmanager.json.j2" suffix(, 0)
+};
+
+/* The alertmanager format's body, holding this one alert. Its labels, alertname and instance, are
+ * its group's too, so its firing and its resolve share a groupKey and a fingerprint. `started` is
+ * when a resolved alert started firing; if "", it starts at its end. Returns its length, or -1
+ * when it does not fit. */
+static int alertmanager_body(const alert_cfg_t *alert, const char *status, double value,
+                             const char *hostname, const char *started, time_t now, char *body,
+                             size_t size)
+{
+    char              fingerprint_hex[17];
+    int               firing = strcmp(status, "firing") == 0;
+    char              json_host[PIECE_SIZE], json_name[PIECE_SIZE], now_iso[24];
+    out_t             out = {.size = size, .start = body};
+    const char *const pairs[][2] = {{"alertname", alert->name}, {"instance", hostname}};
+    char              summary[PIECE_SIZE];
+
+    iso_time(now, now_iso, sizeof(now_iso));
+    snprintf(fingerprint_hex, sizeof(fingerprint_hex), "%016" PRIx64, fingerprint(pairs, 2));
+
+    if (alert_summary(alert, status, value, hostname, summary, sizeof(summary)) < 0 ||
+        json_escape(json_host, sizeof(json_host), hostname) < 0 ||
+        json_escape(json_name, sizeof(json_name), alert->name) < 0)
+        return -1;
+
+    /* For a printable name and host, the group key is Alertmanager's for its root route: "{}:"
+     * and the group's labels, whose values it quotes, hence escaped twice. A firing alert's endsAt
+     * is Go's zero time, and notification_reason is what Alertmanager says for a group of one
+     * alert. */
+    const mark_t marks[] = {
+        {"ends", firing ? "0001-01-01T00:00:00Z" : now_iso},
+        {"fingerprint", fingerprint_hex},
+        {"host", hostname},
+        {"host_in_key", json_host},
+        {"name", alert->name},
+        {"name_in_key", json_name},
+        {"reason", firing ? "first notification" : "all alerts resolved"},
+        {"starts", firing || !started[0] ? now_iso : started},
+        {"status", status},
+        {"summary", summary},
+    };
+
+    out_template(&out, ALERTMANAGER_TEMPLATE, marks, sizeof(marks) / sizeof(marks[0]));
+
+    return out.len;
 }
 
 /* `src` with `&`, `<` and `>` written `&amp;`, `&lt;` and `&gt;`, since Slack reads a `<...>` as a
@@ -504,7 +677,7 @@ static int slack_body(const alert_cfg_t *alert, const char *status, double value
                       const char *hostname, char *body, size_t size)
 {
     /* As big as post_webhook's body: a step that outgrows its buffer could not fit there either. */
-    char json_text[1024], line[1024], slack_text[1024];
+    char json_text[BODY_SIZE], line[BODY_SIZE], slack_text[BODY_SIZE];
 
     if (alert_line(alert, status, value, hostname, line, sizeof(line)) < 0 ||
         slack_escape(slack_text, sizeof(slack_text), line) < 0 ||
@@ -514,10 +687,24 @@ static int slack_body(const alert_cfg_t *alert, const char *status, double value
     return fit_printf(body, size, "{\"text\":\"%s\"}", json_text);
 }
 
+/* The longest media type a body is sent as. */
+static const char TEXT_MEDIA_TYPE[] = "text/plain; charset=utf-8";
+
+/* The seven conversions take more room than the ':' and the Content-Length digits they become. */
+#define POST_REQUEST                                                                               \
+    "POST %s HTTP/1.0\r\n"                                                                         \
+    "Host: %s%s%s\r\n"                                                                             \
+    "Content-Type: %s\r\n"                                                                         \
+    "Content-Length: %d\r\n"                                                                       \
+    "Connection: close\r\n"                                                                        \
+    "\r\n"                                                                                         \
+    "%s"
+
 /* Returns 1 when the endpoint answered 2xx. Any failure returns 0 and is reported in a single
  * line. */
 static int post_webhook(const config_t *cfg, const alert_cfg_t *alert, const char *status,
-                        double value, const char *timestamp, const char *hostname)
+                        double value, const char *timestamp, const char *hostname,
+                        const char *started, time_t now)
 {
     char host[256], port_str[8], path[512];
     int  scheme = parse_url(alert->webhook, host, sizeof(host), port_str, sizeof(port_str), path,
@@ -527,7 +714,7 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *alert, const cha
         return 0;
 
     int         blen = -1;
-    char        body[1024];
+    char        body[BODY_SIZE];
     const char *media_type = "application/json";
 
     switch (alert->format) {
@@ -548,11 +735,14 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *alert, const cha
                           timestamp, ehost);
         break;
     }
+    case ALERT_FORMAT_ALERTMANAGER:
+        blen = alertmanager_body(alert, status, value, hostname, started, now, body, sizeof(body));
+        break;
     case ALERT_FORMAT_SLACK:
         blen = slack_body(alert, status, value, hostname, body, sizeof(body));
         break;
     case ALERT_FORMAT_TEXT:
-        media_type = "text/plain; charset=utf-8";
+        media_type = TEXT_MEDIA_TYPE;
         blen = alert_line(alert, status, value, hostname, body, sizeof(body));
         break;
     }
@@ -560,22 +750,17 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *alert, const cha
     /* RFC 9110: the port goes in Host unless it is the scheme's default. */
     int port_shown = strcmp(port_str, scheme == 1 ? "443" : "80") != 0;
 
-    char req[1024];
-    int  rlen = blen < 0 ? -1
-                         : fit_printf(req, sizeof(req),
-                                      "POST %s HTTP/1.0\r\n"
-                                      "Host: %s%s%s\r\n"
-                                      "Content-Type: %s\r\n"
-                                      "Content-Length: %d\r\n"
-                                      "Connection: close\r\n"
-                                      "\r\n"
-                                      "%s",
-                                      path, host, port_shown ? ":" : "", port_shown ? port_str : "",
-                                      media_type, blen, body);
+    /* Only a body that does not fit fails here. */
+    char req[sizeof(POST_REQUEST) + sizeof(path) + sizeof(host) + sizeof(port_str) +
+             sizeof(TEXT_MEDIA_TYPE) + sizeof(body)];
+    int  rlen = blen < 0
+                    ? -1
+                    : fit_printf(req, sizeof(req), POST_REQUEST, path, host, port_shown ? ":" : "",
+                                 port_shown ? port_str : "", media_type, blen, body);
 
     if (rlen < 0) {
-        fprintf(stderr, "alerts: '%.32s' webhook does not fit in %zu bytes; skipped\n", alert->name,
-                sizeof(req));
+        fprintf(stderr, "alerts: '%.32s' webhook body does not fit in %zu bytes; skipped\n",
+                alert->name, sizeof(body));
         return 0;
     }
 
@@ -739,7 +924,7 @@ int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double t
 
     time_t now = time(NULL);
 
-    char hostname[128];
+    char hostname[sizeof(cfg->title)];
     if (cfg->title[0])
         snprintf(hostname, sizeof(hostname), "%s", cfg->title);
     else if (gethostname(hostname, sizeof(hostname)) != 0)
@@ -755,11 +940,12 @@ int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double t
         if (!valid)
             continue;
 
-        int holds = eval_op(value, alert->op, alert->threshold);
-        int firing = db_alert_firing(db, alert->name);
-        int cooling = holds && firing == 0
-                          ? db_alert_on_cooldown(db, alert->name, alert->cooldown_seconds, now)
-                          : 0;
+        int  holds = eval_op(value, alert->op, alert->threshold);
+        char started[24] = "";
+        int  firing = db_alert_firing(db, alert->name, started, sizeof(started));
+        int  cooling = holds && firing == 0
+                           ? db_alert_on_cooldown(db, alert->name, alert->cooldown_seconds, now)
+                           : 0;
 
         if (firing < 0 || cooling < 0)
             continue;
@@ -781,7 +967,8 @@ int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double t
          * cycle. */
         int delivered = 0;
         if (alert->webhook[0])
-            delivered |= post_webhook(cfg, alert, status, value, row->timestamp, hostname);
+            delivered |=
+                post_webhook(cfg, alert, status, value, row->timestamp, hostname, started, now);
         if (alert->command[0])
             delivered |= run_command(alert, status, value);
 

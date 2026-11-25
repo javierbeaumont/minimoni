@@ -37,7 +37,12 @@
         "swap_in_bps", "swap_out_bps", "swap_in_ram", "swap_out_ram"
 
 /* The body POSTed to an alert's webhook. */
-typedef enum { ALERT_FORMAT_JSON, ALERT_FORMAT_SLACK, ALERT_FORMAT_TEXT } alert_format_t;
+typedef enum {
+    ALERT_FORMAT_JSON,
+    ALERT_FORMAT_ALERTMANAGER,
+    ALERT_FORMAT_SLACK,
+    ALERT_FORMAT_TEXT
+} alert_format_t;
 
 typedef struct {
     char           name[64];

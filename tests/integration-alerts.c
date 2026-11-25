@@ -54,10 +54,12 @@ int db_alert_on_cooldown(db_t *db, const char *alert_name, long cooldown_seconds
     return 1;
 }
 
-int db_alert_firing(db_t *db, const char *alert_name)
+int db_alert_firing(db_t *db, const char *alert_name, char *fired_at, size_t size)
 {
     (void)db;
     (void)alert_name;
+    (void)fired_at;
+    (void)size;
     return 0;
 }
 

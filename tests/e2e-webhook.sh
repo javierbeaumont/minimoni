@@ -87,7 +87,7 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
 cat "$work/cert.pem" "$work/key.pem" >"$work/both.pem"
 
 openssl req -x509 -newkey rsa:2048 -nodes \
-    -not_before 20200101000000Z -not_after 20200201000000Z \
+    -not_before 20000101000000Z -not_after 20000101010000Z \
     -keyout "$work/expired-key.pem" -out "$work/expired-cert.pem" \
     -subj "/CN=localhost" -addext "subjectAltName=IP:127.0.0.1" >/dev/null 2>&1
 cat "$work/expired-cert.pem" "$work/expired-key.pem" >"$work/expired.pem"
@@ -107,7 +107,7 @@ leaf() { # NAME [OPENSSL ARGS...]: NAME.pem holds the certificate and its key
     cat "$work/$name-cert.pem" "$work/$name-key.pem" >"$work/$name.pem"
 }
 leaf ca-leaf -days 1
-leaf ca-expired -not_before 20200101000000Z -not_after 20200201000000Z
+leaf ca-expired -not_before 20000101000000Z -not_after 20000101010000Z
 
 # Self-signed for localhost: one marked as a CA, openssl's default, and one not.
 selfsigned() { # NAME [OPENSSL ARGS...]: NAME.pem holds the certificate and its key
@@ -347,6 +347,12 @@ check_has "its line names the alert" "$got" "[firing] cool: uptime_seconds "
 check_has "then the condition and the host" "$got" " > 0 on web-01"
 check_lacks "and no JSON body" "$got" '"alert":'
 
+fire "http://127.0.0.1:$TCP_PORT/hook" 0 cool web-01 alertmanager
+check_has "the alertmanager format is sent as JSON" "$got" "Content-Type: application/json"
+check_has "its body is Alertmanager's, version 4, grouped by the alert and the host" "$got" \
+    '"version":"4","groupKey":"{}:{alertname=\"cool\", instance=\"web-01\"}"'
+check_has "a firing alert has no end" "$got" '"endsAt":"0001-01-01T00:00:00Z"'
+
 fire "http://127.0.0.1:$TCP_PORT/hook" 0 cool 'web \"01\"' slack
 check_has "the slack format is sent as JSON" "$got" "Content-Type: application/json"
 check_has "its text is the text format's line" "$got" '{"text":"[firing] cool: uptime_seconds '
@@ -354,13 +360,14 @@ check_has "then the condition and the host, escaped" "$got" ' &gt; 0 on web \"01
 
 # One alert across runs on the same database, its condition changed between them:
 # `uptime_seconds > 0` always holds, `< 0` never.
-alert_run() { # WHEN COOLDOWN|- WEBHOOK|- COMMAND|- -> sets $out (stderr of one collect)
+alert_run() { # WHEN COOLDOWN|- WEBHOOK|- COMMAND|- [FORMAT] -> sets $out (stderr of one collect)
     {
         printf '[collect]\ndb = "%s"\n' "$work/metrics.db"
         printf '[[alert]]\nname = "cool"\nwhen = "%s"\n' "$1"
         [ "$2" = - ] || printf 'cooldown = "%s"\n' "$2"
         [ "$3" = - ] || printf 'webhook = "%s"\n' "$3"
         [ "$4" = - ] || printf 'command = "%s"\n' "$4"
+        [ -z "${5:-}" ] || printf 'format = "%s"\n' "$5"
     } >"$work/config.toml"
 
     out=$(timeout 30 "$BIN" collect --config "$work/config.toml" 2>&1 >/dev/null)
@@ -376,6 +383,20 @@ check_has "the payload says the alert is resolved" "$(tr -d '\000' <"$received")
     '"status":"resolved"'
 alert_run "uptime_seconds < 0" - "http://127.0.0.1:$TCP_PORT/hook" -
 check_lacks "and the next run sends nothing more" "$out" "resolved 'cool'"
+
+# An alertmanager resolve starts when its firing did, seconds earlier.
+rm -f "$work/metrics.db"
+: >"$received"
+alert_run "uptime_seconds > 0" - "http://127.0.0.1:$TCP_PORT/hook" - alertmanager
+sleep 3 # the handler holds the connection for up to 2s before replying
+started=$(tr -d '\000' <"$received" | grep -o '"startsAt":"[^"]*"')
+: >"$received"
+alert_run "uptime_seconds < 0" - "http://127.0.0.1:$TCP_PORT/hook" - alertmanager
+sleep 3
+resolved=$(tr -d '\000' <"$received")
+check_has "an alertmanager firing has a start" "$started" '"startsAt":"20'
+check_has "its resolve keeps that start" "$resolved" "$started"
+check_lacks "and has an end" "$resolved" '"endsAt":"0001-01-01T00:00:00Z"'
 
 rm -f "$work/metrics.db"
 alert_run "uptime_seconds > 0" 1h - /bin/true
@@ -470,15 +491,12 @@ fire "http://localhost:$NOBODY_PORT/hook" 0
 check_has "with no address listening, the failure is reported" "$out" \
     "webhook connect to localhost failed"
 
-# Regression: a request longer than its 1024-byte buffer was sent at its full length, reading past
-# the end of the buffer. A long path plus a name and title of quotes, which escape to twice their
-# size, take it to about 1100 bytes.
+# A long path and a long body fit the request together.
 long_path=$(printf '%480s' '' | tr ' ' a)
-quotes63=$(printf '%63s' '' | sed 's/ /\\"/g')
-quotes127=$(printf '%127s' '' | sed 's/ /\\"/g')
-fire "http://127.0.0.1:$TCP_PORT/$long_path" 0 "$quotes63" "$quotes127"
-check_lacks "a webhook that does not fit its buffer sends nothing" "$got" "POST"
-check_has "a webhook that does not fit its buffer says so" "$out" "does not fit in 1024 bytes"
+fire "http://127.0.0.1:$TCP_PORT/$long_path" 0 "$(printf '%63s' '' | tr ' ' n)" \
+    "$(printf '%127s' '' | tr ' ' h)" alertmanager
+check_has "a webhook with a long path and a long body is sent" "$got" "POST /$long_path HTTP"
+check_has "and arrives whole" "$got" '"truncatedAlerts":0}'
 
 # Regression: a host longer than its 255-byte field was cut and the request went to another name.
 fire "http://$(printf '%256s' '' | tr ' ' a)/hook" 0

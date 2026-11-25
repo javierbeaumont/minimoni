@@ -44,7 +44,7 @@ typedef struct {
     sqlite3_stmt *stmt_prune_alerts;
     sqlite3_stmt *stmt_alert_check;   /* SELECT COUNT from alert_log by name + cutoff */
     sqlite3_stmt *stmt_alert_fire;    /* INSERT into alert_log */
-    sqlite3_stmt *stmt_alert_firing;  /* SELECT COUNT of a name's rows not yet resolved */
+    sqlite3_stmt *stmt_alert_firing;  /* SELECT the start of a name's open row */
     sqlite3_stmt *stmt_alert_resolve; /* UPDATE a name's open row with resolved_at */
     char         *sql_consolidate;    /* buffer allocated in db_open, refilled per pass */
 } db_t;
@@ -156,8 +156,10 @@ void db_release_memory(db_t *db);
 /* 1 if alert_name fired less than cooldown_seconds before now, 0 if not, -1 on database error. */
 int db_alert_on_cooldown(db_t *db, const char *alert_name, long cooldown_seconds, time_t now);
 
-/* 1 if alert_name is firing (a row not yet resolved), 0 if not, -1 on database error. */
-int db_alert_firing(db_t *db, const char *alert_name);
+/* 1 if alert_name is firing (a row not yet resolved), 0 if not, -1 on database error. When it is
+ * firing and `size` is not 0, a non-NULL fired_at gets when it started, as alert_log stores it, or
+ * "" when that does not fit. */
+int db_alert_firing(db_t *db, const char *alert_name, char *fired_at, size_t size);
 
 /* Record that alert_name started firing at now. Returns 0 on success, -1 on error. */
 [[nodiscard]] int db_alert_log_fire(db_t *db, const char *alert_name, time_t now);

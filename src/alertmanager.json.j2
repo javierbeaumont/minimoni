@@ -1,0 +1,36 @@
+{
+    "receiver": "minimoni",
+    "status": "{{status}}",
+    "alerts": [
+        {
+            "status": "{{status}}",
+            "labels": {
+                "alertname": "{{name}}",
+                "instance": "{{host}}"
+            },
+            "annotations": {
+                "summary": "{{summary}}"
+            },
+            "startsAt": "{{starts}}",
+            "endsAt": "{{ends}}",
+            "generatorURL": "",
+            "fingerprint": "{{fingerprint}}"
+        }
+    ],
+    "notification_reason": "{{reason}}",
+    "groupLabels": {
+        "alertname": "{{name}}",
+        "instance": "{{host}}"
+    },
+    "commonLabels": {
+        "alertname": "{{name}}",
+        "instance": "{{host}}"
+    },
+    "commonAnnotations": {
+        "summary": "{{summary}}"
+    },
+    "externalURL": "",
+    "version": "4",
+    "groupKey": "{}:{alertname=\"{{name_in_key}}\", instance=\"{{host_in_key}}\"}",
+    "truncatedAlerts": 0
+}
