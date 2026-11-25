@@ -670,13 +670,26 @@ static int test_alert_format_replaces_the_default(void)
                : 1;
 }
 
+static int test_alert_format_slack_loads(void)
+{
+    config_t cfg;
+
+    return load_cfg(&cfg,
+                    "[[alert]]\nwhen = \"load_1m > 1\"\nwebhook = \"w\"\nformat = \"slack\"\n") ==
+                       0 &&
+                   cfg.alerts[0].format == ALERT_FORMAT_SLACK
+               ? 0
+               : 1;
+}
+
 static int test_unknown_format_fails(void)
 {
     return fails_with("[alerts]\nformat = \"jsonl\"\n",
-                      "config: alerts: unknown format 'jsonl' (use json, text); aborting") &&
-                   fails_with("[[alert]]\nname = \"a\"\nwhen = \"load_1m > 1\"\nwebhook = \"w\"\n"
-                              "format = \"\"\n",
-                              "config: alert 'a': unknown format '' (use json, text); aborting")
+                      "config: alerts: unknown format 'jsonl' (use json, slack, text); aborting") &&
+                   fails_with(
+                       "[[alert]]\nname = \"a\"\nwhen = \"load_1m > 1\"\nwebhook = \"w\"\n"
+                       "format = \"\"\n",
+                       "config: alert 'a': unknown format '' (use json, slack, text); aborting")
                ? 0
                : 1;
 }
@@ -1293,6 +1306,7 @@ static const test_t ALL_TESTS[] = {
     T(format_json_loads_in_alerts_and_in_an_alert),
     T(alerts_format_is_the_default),
     T(alert_format_replaces_the_default),
+    T(alert_format_slack_loads),
     T(unknown_format_fails),
     T(format_not_a_string_fails),
     T(alerts_with_one_name_fail),

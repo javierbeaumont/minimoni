@@ -553,7 +553,7 @@ and `[alerts]` holds their defaults and the webhook TLS keys.
 [alerts]
 command  = "/usr/local/bin/notify.sh"  # execute this command when an alert fires or resolves
 cooldown = "1h"                        # least time between two firings of an alert
-format   = "json"                      # "json" | "text": the body POSTed (default: json)
+format   = "json"                      # "json" | "slack" | "text": the body POSTed (default: json)
 webhook  = "https://ntfy.sh/my-server" # POST to this URL when an alert fires or resolves
 
 [[alert]]
@@ -576,9 +576,9 @@ named after its condition, with one space on each side of the operator. Two aler
 fail the load, since an alert's state is kept by name.
 
 A missing or malformed `when`, an unknown metric or operator, a `command` or `webhook` that is not a
-string, a `format` other than `json` or `text`, or an entry that is not a table fails the load, and
-the error says which alert. So does any unknown key in an alert or in `[alerts]`, such as `webhok`.
-`when` and `name` go only in an alert: in `[alerts]` they fail the load.
+string, a `format` other than `json`, `slack` or `text`, or an entry that is not a table fails the
+load, and the error says which alert. So does any unknown key in an alert or in `[alerts]`, such as
+`webhok`. `when` and `name` go only in an alert: in `[alerts]` they fail the load.
 
 **Available metrics** (any other name fails the load):
 
@@ -633,7 +633,10 @@ When `webhook` is set, minimoni sends a POST request whose body is the one `form
 `json` body, below, is sent as `application/json`. `text` sends one line as `text/plain`, which an
 ntfy topic URL shows as the message: `[firing] disk_available_percent 7.7 < 10 on my-server`, or
 `[firing] hot: temp_degrees 81.5 > 80 on my-server` for an alert with `name = "hot"`. A resolve
-reads `[resolved] disk_available_percent 12.3, no longer < 10 on my-server`.
+reads `[resolved] disk_available_percent 12.3, no longer < 10 on my-server`. `slack` sends that line
+as the body of a [Slack incoming webhook][sw], `{"text":"..."}`, with `&`, `<` and `>` written
+`&amp;`, `&lt;` and `&gt;` as [Slack asks][se]. Google Chat and Mattermost incoming webhooks take it
+too, and Discord's at its webhook URL plus `/slack`.
 **Requires outbound HTTP connectivity from the server.** A delivery that takes over 10 s, DNS and
 connect included, is given up and reported.
 
@@ -651,6 +654,9 @@ connect included, is given up and reported.
 ```
 
 `status` is `firing` or `resolved`, and `value` is the metric's value at that check.
+
+[se]: https://docs.slack.dev/messaging/formatting-message-text/#escaping
+[sw]: https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/#posting_with_webhooks
 
 When `command` is set, it is executed via `system()` with the same user and privileges
 as the minimoni process, on `firing` and on `resolved` alike; `MINIMONI_ALERT_STATUS` says which.

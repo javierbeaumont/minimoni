@@ -347,6 +347,11 @@ check_has "its line names the alert" "$got" "[firing] cool: uptime_seconds "
 check_has "then the condition and the host" "$got" " > 0 on web-01"
 check_lacks "and no JSON body" "$got" '"alert":'
 
+fire "http://127.0.0.1:$TCP_PORT/hook" 0 cool 'web \"01\"' slack
+check_has "the slack format is sent as JSON" "$got" "Content-Type: application/json"
+check_has "its text is the text format's line" "$got" '{"text":"[firing] cool: uptime_seconds '
+check_has "then the condition and the host, escaped" "$got" ' &gt; 0 on web \"01\""}'
+
 # One alert across runs on the same database, its condition changed between them:
 # `uptime_seconds > 0` always holds, `< 0` never.
 alert_run() { # WHEN COOLDOWN|- WEBHOOK|- COMMAND|- -> sets $out (stderr of one collect)

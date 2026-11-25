@@ -158,13 +158,25 @@ const char *trust_system_file(void) { return NULL; }
 void trust_free(trust_t *t) { (void)t; }
 
 /* json and db seams: src/json.c pulls units.c and config.c, and config.c pulls vendor/tomlc17.c, so
- * the real ones would drag vendored code into a unit build. */
+ * the real ones would drag vendored code into a unit build. This json_escape escapes `"` and `\`
+ * as the real one does, and nothing else. */
 int json_escape(char *dst, size_t cap, const char *src)
 {
-    (void)src;
-    if (cap)
-        dst[0] = '\0';
-    return 0;
+    size_t len = 0;
+
+    for (; *src; src++) {
+        int quoted = *src == '"' || *src == '\\';
+
+        if (len + quoted + 1 >= cap)
+            return -1;
+
+        if (quoted)
+            dst[len++] = '\\';
+        dst[len++] = *src;
+    }
+    dst[len] = '\0';
+
+    return (int)len;
 }
 
 /* What the fake alert log answers: whether an alert is firing, and whether a cooldown holds it. */
@@ -806,6 +818,106 @@ static int test_text_line_that_does_not_fit_is_refused(void)
     return alert_line(&alert, "firing", 7.7, "my-server", line, sizeof(line)) == -1 ? 0 : 1;
 }
 
+/* --- The slack format's body --- */
+
+static int test_slack_body_holds_the_line_as_its_text(void)
+{
+    alert_cfg_t alert = {.name = "disk_available_percent < 10",
+                         .metric = "disk_available_percent",
+                         .op = "<",
+                         .threshold = 10};
+    char        body[256];
+    const char *want = "{\"text\":\"[firing] disk_available_percent 7.7 &lt; 10 on my-server\"}";
+
+    return slack_body(&alert, "firing", 7.7, "my-server", body, sizeof(body)) ==
+                       (int)strlen(want) &&
+                   strcmp(body, want) == 0
+               ? 0
+               : 1;
+}
+
+static int test_slack_body_escapes_the_whole_line(void)
+{
+    alert_cfg_t alert = {
+        .name = "a<b & c>", .named = 1, .metric = "load_1m", .op = ">", .threshold = 1};
+    char        body[256];
+    const char *want = "{\"text\":\"[firing] a&lt;b &amp; c&gt;: load_1m 5 &gt; 1 on x&lt;y&gt;\"}";
+
+    return slack_body(&alert, "firing", 5, "x<y>", body, sizeof(body)) == (int)strlen(want) &&
+                   strcmp(body, want) == 0
+               ? 0
+               : 1;
+}
+
+static int test_slack_body_escapes_quotes_for_json(void)
+{
+    alert_cfg_t alert = {.metric = "load_1m", .op = ">", .threshold = 1};
+    char        body[256];
+    const char *want = "{\"text\":\"[firing] load_1m 5 &gt; 1 on web \\\"01\\\"\"}";
+
+    return slack_body(&alert, "firing", 5, "web \"01\"", body, sizeof(body)) == (int)strlen(want) &&
+                   strcmp(body, want) == 0
+               ? 0
+               : 1;
+}
+
+static int test_slack_escape_exact_fit(void)
+{
+    char out[8];
+
+    memset(out, 'x', sizeof(out));
+
+    return slack_escape(out, sizeof(out), "ab<c") == 7 && strcmp(out, "ab&lt;c") == 0 ? 0 : 1;
+}
+
+static int test_slack_escape_one_byte_short(void)
+{
+    char out[8];
+
+    return slack_escape(out, sizeof(out), "ab<cd") == -1 ? 0 : 1;
+}
+
+static int test_slack_body_exact_fit(void)
+{
+    alert_cfg_t alert = {.metric = "disk_available_percent", .op = "<", .threshold = 10};
+    char        body[1024], host[966];
+
+    memset(host, 'a', sizeof(host) - 1);
+    host[sizeof(host) - 1] = '\0';
+
+    return slack_body(&alert, "firing", 7.7, host, body, sizeof(body)) == 1023 ? 0 : 1;
+}
+
+static int test_slack_body_that_does_not_fit_with_entities_is_refused(void)
+{
+    alert_cfg_t alert = {.metric = "disk_available_percent", .op = "<", .threshold = 10};
+    char        body[4096], host[300];
+
+    memset(host, '&', sizeof(host) - 1);
+    host[sizeof(host) - 1] = '\0';
+
+    return slack_body(&alert, "firing", 7.7, host, body, sizeof(body)) == -1 ? 0 : 1;
+}
+
+static int test_slack_body_that_does_not_fit_json_escaped_is_refused(void)
+{
+    alert_cfg_t alert = {.metric = "disk_available_percent", .op = "<", .threshold = 10};
+    char        body[4096], host[600];
+
+    memset(host, '"', sizeof(host) - 1);
+    host[sizeof(host) - 1] = '\0';
+
+    return slack_body(&alert, "firing", 7.7, host, body, sizeof(body)) == -1 ? 0 : 1;
+}
+
+static int test_slack_body_that_does_not_fit_is_refused(void)
+{
+    alert_cfg_t alert = {.metric = "disk_available_percent", .op = "<", .threshold = 10};
+    char        body[32];
+
+    return slack_body(&alert, "firing", 7.7, "my-server", body, sizeof(body)) == -1 ? 0 : 1;
+}
+
 /* --- A check: what alerts_evaluate logs, from the alert log's answers --- */
 
 /* The log of one check of an alert named 'a' on `metric` > 1 with no action, so nothing is
@@ -922,6 +1034,15 @@ static const test_t ALL_TESTS[] = {
     T(text_line_stays_one_line),
     T(text_line_keeps_utf_8),
     T(text_line_that_does_not_fit_is_refused),
+    T(slack_body_holds_the_line_as_its_text),
+    T(slack_body_escapes_the_whole_line),
+    T(slack_body_escapes_quotes_for_json),
+    T(slack_escape_exact_fit),
+    T(slack_escape_one_byte_short),
+    T(slack_body_exact_fit),
+    T(slack_body_that_does_not_fit_with_entities_is_refused),
+    T(slack_body_that_does_not_fit_json_escaped_is_refused),
+    T(slack_body_that_does_not_fit_is_refused),
     T(check_logs_the_resolve_of_a_firing_alert),
     T(check_after_a_failed_lookup_sends_nothing),
     T(firing_alert_whose_metric_has_no_value_keeps_its_state),

@@ -471,6 +471,49 @@ static int alert_line(const alert_cfg_t *alert, const char *status, double value
     return len;
 }
 
+/* `src` with `&`, `<` and `>` written `&amp;`, `&lt;` and `&gt;`, since Slack reads a `<...>` as a
+ * link or a mention. Returns the length written, or -1 when it does not fit. */
+static int slack_escape(char *dst, size_t size, const char *src)
+{
+    size_t len = 0;
+
+    for (; *src; src++) {
+        const char *entity = *src == '&'   ? "&amp;"
+                             : *src == '<' ? "&lt;"
+                             : *src == '>' ? "&gt;"
+                                           : NULL;
+        size_t      piece_len = entity ? strlen(entity) : 1;
+
+        if (len + piece_len >= size)
+            return -1;
+
+        if (entity)
+            memcpy(dst + len, entity, piece_len);
+        else
+            dst[len] = *src;
+        len += piece_len;
+    }
+    dst[len] = '\0';
+
+    return (int)len;
+}
+
+/* The slack format's body: the text format's line as its "text". Returns its length, or -1 when
+ * it does not fit. */
+static int slack_body(const alert_cfg_t *alert, const char *status, double value,
+                      const char *hostname, char *body, size_t size)
+{
+    /* As big as post_webhook's body: a step that outgrows its buffer could not fit there either. */
+    char json_text[1024], line[1024], slack_text[1024];
+
+    if (alert_line(alert, status, value, hostname, line, sizeof(line)) < 0 ||
+        slack_escape(slack_text, sizeof(slack_text), line) < 0 ||
+        json_escape(json_text, sizeof(json_text), slack_text) < 0)
+        return -1;
+
+    return fit_printf(body, size, "{\"text\":\"%s\"}", json_text);
+}
+
 /* Returns 1 when the endpoint answered 2xx. Any failure returns 0 and is reported in a single
  * line. */
 static int post_webhook(const config_t *cfg, const alert_cfg_t *alert, const char *status,
@@ -483,11 +526,12 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *alert, const cha
     if (scheme < 0)
         return 0;
 
-    int         blen;
+    int         blen = -1;
     char        body[1024];
     const char *media_type = "application/json";
 
-    if (alert->format == ALERT_FORMAT_JSON) {
+    switch (alert->format) {
+    case ALERT_FORMAT_JSON: {
         /* The name and the host are free-form; the metric and the operator are checked at load. */
         char ehost[512], ename[256];
         if (json_escape(ehost, sizeof(ehost), hostname) < 0 ||
@@ -502,9 +546,15 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *alert, const cha
                           "\"timestamp\":\"%s\",\"hostname\":\"%s\"}",
                           ename, status, alert->metric, value, alert->threshold, alert->op,
                           timestamp, ehost);
-    } else {
+        break;
+    }
+    case ALERT_FORMAT_SLACK:
+        blen = slack_body(alert, status, value, hostname, body, sizeof(body));
+        break;
+    case ALERT_FORMAT_TEXT:
         media_type = "text/plain; charset=utf-8";
         blen = alert_line(alert, status, value, hostname, body, sizeof(body));
+        break;
     }
 
     /* RFC 9110: the port goes in Host unless it is the scheme's default. */
