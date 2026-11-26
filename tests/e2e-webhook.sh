@@ -353,6 +353,12 @@ check_has "its body is Alertmanager's, version 4, grouped by the alert and the h
     '"version":"4","groupKey":"{}:{alertname=\"cool\", instance=\"web-01\"}"'
 check_has "a firing alert has no end" "$got" '"endsAt":"0001-01-01T00:00:00Z"'
 
+fire "http://127.0.0.1:$TCP_PORT/hook" 0 cool web-01 grafana
+check_has "the grafana format is sent as JSON" "$got" "Content-Type: application/json"
+check_has "its body is Grafana's, version 1" "$got" '"version":"1","groupKey":"{}:{alertname='
+check_has "with a title, a state and a message" "$got" \
+    '"title":"cool on web-01","state":"alerting","message":"uptime_seconds '
+
 fire "http://127.0.0.1:$TCP_PORT/hook" 0 cool 'web \"01\"' slack
 check_has "the slack format is sent as JSON" "$got" "Content-Type: application/json"
 check_has "its text is the text format's line" "$got" '{"text":"[firing] cool: uptime_seconds '

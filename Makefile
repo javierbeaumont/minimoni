@@ -48,7 +48,7 @@ SRC = src/main.c src/alerts.c src/config.c src/config_alerts.c src/db.c src/db_c
       src/downsample.c src/http.c src/json.c src/metrics.c src/trust.c src/units.c
 VENDOR = vendor/civetweb.c vendor/sqlite3.c vendor/tomlc17.c
 # Webhook body templates, which src/alerts.c embeds.
-TEMPLATES = src/alertmanager.json.j2
+TEMPLATES = src/alertmanager.json.j2 src/grafana.json.j2
 
 # minimoni-migrate: standalone, links no vendored libs (calls `minimoni db exec`).
 MIGRATE_SRC = src/migrate/main.c src/migrate/consolidate.c src/migrate/exec.c \

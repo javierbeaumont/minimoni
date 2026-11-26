@@ -681,6 +681,17 @@ static int test_alert_format_alertmanager_loads(void)
                : 1;
 }
 
+static int test_alert_format_grafana_loads(void)
+{
+    config_t cfg;
+
+    return load_cfg(&cfg, "[[alert]]\nwhen = \"load_1m > 1\"\nwebhook = \"w\"\n"
+                          "format = \"grafana\"\n") == 0 &&
+                   cfg.alerts[0].format == ALERT_FORMAT_GRAFANA
+               ? 0
+               : 1;
+}
+
 static int test_alert_format_slack_loads(void)
 {
     config_t cfg;
@@ -696,12 +707,12 @@ static int test_alert_format_slack_loads(void)
 static int test_unknown_format_fails(void)
 {
     return fails_with("[alerts]\nformat = \"jsonl\"\n",
-                      "config: alerts: unknown format 'jsonl' (use json, alertmanager, slack, "
-                      "text); aborting") &&
+                      "config: alerts: unknown format 'jsonl' (use json, alertmanager, grafana, "
+                      "slack, text); aborting") &&
                    fails_with("[[alert]]\nname = \"a\"\nwhen = \"load_1m > 1\"\nwebhook = \"w\"\n"
                               "format = \"\"\n",
                               "config: alert 'a': unknown format '' (use json, alertmanager, "
-                              "slack, text); aborting")
+                              "grafana, slack, text); aborting")
                ? 0
                : 1;
 }
@@ -1319,6 +1330,7 @@ static const test_t ALL_TESTS[] = {
     T(alerts_format_is_the_default),
     T(alert_format_replaces_the_default),
     T(alert_format_alertmanager_loads),
+    T(alert_format_grafana_loads),
     T(alert_format_slack_loads),
     T(unknown_format_fails),
     T(format_not_a_string_fails),

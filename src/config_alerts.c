@@ -34,12 +34,16 @@ static const char *const METRIC_NAMES[] = {ALERT_METRICS, NULL};
 static const char *const ALERT_KEYS[] = {
     "ca_file", "command", "cooldown", "format", "insecure_skip_verify", "name", "webhook", "when"};
 
+/* One name per line, so a new one never reflows the list. */
+/* clang-format off */
 static const char *const FORMAT_NAMES[] = {
     [ALERT_FORMAT_JSON] = "json",
     [ALERT_FORMAT_ALERTMANAGER] = "alertmanager",
+    [ALERT_FORMAT_GRAFANA] = "grafana",
     [ALERT_FORMAT_SLACK] = "slack",
-    [ALERT_FORMAT_TEXT] = "text",
+    [ALERT_FORMAT_TEXT] = "text"
 };
+/* clang-format on */
 
 /* 1 when a line opens a PEM certificate, 0 when none does, -1 with errno when the file cannot be
  * read. Only a first check: the anchors are decoded at delivery. */

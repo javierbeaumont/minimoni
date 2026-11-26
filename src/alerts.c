@@ -206,16 +206,24 @@ static int eval_op(double value, const char *op, double threshold)
 
 /* --- Webhook (HTTP and HTTPS) --- */
 
-/* snprintf that treats truncation as failure: the length written, or -1 unless it all fit. */
+/* vsnprintf that returns -1 unless it all fit. */
+[[nodiscard]] [[gnu::format(printf, 3, 0)]] static int fit_vprintf(char *buf, size_t cap,
+                                                                   const char *fmt, va_list args)
+{
+    int len = vsnprintf(buf, cap, fmt, args);
+
+    return len >= 0 && (size_t)len < cap ? len : -1;
+}
+
 [[nodiscard]] [[gnu::format(printf, 3, 4)]] static int fit_printf(char *buf, size_t cap,
                                                                   const char *fmt, ...)
 {
-    va_list ap;
-    va_start(ap, fmt);
-    int n = vsnprintf(buf, cap, fmt, ap);
-    va_end(ap);
+    va_list args;
+    va_start(args, fmt);
+    int len = fit_vprintf(buf, cap, fmt, args);
+    va_end(args);
 
-    return n >= 0 && (size_t)n < cap ? n : -1;
+    return len;
 }
 
 static int parse_url(const char *url, char *host, size_t hsz, char *port_str, size_t psz,
@@ -452,35 +460,91 @@ static int reply_ok(const head_t *h)
            isdigit((unsigned char)code[2]) && isdigit((unsigned char)code[3]);
 }
 
-/* Holds the longest body, alertmanager's, when the longest name, host and metric need no
- * escaping. */
-#define BODY_SIZE 2048
+/* Holds the longest body, grafana's, when the longest name, host and metric need no escaping. */
+#define BODY_SIZE 3072
 
-/* Holds each piece of an alertmanager body, even a name or a host whose every byte JSON escapes to
- * six. */
+/* Holds each piece of an alertmanager or grafana body, even a name or a host whose every byte JSON
+ * escapes to six. */
 #define PIECE_SIZE 1024
 
 static_assert(6 * sizeof(((alert_cfg_t *)0)->name) <= PIECE_SIZE &&
               6 * sizeof(((config_t *)0)->title) <= PIECE_SIZE);
 
-/* An alert's line without its status: "disk_available_percent 7.7 < 10 on my-server", with
- * "12.3, no longer < 10" on a resolve and the alert's name before the metric when the config gave
- * one. An ASCII control character in the name or host becomes a space, so it stays one line.
- * Returns its length, or -1 when it does not fit. */
-static int alert_summary(const alert_cfg_t *alert, const char *status, double value,
-                         const char *hostname, char *summary, size_t size)
+/* A text being written: `len` bytes of `start` so far, or -1 once a piece did not fit. */
+typedef struct {
+    int    len;
+    size_t size;
+    char  *start;
+} out_t;
+
+/* Turns each ASCII control character in the `len` bytes of `line` into a space, so a name or a
+ * host cannot split it into lines. */
+static void one_line(char *line, int len)
+{
+    for (int i = 0; i < len; i++)
+        if ((unsigned char)line[i] < 0x20 || line[i] == 0x7f)
+            line[i] = ' ';
+}
+
+static void out_byte(out_t *out, char byte)
+{
+    if (out->len < 0)
+        return;
+
+    if ((size_t)out->len + 1 >= out->size) {
+        out->len = -1;
+        return;
+    }
+
+    out->start[out->len++] = byte;
+    out->start[out->len] = '\0';
+}
+
+/* Appends `src`, escaped for a JSON string. */
+static void out_json(out_t *out, const char *src)
+{
+    int piece_len = json_escape(out->start + out->len, out->size - (size_t)out->len, src);
+
+    out->len = piece_len >= 0 ? out->len + piece_len : -1;
+}
+
+[[gnu::format(printf, 2, 3)]] static void out_printf(out_t *out, const char *fmt, ...)
+{
+    if (out->len < 0)
+        return;
+
+    va_list args;
+    va_start(args, fmt);
+    int piece_len = fit_vprintf(out->start + out->len, out->size - (size_t)out->len, fmt, args);
+    va_end(args);
+
+    out->len = piece_len >= 0 ? out->len + piece_len : -1;
+}
+
+/* Appends what the metric did: "disk_available_percent 7.7 < 10", with "12.3, no longer < 10" on
+ * a resolve. */
+static void out_condition(out_t *out, const alert_cfg_t *alert, const char *status, double value)
 {
     int resolved = strcmp(status, "resolved") == 0;
-    int len =
-        fit_printf(summary, size, "%s%s%s %.6g%s %s %.6g on %s", alert->named ? alert->name : "",
-                   alert->named ? ": " : "", alert->metric, value, resolved ? ", no longer" : "",
-                   alert->op, alert->threshold, hostname);
 
-    for (int i = 0; i < len; i++)
-        if ((unsigned char)summary[i] < 0x20 || summary[i] == 0x7f)
-            summary[i] = ' ';
+    out_printf(out, "%s %.6g%s %s %.6g", alert->metric, value, resolved ? ", no longer" : "",
+               alert->op, alert->threshold);
+}
 
-    return len;
+/* Appends an alert's line without its status: "disk_available_percent 7.7 < 10 on my-server",
+ * with the alert's name first when the config gave one. */
+static void out_summary(out_t *out, const alert_cfg_t *alert, const char *status, double value,
+                        const char *hostname)
+{
+    int from = out->len;
+
+    if (alert->named)
+        out_printf(out, "%s: ", alert->name);
+    out_condition(out, alert, status, value);
+    out_printf(out, " on %s", hostname);
+
+    if (out->len >= 0)
+        one_line(out->start + from, out->len - from);
 }
 
 /* The line the text format sends: "[firing] disk_available_percent 7.7 < 10 on my-server". Returns
@@ -488,14 +552,12 @@ static int alert_summary(const alert_cfg_t *alert, const char *status, double va
 static int alert_line(const alert_cfg_t *alert, const char *status, double value,
                       const char *hostname, char *line, size_t size)
 {
-    int tag_len = fit_printf(line, size, "[%s] ", status);
+    out_t out = {.size = size, .start = line};
 
-    if (tag_len < 0)
-        return -1;
+    out_printf(&out, "[%s] ", status);
+    out_summary(&out, alert, status, value, hostname);
 
-    int len = alert_summary(alert, status, value, hostname, line + tag_len, size - (size_t)tag_len);
-
-    return len < 0 ? -1 : tag_len + len;
+    return out.len;
 }
 
 /* Alertmanager's fingerprint of a label set: FNV-1a, 64 bits, over each name and value, each
@@ -521,35 +583,6 @@ static void iso_time(time_t instant, char *out, size_t size)
 
     gmtime_r(&instant, &utc);
     strftime(out, size, "%Y-%m-%dT%H:%M:%SZ", &utc);
-}
-
-/* A text being written: `len` bytes of `start` so far, or -1 once a piece did not fit. */
-typedef struct {
-    int    len;
-    size_t size;
-    char  *start;
-} out_t;
-
-static void out_byte(out_t *out, char byte)
-{
-    if (out->len < 0)
-        return;
-
-    if ((size_t)out->len + 1 >= out->size) {
-        out->len = -1;
-        return;
-    }
-
-    out->start[out->len++] = byte;
-    out->start[out->len] = '\0';
-}
-
-/* Appends `src`, escaped for a JSON string. */
-static void out_json(out_t *out, const char *src)
-{
-    int piece_len = json_escape(out->start + out->len, out->size - (size_t)out->len, src);
-
-    out->len = piece_len >= 0 ? out->len + piece_len : -1;
 }
 
 /* A template's {{mark}} and its value. A NULL value refuses the template that uses it. */
@@ -594,33 +627,39 @@ static void out_template(out_t *out, const char *template, const mark_t *marks, 
     }
 }
 
-/* Alertmanager's webhook body, version 4, in the order Alertmanager writes it. */
-static const char ALERTMANAGER_TEMPLATE[] = {
-#embed "alertmanager.json.j2" suffix(, 0)
-};
-
-/* The alertmanager format's body, holding this one alert. Its labels, alertname and instance, are
- * its group's too, so its firing and its resolve share a groupKey and a fingerprint. `started` is
- * when a resolved alert started firing; if "", it starts at its end. Returns its length, or -1
- * when it does not fit. */
-static int alertmanager_body(const alert_cfg_t *alert, const char *status, double value,
-                             const char *hostname, const char *started, time_t now, char *body,
-                             size_t size)
+/* The alertmanager or grafana body, from `template`, holding this one alert. Its labels, alertname
+ * and instance, are its group's too, so its firing and its resolve share a groupKey and a
+ * fingerprint. `started` is when a resolved alert started firing; if "", it starts at its end.
+ * Returns its length, or -1 when it does not fit. */
+static int group_body(const alert_cfg_t *alert, const char *status, double value,
+                      const char *hostname, const char *started, time_t now, const char *template,
+                      char *body, size_t size)
 {
+    char              condition[PIECE_SIZE];
+    out_t             condition_out = {.size = sizeof(condition), .start = condition};
     char              fingerprint_hex[17];
     int               firing = strcmp(status, "firing") == 0;
     char              json_host[PIECE_SIZE], json_name[PIECE_SIZE], now_iso[24];
     out_t             out = {.size = size, .start = body};
     const char *const pairs[][2] = {{"alertname", alert->name}, {"instance", hostname}};
     char              summary[PIECE_SIZE];
+    out_t             summary_out = {.size = sizeof(summary), .start = summary};
+    char              title[PIECE_SIZE], value_text[32];
 
     iso_time(now, now_iso, sizeof(now_iso));
     snprintf(fingerprint_hex, sizeof(fingerprint_hex), "%016" PRIx64, fingerprint(pairs, 2));
+    snprintf(value_text, sizeof(value_text), "%.6g", value);
+    out_condition(&condition_out, alert, status, value);
+    out_summary(&summary_out, alert, status, value, hostname);
 
-    if (alert_summary(alert, status, value, hostname, summary, sizeof(summary)) < 0 ||
+    int title_len = fit_printf(title, sizeof(title), "%s on %s", alert->name, hostname);
+
+    if (summary_out.len < 0 || title_len < 0 ||
         json_escape(json_host, sizeof(json_host), hostname) < 0 ||
         json_escape(json_name, sizeof(json_name), alert->name) < 0)
         return -1;
+
+    one_line(title, title_len);
 
     /* For a printable name and host, the group key is Alertmanager's for its root route: "{}:"
      * and the group's labels, whose values it quotes, hence escaped twice. A firing alert's endsAt
@@ -631,17 +670,47 @@ static int alertmanager_body(const alert_cfg_t *alert, const char *status, doubl
         {"fingerprint", fingerprint_hex},
         {"host", hostname},
         {"host_in_key", json_host},
+        {"message", condition},
+        {"metric", alert->metric},
         {"name", alert->name},
         {"name_in_key", json_name},
         {"reason", firing ? "first notification" : "all alerts resolved"},
         {"starts", firing || !started[0] ? now_iso : started},
+        {"state", firing ? "alerting" : "ok"},
         {"status", status},
         {"summary", summary},
+        {"title", title},
+        {"value", value_text},
     };
 
-    out_template(&out, ALERTMANAGER_TEMPLATE, marks, sizeof(marks) / sizeof(marks[0]));
+    out_template(&out, template, marks, sizeof(marks) / sizeof(marks[0]));
 
     return out.len;
+}
+
+/* Alertmanager's webhook body, version 4, in the order Alertmanager writes it. */
+static const char ALERTMANAGER_TEMPLATE[] = {
+#embed "alertmanager.json.j2" suffix(, 0)
+};
+
+/* Grafana Alerting's webhook body, version 1, in the order Grafana writes it. */
+static const char GRAFANA_TEMPLATE[] = {
+#embed "grafana.json.j2" suffix(, 0)
+};
+
+static int alertmanager_body(const alert_cfg_t *alert, const char *status, double value,
+                             const char *hostname, const char *started, time_t now, char *body,
+                             size_t size)
+{
+    return group_body(alert, status, value, hostname, started, now, ALERTMANAGER_TEMPLATE, body,
+                      size);
+}
+
+static int grafana_body(const alert_cfg_t *alert, const char *status, double value,
+                        const char *hostname, const char *started, time_t now, char *body,
+                        size_t size)
+{
+    return group_body(alert, status, value, hostname, started, now, GRAFANA_TEMPLATE, body, size);
 }
 
 /* `src` with `&`, `<` and `>` written `&amp;`, `&lt;` and `&gt;`, since Slack reads a `<...>` as a
@@ -737,6 +806,9 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *alert, const cha
     }
     case ALERT_FORMAT_ALERTMANAGER:
         blen = alertmanager_body(alert, status, value, hostname, started, now, body, sizeof(body));
+        break;
+    case ALERT_FORMAT_GRAFANA:
+        blen = grafana_body(alert, status, value, hostname, started, now, body, sizeof(body));
         break;
     case ALERT_FORMAT_SLACK:
         blen = slack_body(alert, status, value, hostname, body, sizeof(body));

@@ -46,7 +46,7 @@ disk_path = "/"
 webhook  = "https://ntfy.sh/my-server" # every alert's, unless it sets its own ("" clears it)
 cooldown = "1h"
 # command = "/usr/local/bin/alert.sh"
-# format = "json"                      # body POSTed: json (default), alertmanager, slack or text
+# format = "json"                      # body: json (default), alertmanager, grafana, slack or text
 # ca_file = "/etc/minimoni/ca.pem"     # CAs to trust (default: the host's CA store)
 # insecure_skip_verify = true          # POST to HTTPS webhooks without checking their certificate
 

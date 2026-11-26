@@ -803,6 +803,18 @@ static int test_text_line_stays_one_line(void)
                : 1;
 }
 
+static int test_text_line_is_one_line_from_the_name_to_the_end_of_the_host(void)
+{
+    alert_cfg_t alert = {
+        .name = "\tdisk", .named = 1, .metric = "load_1m", .op = ">", .threshold = 1};
+    char line[256];
+
+    return alert_line(&alert, "firing", 5, "web\n", line, sizeof(line)) > 0 &&
+                   strcmp(line, "[firing]  disk: load_1m 5 > 1 on web ") == 0
+               ? 0
+               : 1;
+}
+
 static int test_text_line_keeps_utf_8(void)
 {
     alert_cfg_t alert = {
@@ -1086,9 +1098,10 @@ static int test_alertmanager_body_that_does_not_fit_is_refused(void)
 
 static int test_alertmanager_body_that_does_not_fit_escaped_is_refused(void)
 {
-    alert_cfg_t alert = {.metric = "load_1m", .op = ">", .threshold = 1};
+    alert_cfg_t alert = {.named = 1, .metric = "load_1m", .op = ">", .threshold = 1};
     char        body[BODY_SIZE], host[sizeof(((config_t *)0)->title)];
 
+    memset(alert.name, '"', sizeof(alert.name) - 1);
     memset(host, '"', sizeof(host) - 1);
     host[sizeof(host) - 1] = '\0';
 
@@ -1121,7 +1134,8 @@ static int test_alertmanager_body_whose_host_does_not_fit_escaped_is_refused(voi
 static int test_alertmanager_webhook_whose_body_does_not_fit_is_not_sent(void)
 {
     static config_t cfg;
-    alert_cfg_t     alert = {.metric = "load_1m",
+    alert_cfg_t     alert = {.named = 1,
+                             .metric = "load_1m",
                              .op = ">",
                              .threshold = 1,
                              .webhook = "http://127.0.0.1:1/hook",
@@ -1150,10 +1164,148 @@ static int test_alertmanager_webhook_whose_body_does_not_fit_is_not_sent(void)
     log[len] = '\0';
     unlink(path);
 
-    return sent == 0 && strstr(log, "webhook body does not fit in 2048 bytes; skipped") &&
+    return sent == 0 && strstr(log, "webhook body does not fit in 3072 bytes; skipped") &&
                    !strstr(log, "connect")
                ? 0
                : 1;
+}
+
+/* --- The grafana format's body --- */
+
+static int test_grafana_body_of_a_firing(void)
+{
+    alert_cfg_t alert = {
+        .name = "hot", .named = 1, .metric = "temp_degrees", .op = ">", .threshold = 80};
+    char        body[BODY_SIZE];
+    const char *want =
+        "{\"receiver\":\"minimoni\",\"status\":\"firing\","
+        "\"alerts\":[{\"status\":\"firing\","
+        "\"labels\":{\"alertname\":\"hot\",\"instance\":\"my-server\"},"
+        "\"annotations\":{\"summary\":\"hot: temp_degrees 81.2346 > 80 on my-server\"},"
+        "\"startsAt\":\"2000-01-01T01:00:00Z\",\"endsAt\":\"0001-01-01T00:00:00Z\","
+        "\"generatorURL\":\"\",\"fingerprint\":\"6e15b56a0a36cfd6\","
+        "\"silenceURL\":\"\",\"dashboardURL\":\"\",\"panelURL\":\"\","
+        "\"values\":{\"temp_degrees\":81.2346},\"valueString\":\"\"}],"
+        "\"groupLabels\":{\"alertname\":\"hot\",\"instance\":\"my-server\"},"
+        "\"commonLabels\":{\"alertname\":\"hot\",\"instance\":\"my-server\"},"
+        "\"commonAnnotations\":{\"summary\":\"hot: temp_degrees 81.2346 > 80 on my-server\"},"
+        "\"externalURL\":\"\",\"version\":\"1\","
+        "\"groupKey\":\"{}:{alertname=\\\"hot\\\", instance=\\\"my-server\\\"}\","
+        "\"truncatedAlerts\":0,\"orgId\":1,\"title\":\"hot on my-server\","
+        "\"state\":\"alerting\",\"message\":\"temp_degrees 81.2346 > 80\"}";
+
+    return grafana_body(&alert, "firing", 81.2345678, "my-server", "", NOW, body, sizeof(body)) ==
+                       (int)strlen(want) &&
+                   strcmp(body, want) == 0
+               ? 0
+               : 1;
+}
+
+static int test_grafana_body_of_a_resolve_has_state_ok_and_keeps_its_start(void)
+{
+    alert_cfg_t alert = {.name = "disk_available_percent < 10",
+                         .metric = "disk_available_percent",
+                         .op = "<",
+                         .threshold = 10};
+    char        body[BODY_SIZE];
+
+    return grafana_body(&alert, "resolved", 12.3, "my-server", "2000-01-01T00:00:00Z", NOW, body,
+                        sizeof(body)) > 0 &&
+                   strstr(body, "{\"receiver\":\"minimoni\",\"status\":\"resolved\",") &&
+                   strstr(body, "\"startsAt\":\"2000-01-01T00:00:00Z\","
+                                "\"endsAt\":\"2000-01-01T01:00:00Z\"") &&
+                   strstr(body, "\"values\":{\"disk_available_percent\":12.3}") &&
+                   strstr(body, "\"title\":\"disk_available_percent < 10 on my-server\","
+                                "\"state\":\"ok\","
+                                "\"message\":\"disk_available_percent 12.3, no longer < 10\"}")
+               ? 0
+               : 1;
+}
+
+static int test_grafana_title_stays_one_line_and_is_escaped(void)
+{
+    alert_cfg_t alert = {
+        .name = "disk\nfull", .named = 1, .metric = "load_1m", .op = ">", .threshold = 1};
+    char body[BODY_SIZE];
+
+    return grafana_body(&alert, "firing", 5, "web \"01\"", "", NOW, body, sizeof(body)) > 0 &&
+                   strstr(body, "\"title\":\"disk full on web \\\"01\\\"\",")
+               ? 0
+               : 1;
+}
+
+static int test_grafana_title_is_one_line_from_its_first_byte_to_its_last(void)
+{
+    alert_cfg_t alert = {
+        .name = "\tdisk", .named = 1, .metric = "load_1m", .op = ">", .threshold = 1};
+    char body[BODY_SIZE];
+
+    return grafana_body(&alert, "firing", 5, "web\n", "", NOW, body, sizeof(body)) > 0 &&
+                   strstr(body, "\"title\":\" disk on web \",")
+               ? 0
+               : 1;
+}
+
+static int test_grafana_body_of_the_longest_alert_fits(void)
+{
+    alert_cfg_t alert = {.named = 1, .op = ">=", .threshold = 1.23457e+22};
+    char        body[BODY_SIZE], host[sizeof(((config_t *)0)->title)];
+
+    memset(alert.name, 'n', sizeof(alert.name) - 1);
+    memset(alert.metric, 'm', sizeof(alert.metric) - 1);
+    memset(host, 'h', sizeof(host) - 1);
+    host[sizeof(host) - 1] = '\0';
+
+    return grafana_body(&alert, "resolved", -1.23457e+100, host, "2000-01-01T00:00:00Z", NOW, body,
+                        sizeof(body)) > 0
+               ? 0
+               : 1;
+}
+
+static int test_grafana_body_whose_title_does_not_fit_is_refused(void)
+{
+    alert_cfg_t alert = {.metric = "load_1m", .op = ">", .threshold = 1};
+    char        body[16 * BODY_SIZE], host[PIECE_SIZE - 40];
+
+    memset(alert.name, 'n', sizeof(alert.name) - 1);
+    memset(host, 'h', sizeof(host) - 1);
+    host[sizeof(host) - 1] = '\0';
+
+    return grafana_body(&alert, "firing", 5, host, "", NOW, body, sizeof(body)) == -1 ? 0 : 1;
+}
+
+/* The body of `alert` firing at 5 on a host of 64 bytes, written into `size` bytes: its length, or
+ * -1. The host makes the title longer than what follows it, so a title skipped instead of refused
+ * fails a test. */
+static int grafana_body_in(const alert_cfg_t *alert, size_t size)
+{
+    char body[BODY_SIZE], host[65];
+
+    memset(host, 'h', sizeof(host) - 1);
+    host[sizeof(host) - 1] = '\0';
+
+    return grafana_body(alert, "firing", 5, host, "", NOW, body, size);
+}
+
+static int test_grafana_body_exact_fit(void)
+{
+    alert_cfg_t alert = {.name = "a", .named = 1, .metric = "load_1m", .op = ">", .threshold = 1};
+    int         len = grafana_body_in(&alert, BODY_SIZE);
+
+    return len > 0 && grafana_body_in(&alert, (size_t)len + 1) == len ? 0 : 1;
+}
+
+/* Any piece can be the one that does not fit. */
+static int test_grafana_body_that_does_not_fit_is_refused_at_every_size(void)
+{
+    alert_cfg_t alert = {.name = "a", .named = 1, .metric = "load_1m", .op = ">", .threshold = 1};
+    int         len = grafana_body_in(&alert, BODY_SIZE);
+
+    for (int size = 0; size <= len; size++)
+        if (grafana_body_in(&alert, (size_t)size) != -1)
+            return 1;
+
+    return len > 0 ? 0 : 1;
 }
 
 /* --- The slack format's body --- */
@@ -1230,7 +1382,7 @@ static int test_slack_body_exact_fit(void)
 static int test_slack_body_that_does_not_fit_with_entities_is_refused(void)
 {
     alert_cfg_t alert = {.metric = "disk_available_percent", .op = "<", .threshold = 10};
-    char        body[4096], host[500];
+    char        body[2 * BODY_SIZE], host[BODY_SIZE / 5 + 100];
 
     memset(host, '&', sizeof(host) - 1);
     host[sizeof(host) - 1] = '\0';
@@ -1241,7 +1393,7 @@ static int test_slack_body_that_does_not_fit_with_entities_is_refused(void)
 static int test_slack_body_that_does_not_fit_json_escaped_is_refused(void)
 {
     alert_cfg_t alert = {.metric = "disk_available_percent", .op = "<", .threshold = 10};
-    char        body[4096], host[1100];
+    char        body[2 * BODY_SIZE], host[BODY_SIZE / 2 + 100];
 
     memset(host, '"', sizeof(host) - 1);
     host[sizeof(host) - 1] = '\0';
@@ -1371,6 +1523,7 @@ static const test_t ALL_TESTS[] = {
     T(text_line_puts_a_configured_name_first),
     T(text_line_of_a_resolve),
     T(text_line_stays_one_line),
+    T(text_line_is_one_line_from_the_name_to_the_end_of_the_host),
     T(text_line_keeps_utf_8),
     T(text_line_that_does_not_fit_is_refused),
     T(text_line_whose_status_does_not_fit_is_refused),
@@ -1398,6 +1551,14 @@ static const test_t ALL_TESTS[] = {
     T(alertmanager_body_whose_summary_does_not_fit_is_refused),
     T(alertmanager_body_whose_host_does_not_fit_escaped_is_refused),
     T(alertmanager_webhook_whose_body_does_not_fit_is_not_sent),
+    T(grafana_body_of_a_firing),
+    T(grafana_body_of_a_resolve_has_state_ok_and_keeps_its_start),
+    T(grafana_title_stays_one_line_and_is_escaped),
+    T(grafana_title_is_one_line_from_its_first_byte_to_its_last),
+    T(grafana_body_of_the_longest_alert_fits),
+    T(grafana_body_whose_title_does_not_fit_is_refused),
+    T(grafana_body_exact_fit),
+    T(grafana_body_that_does_not_fit_is_refused_at_every_size),
     T(slack_body_holds_the_line_as_its_text),
     T(slack_body_escapes_the_whole_line),
     T(slack_body_escapes_quotes_for_json),

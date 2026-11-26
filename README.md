@@ -466,9 +466,10 @@ to `minimoni`, and `charts` and `cards` are unset by default, which shows every 
 order listed above.
 
 **`title`**: browser tab text, dashboard header, and the host named in webhook alerts (`json`'s
-`hostname` field, `alertmanager`'s `instance` label, the end of `text`'s line). If omitted, the
-dashboard shows "minimoni" and webhook alerts name the system hostname from `gethostname()`. Set
-this when running multiple instances so alert notifications identify the source host.
+`hostname` field, the `instance` label of `alertmanager` and `grafana`, the end of `text`'s line).
+If omitted, the dashboard shows "minimoni" and webhook alerts name the system hostname from
+`gethostname()`. Set this when running multiple instances so alert notifications identify the
+source host.
 
 **`theme`**: when set to `"light"` or `"dark"`, the theme is fixed and the toggle button is
 hidden. `"auto"` (default) follows the OS preference and shows the toggle.
@@ -554,7 +555,7 @@ and `[alerts]` holds their defaults and the webhook TLS keys.
 [alerts]
 command  = "/usr/local/bin/notify.sh"  # execute this command when an alert fires or resolves
 cooldown = "1h"                        # least time between two firings of an alert
-format   = "json"                      # body POSTed: json (default), alertmanager, slack or text
+format   = "json"                      # body: json (default), alertmanager, grafana, slack or text
 webhook  = "https://ntfy.sh/my-server" # POST to this URL when an alert fires or resolves
 
 [[alert]]
@@ -577,10 +578,10 @@ named after its condition, with one space on each side of the operator. Two aler
 fail the load, since an alert's state is kept by name.
 
 A missing or malformed `when`, an unknown metric or operator, a `command` or `webhook` that is not a
-string, a `format` other than `json`, `alertmanager`, `slack` or `text`, or an entry that is not a
-table fails the load, and the error says which alert. So does any unknown key in an alert or in
-`[alerts]`, such as `webhok`. `when` and `name` go only in an alert: in `[alerts]` they fail the
-load.
+string, a `format` other than `json`, `alertmanager`, `grafana`, `slack` or `text`, or an entry that
+is not a table fails the load, and the error says which alert. So does any unknown key in an alert
+or in `[alerts]`, such as `webhok`. `when` and `name` go only in an alert: in `[alerts]` they fail
+the load.
 
 **Available metrics** (any other name fails the load):
 
@@ -669,7 +670,18 @@ the URL sets the priority: ntfy 2.32.0 or later reads its `priority` parameter a
 `{{if eq .status "resolved"}}low{{else}}high{{end}}`, percent-encoded, sends `resolved` at low
 priority.
 
+`grafana` sends the body of a Grafana Alerting webhook contact point ([webhook notifier][gw]): the
+`alertmanager` body with `version` `"1"` and Grafana's own fields, without `notification_reason`.
+Its `message` is what the metric did (`temp_degrees 81.5 > 80`), its `state` `alerting` or `ok`, its
+`title` the alert's name and the host (`hot on my-server`), and the alert's `values` hold the
+metric's value. Grafana sends this body to its contact points and does not take it. ntfy with
+`?template=grafana` in its topic URL and SIGNL4 show the title and the message, which SIGNL4 lacks
+with `alertmanager`; Better Stack and Grafana IRM take it too. ntfy's `priority` and SIGNL4's URL
+ending work as with `alertmanager`. ntfy's `alertmanager` and `grafana` templates need ntfy 2.14.0
+or later.
+
 [am]: https://prometheus.io/docs/alerting/latest/configuration/#webhook_config
+[gw]: https://grafana.com/docs/grafana/latest/alerting/configure-notifications/manage-contact-points/integrations/webhook-notifier/
 [se]: https://docs.slack.dev/messaging/formatting-message-text/#escaping
 [sw]: https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/#posting_with_webhooks
 
