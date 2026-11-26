@@ -554,14 +554,15 @@ and `[alerts]` holds their defaults and the webhook TLS keys.
 [alerts]
 command  = "/usr/local/bin/notify.sh"  # execute this command when an alert fires or resolves
 cooldown = "1h"                        # least time between two firings of an alert
-format   = "json"                      # body: json (default), alertmanager, grafana, slack or text
-webhook  = "https://ntfy.sh/my-server" # POST to this URL when an alert fires or resolves
+format   = "grafana"                   # body: json (default), alertmanager, grafana, slack or text
+# POST to this URL when an alert fires or resolves
+webhook  = "https://ntfy.sh/my-server?template=grafana"
 
 [[alert]]
 when = "disk_available_percent < 10"   # metric, operator and number
 
 [[alert]]
-name    = "hot"                        # shown in logs (default: the condition)
+name    = "hot"                        # names it in logs and messages (default: the condition)
 when    = "temp_degrees > 80"
 webhook = ""                           # "" clears the default
 ```
@@ -639,15 +640,13 @@ reads `[resolved] disk_available_percent 12.3, no longer < 10 on my-server`. `sl
 as the body of a [Slack incoming webhook][sw], `{"text":"..."}`, with `&`, `<` and `>` written
 `&amp;`, `&lt;` and `&gt;` as [Slack asks][se]. Google Chat and Mattermost incoming webhooks take it
 too, and Discord's at its webhook URL plus `/slack`.
-**Requires outbound HTTP connectivity from the server.** A delivery that takes over 10 s, DNS and
-connect included, is given up and reported.
 
 ```json
 {
     "alert":     "disk_available_percent < 10",
     "status":    "firing",
     "metric":    "disk_available_percent",
-    "value":     8.7,
+    "value":     7.7,
     "threshold": 10,
     "operator":  "<",
     "timestamp": "2000-01-01T00:00:00Z",
@@ -655,7 +654,8 @@ connect included, is given up and reported.
 }
 ```
 
-`status` is `firing` or `resolved`, and `value` is the metric's value at that check.
+`alert` is the alert's name, `status` is `firing` or `resolved`, `value` is the metric's value and
+`timestamp` when it was collected, and `hostname` is the `title` (see Dashboard).
 
 `alertmanager` sends the version 4 webhook body of Prometheus's Alertmanager
 ([`<webhook_config>`][am]), holding the one alert: its labels are `alertname` (the alert's name) and
@@ -667,7 +667,7 @@ alert on `resolved` only when its URL ends in
 `?ExtIDParam=groupKey&ExtStatusParam=status&ResolvedStatus=resolved`. The body has no `severity`, so
 the URL sets the priority: ntfy 2.32.0 or later reads its `priority` parameter as a template, and
 `{{if eq .status "resolved"}}low{{else}}high{{end}}`, percent-encoded, sends `resolved` at low
-priority.
+priority. ntfy shows this body with a `Severity: <no value>` line; `grafana` looks better there.
 
 `grafana` sends the body of a Grafana Alerting webhook contact point ([webhook notifier][gw]): the
 `alertmanager` body with `version` `"1"` and Grafana's own fields, without `notification_reason`.
@@ -679,14 +679,60 @@ with `alertmanager`; Better Stack and Grafana IRM take it too. ntfy's `priority`
 ending work as with `alertmanager`. ntfy's `alertmanager` and `grafana` templates need ntfy 2.14.0
 or later.
 
+A webhook needs outbound HTTP access from the server. A delivery that takes over 10 s, DNS and
+connect included, is given up. A name or a `title` full of characters to escape can make a body too
+long to send. The log reports both.
+
 [am]: https://prometheus.io/docs/alerting/latest/configuration/#webhook_config
 [gw]: https://grafana.com/docs/grafana/latest/alerting/configure-notifications/manage-contact-points/integrations/webhook-notifier/
 [se]: https://docs.slack.dev/messaging/formatting-message-text/#escaping
 [sw]: https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/#posting_with_webhooks
 
-When `command` is set, it is executed via `system()` with the same user and privileges
-as the minimoni process, on `firing` and on `resolved` alike; `MINIMONI_ALERT_STATUS` says which.
-Keep commands short and non-blocking; long-running commands delay the next collect cycle.
+When `command` is set, minimoni runs it through `/bin/sh -c` with its own user and privileges, on
+`firing` and on `resolved` alike, and waits for it to exit: a slow command delays the next collect
+cycle. The command gets the alert only in these environment variables:
+
+| Variable                   | Value                                        |
+|----------------------------|----------------------------------------------|
+| `MINIMONI_ALERT_METRIC`    | The metric, such as `disk_available_percent` |
+| `MINIMONI_ALERT_NAME`      | The alert's name                             |
+| `MINIMONI_ALERT_OPERATOR`  | `>`, `<`, `>=` or `<=`                       |
+| `MINIMONI_ALERT_STATUS`    | `firing` or `resolved`                       |
+| `MINIMONI_ALERT_THRESHOLD` | The condition's threshold                    |
+| `MINIMONI_ALERT_VALUE`     | The metric's value                           |
+
+A name can hold spaces, so a script quotes it: `"$MINIMONI_ALERT_NAME"`.
+
+To try an alert, give it a condition that always holds and a command that saves what it gets, then
+collect once:
+
+```sh
+mkdir -p /tmp/alert-test && cd /tmp/alert-test
+cat > config.toml <<'EOF'
+[collect]
+db = "metrics.db"
+
+[[alert]]
+name    = "test"
+when    = "load_1m >= 0"
+command = "env | grep ^MINIMONI_ALERT_ | sort > alert.txt"
+EOF
+minimoni collect --config config.toml
+cat alert.txt
+```
+
+```
+alerts: firing 'test' (0.42 >= 0)
+MINIMONI_ALERT_METRIC=load_1m
+MINIMONI_ALERT_NAME=test
+MINIMONI_ALERT_OPERATOR=>=
+MINIMONI_ALERT_STATUS=firing
+MINIMONI_ALERT_THRESHOLD=0
+MINIMONI_ALERT_VALUE=0.42
+```
+
+Change `when` to `load_1m < 0` and collect again: `alert.txt` then says `resolved`. Without `name`,
+changing `when` would rename the alert, which resolves it with no message.
 
 A message counts only when at least one of the alert's actions succeeds: a webhook that gets a 2xx
 reply, or a command that exits 0. If none succeeds, the message is sent again on the next cycle. An
@@ -776,7 +822,8 @@ listen = "127.0.0.1:8080"
 
 ```toml
 [alerts]
-webhook = "https://ntfy.sh/my-server"
+format  = "grafana"
+webhook = "https://ntfy.sh/my-server?template=grafana"
 
 [[alert]]
 when     = "disk_available_percent < 15"
