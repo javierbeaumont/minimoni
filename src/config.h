@@ -76,7 +76,7 @@ typedef struct {
     char ca_file[256];         /* PEM CA certificates; default: "" (the system store) */
 
     /* [dashboard] */
-    char title[128];             /* default: "minimoni" */
+    char title[128];             /* default: the hostname, else "minimoni" */
     char theme[8];               /* "auto" | "light" | "dark", default: "auto" */
     int  show_footer;            /* 1 = show project footer, 0 = hide, default: 1 */
     int  refresh_seconds;        /* default: 30 */

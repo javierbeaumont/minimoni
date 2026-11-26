@@ -29,7 +29,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const http = require('http');
+const os = require('os');
 const path = require('path');
+
+/* The mock reads the hostname when it loads. */
+os.hostname = () => 'web-01';
 
 const dev = path.join(__dirname, '..', 'tools', 'devserver');
 const { configFields } = require(path.join(dev, 'config'));
@@ -91,7 +95,7 @@ test('GET /api/current returns the converted snapshot', async () => {
     assert.strictEqual(res.status, 200);
     assert.match(res.headers.get('content-type'), /application\/json/);
     assert.deepStrictEqual(d.thresh_cpu, [70, 90]);
-    assert.strictEqual(d.title, 'minimoni');
+    assert.strictEqual(d.title, 'web-01');
   });
 });
 

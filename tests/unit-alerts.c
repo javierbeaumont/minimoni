@@ -1140,17 +1140,16 @@ static int test_alertmanager_webhook_whose_body_does_not_fit_is_not_sent(void)
                              .threshold = 1,
                              .webhook = "http://127.0.0.1:1/hook",
                              .format = ALERT_FORMAT_ALERTMANAGER};
-    char            host[sizeof(cfg.title)], log[512], path[64];
+    char            log[512], path[64];
 
     memset(alert.name, '"', sizeof(alert.name) - 1);
-    memset(host, '"', sizeof(host) - 1);
-    host[sizeof(host) - 1] = '\0';
+    memset(cfg.title, '"', sizeof(cfg.title) - 1);
     snprintf(path, sizeof(path), "/tmp/minimoni-alerts-post-%d.log", (int)getpid());
     fflush(stderr);
     if (!freopen(path, "w", stderr))
         return 1;
 
-    int sent = post_webhook(&cfg, &alert, "firing", 5, "2000-01-01T00:00:00Z", host, "", NOW);
+    int sent = post_webhook(&cfg, &alert, "firing", 5, "2000-01-01T00:00:00Z", "", NOW);
 
     fflush(stderr);
     if (!freopen("/dev/null", "w", stderr))
@@ -1421,7 +1420,6 @@ static const char *check_log(const char *metric, double load, int uptime_valid)
 
     memset(&cfg, 0, sizeof(cfg));
     cfg.alert_count = 1;
-    snprintf(cfg.title, sizeof(cfg.title), "host");
     snprintf(cfg.alerts[0].name, sizeof(cfg.alerts[0].name), "a");
     snprintf(cfg.alerts[0].metric, sizeof(cfg.alerts[0].metric), "%s", metric);
     snprintf(cfg.alerts[0].op, sizeof(cfg.alerts[0].op), ">");
@@ -1434,12 +1432,14 @@ static const char *check_log(const char *metric, double load, int uptime_valid)
         return "";
 
     alerts_evaluate(NULL, &cfg, &row, 85, 1e9, 1, uptime_valid, 100);
+
     fflush(stderr);
     if (!freopen("/dev/null", "w", stderr))
         return "";
 
     FILE  *file = fopen(path, "r");
     size_t len = file ? fread(log, 1, sizeof(log) - 1, file) : 0;
+
     if (file)
         fclose(file);
     log[len] = '\0';

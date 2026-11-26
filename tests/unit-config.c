@@ -34,8 +34,24 @@
 
 #include "runner.h"
 
+static const char  FAKE_HOSTNAME[] = "web-01";
+static const char *fake_hostname = FAKE_HOSTNAME;
+static int         fake_hostname_fails;
+
+static int fake_gethostname(char *name, size_t size)
+{
+    if (fake_hostname_fails)
+        return -1;
+
+    snprintf(name, size, "%s", fake_hostname);
+
+    return 0;
+}
+
+#define gethostname fake_gethostname
 #include "../src/config.c"
 #include "../src/config_alerts.c"
+#undef gethostname
 
 #include "config-helpers.h"
 
@@ -679,6 +695,45 @@ static int test_dashboard_title_footer_theme(void)
                : 1;
 }
 
+static int test_dashboard_title_unset_is_the_hostname(void)
+{
+    config_t cfg;
+
+    return load_cfg(&cfg, "[dashboard]\n") == 0 && strcmp(cfg.title, FAKE_HOSTNAME) == 0 ? 0 : 1;
+}
+
+static int test_dashboard_title_empty_is_the_hostname(void)
+{
+    config_t cfg;
+
+    return load_cfg(&cfg, "[dashboard]\ntitle = \"\"\n") == 0 &&
+                   strcmp(cfg.title, FAKE_HOSTNAME) == 0
+               ? 0
+               : 1;
+}
+
+static int test_dashboard_title_when_gethostname_fails_is_minimoni(void)
+{
+    config_t cfg;
+
+    fake_hostname_fails = 1;
+    int loaded = load_cfg(&cfg, "[dashboard]\n");
+    fake_hostname_fails = 0;
+
+    return loaded == 0 && strcmp(cfg.title, "minimoni") == 0 ? 0 : 1;
+}
+
+static int test_dashboard_title_with_an_empty_hostname_is_minimoni(void)
+{
+    config_t cfg;
+
+    fake_hostname = "";
+    int loaded = load_cfg(&cfg, "[dashboard]\n");
+    fake_hostname = FAKE_HOSTNAME;
+
+    return loaded == 0 && strcmp(cfg.title, "minimoni") == 0 ? 0 : 1;
+}
+
 static int test_dashboard_theme_invalid_defaults(void)
 {
     config_t cfg;
@@ -978,13 +1033,17 @@ static int test_malformed_toml_fails(void)
 static int test_config_open_keeps_defaults_without_file(void)
 {
     config_t cfg;
+
     /* No explicit path and no config in the search paths: defaults, rc 0. */
     if (chdir("/tmp") != 0)
         return 1;
+
     unlink("/tmp/config.toml");
+
     if (config_open(&cfg, NULL) != 0)
         return 1;
-    return cfg.interval_seconds == 60 && strcmp(cfg.title, "minimoni") == 0 ? 0 : 1;
+
+    return cfg.interval_seconds == 60 && strcmp(cfg.title, FAKE_HOSTNAME) == 0 ? 0 : 1;
 }
 
 /* --- Net link-speed fallback --- */
@@ -1105,10 +1164,12 @@ static int test_keys_removed_points_warns(void)
 static int test_keys_typo_load_still_succeeds(void)
 {
     config_t cfg;
+
     /* Typos warn but must not abort; the real key keeps its default. */
     if (load_cfg(&cfg, "[dashboard]\ntitel = \"My Server\"\n") != 0)
         return 1;
-    return strcmp(cfg.title, "minimoni") == 0 ? 0 : 1;
+
+    return strcmp(cfg.title, FAKE_HOSTNAME) == 0 ? 0 : 1;
 }
 
 static int test_key_distance(void)
@@ -1268,6 +1329,10 @@ static const test_t ALL_TESTS[] = {
     T(collect_paths),
     /* [dashboard] scalars */
     T(dashboard_title_footer_theme),
+    T(dashboard_title_unset_is_the_hostname),
+    T(dashboard_title_empty_is_the_hostname),
+    T(dashboard_title_when_gethostname_fails_is_minimoni),
+    T(dashboard_title_with_an_empty_hostname_is_minimoni),
     T(dashboard_theme_invalid_defaults),
     T(dashboard_refresh_invalid_defaults),
     T(dashboard_refresh_past_int_max_clamps),

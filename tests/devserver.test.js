@@ -30,6 +30,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+/* The mock reads the hostname when it loads. */
+os.hostname = () => 'web-01';
+
 const dev = path.join(__dirname, '..', 'tools', 'devserver');
 
 const {
@@ -671,7 +674,7 @@ test('configFields: defaults, memory rename, overrides', () => {
 
   assert.strictEqual(def.mem_card_unit, '%'); /* memory_card_unit -> mem_card_unit */
   assert.strictEqual(def.mem_chart_unit, 'auto');
-  assert.strictEqual(def.title, 'minimoni');
+  assert.strictEqual(def.title, 'web-01');
   assert.strictEqual(def.charts, null); /* absent -> show all */
   assert.strictEqual(def.cards, null);
 
@@ -688,4 +691,23 @@ test('configFields: defaults, memory rename, overrides', () => {
   assert.strictEqual(over.mem_card_unit, 'auto');
   assert.strictEqual(over.swap_chart_unit, '%');
   assert.strictEqual(over.title, 'X');
+});
+
+test('configFields: an empty title is the hostname', () => {
+  assert.strictEqual(configFields({ title: '' }).title, 'web-01');
+});
+
+test('configFields: with no hostname the title is minimoni', () => {
+  const file = require.resolve(path.join(dev, 'config'));
+  const hostname = os.hostname;
+
+  os.hostname = () => '';
+  delete require.cache[file];
+
+  try {
+    assert.strictEqual(require(file).configFields({}).title, 'minimoni');
+  } finally {
+    os.hostname = hostname;
+    delete require.cache[file];
+  }
 });

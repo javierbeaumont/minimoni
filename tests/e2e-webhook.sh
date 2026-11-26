@@ -341,6 +341,9 @@ check_has "a failing command fires again on the next run" "$second" "firing 'coo
 twice "http://127.0.0.1:$FAIL_PORT/hook" /bin/true
 check_lacks "one successful action is enough to count it as firing" "$second" "firing 'cool'"
 
+fire "http://127.0.0.1:$TCP_PORT/hook" 0 cool web-01
+check_has "the json format names the host" "$got" '"hostname":"web-01"'
+
 fire "http://127.0.0.1:$TCP_PORT/hook" 0 cool web-01 text
 check_has "the text format is sent as plain text" "$got" "Content-Type: text/plain; charset=utf-8"
 check_has "its line names the alert" "$got" "[firing] cool: uptime_seconds "

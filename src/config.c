@@ -323,6 +323,12 @@ static int config_warn_unknown(toml_datum_t root)
     return unknown;
 }
 
+static void default_title(char *title, size_t size)
+{
+    if (gethostname(title, size) != 0 || !title[0])
+        snprintf(title, size, "%s", "minimoni");
+}
+
 /* --- Public API --- */
 
 void config_defaults(config_t *cfg)
@@ -332,7 +338,7 @@ void config_defaults(config_t *cfg)
     snprintf(cfg->db_path, sizeof(cfg->db_path), "%s", "./metrics.db");
     snprintf(cfg->disk_path, sizeof(cfg->disk_path), "%s", "/");
     snprintf(cfg->temp_scale, sizeof(cfg->temp_scale), "%s", "celsius");
-    snprintf(cfg->title, sizeof(cfg->title), "%s", "minimoni");
+    default_title(cfg->title, sizeof(cfg->title));
     snprintf(cfg->theme, sizeof(cfg->theme), "%s", "auto");
     cfg->show_footer = 1;
     snprintf(cfg->memory_card_unit, sizeof(cfg->memory_card_unit), "%s", "%");
@@ -493,6 +499,9 @@ int config_load(config_t *cfg, const char *path)
     /* [dashboard] */
     v = toml_seek(root, "dashboard.title");
     too_long |= str_copy(cfg->title, sizeof(cfg->title), v, "dashboard.title") != 0;
+
+    if (!cfg->title[0])
+        default_title(cfg->title, sizeof(cfg->title));
 
     v = toml_seek(root, "dashboard.show_footer");
     if (v.type == TOML_BOOLEAN)

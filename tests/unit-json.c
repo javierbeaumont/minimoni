@@ -329,6 +329,18 @@ static int test_hide_all_emits_no_metrics(void)
                : 1;
 }
 
+static int test_title_comes_from_the_config(void)
+{
+    char     b[2048];
+    db_row_t r = sample_row();
+    config_t c = base_cfg();
+
+    snprintf(c.title, sizeof(c.title), "web-01");
+    emit(b, sizeof(b), &r, &c, 4, 1, 100.0);
+
+    return has(b, "\"title\":\"web-01\"") ? 0 : 1;
+}
+
 /* --- Serializer: thresholds --- */
 
 static int test_thresh_load_abs_scales_with_cores(void)
@@ -1542,6 +1554,7 @@ static const test_t ALL_TESTS[] = {
     T(show_all_emits_every_group),
     T(gating_single_card),
     T(hide_all_emits_no_metrics),
+    T(title_comes_from_the_config),
     T(thresh_load_abs_scales_with_cores),
     T(thresh_load_abs_eight_cores),
     T(thresh_load_percent_same_load_as_abs),

@@ -434,7 +434,7 @@ recovery falls back to the next data push.
 
 ```toml
 [dashboard]
-title        = "My Server" # browser tab and header (default: "minimoni")
+title        = "My Server" # browser tab and header (default: the hostname)
 theme        = "auto"      # "auto" | "light" | "dark"; "auto" follows OS preference
 show_footer  = true        # show version footer (default: true)
 refresh      = 30          # SSE push interval in seconds (default: 30)
@@ -462,14 +462,13 @@ uptime_unit            = "auto" # uptime display: "auto" | "h" | "d"
 ```
 
 All keys are optional. The values above are the defaults, with three exceptions: `title` defaults
-to `minimoni`, and `charts` and `cards` are unset by default, which shows every metric in the
+to the hostname, and `charts` and `cards` are unset by default, which shows every metric in the
 order listed above.
 
 **`title`**: browser tab text, dashboard header, and the host named in webhook alerts (`json`'s
 `hostname` field, the `instance` label of `alertmanager` and `grafana`, the end of `text`'s line).
-If omitted, the dashboard shows "minimoni" and webhook alerts name the system hostname from
-`gethostname()`. Set this when running multiple instances so alert notifications identify the
-source host.
+If omitted or empty, it is the hostname from `gethostname()`, or `minimoni` when there is none.
+Set it when several hosts share a hostname, such as `raspberrypi`, so their alerts tell them apart.
 
 **`theme`**: when set to `"light"` or `"dark"`, the theme is fixed and the toggle button is
 hidden. `"auto"` (default) follows the OS preference and shows the toggle.

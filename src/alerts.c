@@ -772,8 +772,7 @@ static const char TEXT_MEDIA_TYPE[] = "text/plain; charset=utf-8";
 /* Returns 1 when the endpoint answered 2xx. Any failure returns 0 and is reported in a single
  * line. */
 static int post_webhook(const config_t *cfg, const alert_cfg_t *alert, const char *status,
-                        double value, const char *timestamp, const char *hostname,
-                        const char *started, time_t now)
+                        double value, const char *timestamp, const char *started, time_t now)
 {
     char host[256], port_str[8], path[512];
     int  scheme = parse_url(alert->webhook, host, sizeof(host), port_str, sizeof(port_str), path,
@@ -790,7 +789,8 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *alert, const cha
     case ALERT_FORMAT_JSON: {
         /* The name and the host are free-form; the metric and the operator are checked at load. */
         char ehost[512], ename[256];
-        if (json_escape(ehost, sizeof(ehost), hostname) < 0 ||
+
+        if (json_escape(ehost, sizeof(ehost), cfg->title) < 0 ||
             json_escape(ename, sizeof(ename), alert->name) < 0) {
             fprintf(stderr, "alerts: '%.32s' does not fit escaped; webhook skipped\n", alert->name);
             return 0;
@@ -805,17 +805,18 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *alert, const cha
         break;
     }
     case ALERT_FORMAT_ALERTMANAGER:
-        blen = alertmanager_body(alert, status, value, hostname, started, now, body, sizeof(body));
+        blen =
+            alertmanager_body(alert, status, value, cfg->title, started, now, body, sizeof(body));
         break;
     case ALERT_FORMAT_GRAFANA:
-        blen = grafana_body(alert, status, value, hostname, started, now, body, sizeof(body));
+        blen = grafana_body(alert, status, value, cfg->title, started, now, body, sizeof(body));
         break;
     case ALERT_FORMAT_SLACK:
-        blen = slack_body(alert, status, value, hostname, body, sizeof(body));
+        blen = slack_body(alert, status, value, cfg->title, body, sizeof(body));
         break;
     case ALERT_FORMAT_TEXT:
         media_type = TEXT_MEDIA_TYPE;
-        blen = alert_line(alert, status, value, hostname, body, sizeof(body));
+        blen = alert_line(alert, status, value, cfg->title, body, sizeof(body));
         break;
     }
 
@@ -837,6 +838,7 @@ static int post_webhook(const config_t *cfg, const alert_cfg_t *alert, const cha
     }
 
     trust_t trust = {NULL, 0};
+
     if (scheme == 1 && !cfg->insecure_skip_verify && load_anchors(cfg->ca_file, host, &trust) != 0)
         return 0;
 
@@ -996,12 +998,6 @@ int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double t
 
     time_t now = time(NULL);
 
-    char hostname[sizeof(cfg->title)];
-    if (cfg->title[0])
-        snprintf(hostname, sizeof(hostname), "%s", cfg->title);
-    else if (gethostname(hostname, sizeof(hostname)) != 0)
-        snprintf(hostname, sizeof(hostname), "unknown");
-
     for (int i = 0; i < cfg->alert_count; i++) {
         const alert_cfg_t *alert = &cfg->alerts[i];
 
@@ -1028,6 +1024,7 @@ int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double t
             continue;
 
         const char *status = step == ALERT_FIRE ? "firing" : "resolved";
+
         if (step == ALERT_FIRE)
             fprintf(stderr, "alerts: firing '%s' (%.6g %s %.6g)\n", alert->name, value, alert->op,
                     alert->threshold);
@@ -1039,8 +1036,7 @@ int alerts_evaluate(db_t *db, const config_t *cfg, const db_row_t *row, double t
          * cycle. */
         int delivered = 0;
         if (alert->webhook[0])
-            delivered |=
-                post_webhook(cfg, alert, status, value, row->timestamp, hostname, started, now);
+            delivered |= post_webhook(cfg, alert, status, value, row->timestamp, started, now);
         if (alert->command[0])
             delivered |= run_command(alert, status, value);
 

@@ -26,13 +26,14 @@
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const DEFAULT_CONFIG = path.join(__dirname, '..', '..', 'config.example.toml');
 
 /* Defaults mirror config_defaults() in src/config.c. */
 const CONFIG_DEFAULTS = {
-  title: 'minimoni',
+  title: os.hostname() || 'minimoni',
   theme: 'auto',
   show_footer: true,
   memory_card_unit: '%',
@@ -234,7 +235,7 @@ function configFields(d, c = {}) {
     net_chart_unit: g('net_chart_unit'),
     cpu_load_card_unit: g('cpu_load_card_unit'),
     cpu_load_chart_unit: g('cpu_load_chart_unit'),
-    title: g('title'),
+    title: g('title') || CONFIG_DEFAULTS.title,
     theme: g('theme'),
     show_footer: g('show_footer'),
     uptime_unit: g('uptime_unit'),
