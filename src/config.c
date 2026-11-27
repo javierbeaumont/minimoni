@@ -329,6 +329,55 @@ static void default_title(char *title, size_t size)
         snprintf(title, size, "%s", "minimoni");
 }
 
+/* A string or a key that holds a NUL (TOML's \u0000) fails the load: read as a C string, it would
+ * end there. `path` names `datum` in a buffer of `size` bytes, cut when too long, since it is only
+ * shown. Prints an error and returns 1 when it finds a NUL. */
+static int has_nul(toml_datum_t datum, char *path, size_t size)
+{
+    size_t path_len = strlen(path);
+
+    switch (datum.type) {
+    case TOML_STRING:
+        if (!memchr(datum.u.str.ptr, '\0', (size_t)datum.u.str.len))
+            return 0;
+
+        fprintf(stderr, "config: %s holds a NUL (\\u0000); aborting\n", path);
+        return 1;
+    case TOML_ARRAY:
+        for (int i = 0; i < datum.u.arr.size; i++) {
+            snprintf(path + path_len, size - path_len, "[%d]", i);
+
+            if (has_nul(datum.u.arr.elem[i], path, size))
+                return 1;
+        }
+
+        break;
+    case TOML_TABLE:
+        for (int i = 0; i < datum.u.tab.size; i++) {
+            const char *key = datum.u.tab.key[i];
+
+            path[path_len] = '\0';
+
+            if (memchr(key, '\0', (size_t)datum.u.tab.len[i])) {
+                fprintf(stderr, "config: a key in %s holds a NUL (\\u0000); aborting\n",
+                        path_len ? path : "the top level");
+                return 1;
+            }
+
+            snprintf(path + path_len, size - path_len, "%s%s", path_len ? "." : "", key);
+
+            if (has_nul(datum.u.tab.value[i], path, size))
+                return 1;
+        }
+
+        break;
+    default:
+        break;
+    }
+
+    return 0;
+}
+
 /* --- Public API --- */
 
 void config_defaults(config_t *cfg)
@@ -382,6 +431,13 @@ int config_load(config_t *cfg, const char *path)
     toml_datum_t root = res.toptab;
     toml_datum_t v;
     int          too_long = 0;
+    char         key_path[256] = "";
+
+    if (has_nul(root, key_path, sizeof(key_path))) {
+        toml_free(res);
+
+        return -1;
+    }
 
     config_warn_unknown(root);
 

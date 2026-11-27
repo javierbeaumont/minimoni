@@ -344,6 +344,8 @@ key and the limit.
 - **String length**, in bytes: `listen` 63, `db` and `disk_path` 255, `title` 127, each `charts` or
   `cards` entry 15, each `ranges` entry 7, `ca_file` 255, `webhook` 511, `command` 255 and an
   alert's `name` 63.
+- **No NUL**: a string or a key that holds a NUL (`\u0000`) fails the load rather than lose the text
+  after it. The error names the string's key, or the key's table.
 - **List size**: at most 16 `[[alert]]` blocks and 8 `ranges`.
 - **Alerts are an array of tables**: each one starts with `[[alert]]`, and a single `[alert]` table
   is an error rather than no alerts. What they share goes in `[alerts]`.

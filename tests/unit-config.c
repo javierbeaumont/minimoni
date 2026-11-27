@@ -1239,6 +1239,101 @@ static int test_missing_disk_path_fails(void)
                : 1;
 }
 
+/* --- Text holding a NUL --- */
+
+static int test_nul_in_a_webhook_fails(void)
+{
+    config_t cfg;
+    char     err[512];
+    int      rc =
+        load_cfg_err(&cfg, "[[alert]]\nwhen = \"load_1m > 1\"\nwebhook = \"http://a\\u0000b\"\n",
+                     err, sizeof(err));
+
+    return rc == -1 && strstr(err, "config: alert[0].webhook holds a NUL (\\u0000); aborting") ? 0
+                                                                                               : 1;
+}
+
+static int test_nul_in_a_condition_fails(void)
+{
+    config_t cfg;
+    char     err[512];
+    int rc = load_cfg_err(&cfg, "[[alert]]\nwhen = \"load_1m > 1\\u0000 x\"\ncommand = \"true\"\n",
+                          err, sizeof(err));
+
+    return rc == -1 && strstr(err, "config: alert[0].when holds a NUL (\\u0000); aborting") ? 0 : 1;
+}
+
+static int test_nul_in_the_title_fails(void)
+{
+    config_t cfg;
+    char     err[512];
+    int      rc = load_cfg_err(&cfg, "[dashboard]\ntitle = \"web\\u000001\"\n", err, sizeof(err));
+
+    return rc == -1 && strstr(err, "config: dashboard.title holds a NUL (\\u0000); aborting") ? 0
+                                                                                              : 1;
+}
+
+static int test_nul_in_a_list_entry_fails(void)
+{
+    config_t cfg;
+    char     err[512];
+    int rc = load_cfg_err(&cfg, "[dashboard]\ncharts = [\"cpu_load\\u0000x\"]\n", err, sizeof(err));
+
+    return rc == -1 && strstr(err, "config: dashboard.charts[0] holds a NUL (\\u0000); aborting")
+               ? 0
+               : 1;
+}
+
+static int test_nul_in_a_second_alert_fails(void)
+{
+    config_t cfg;
+    char     err[512];
+    int      rc = load_cfg_err(&cfg,
+                               "[[alert]]\nwhen = \"load_1m > 1\"\ncommand = \"true\"\n"
+                               "[[alert]]\nwhen = \"load_1m > 2\"\ncommand = \"tr\\u0000ue\"\n",
+                               err, sizeof(err));
+
+    return rc == -1 && strstr(err, "config: alert[1].command holds a NUL (\\u0000); aborting") ? 0
+                                                                                               : 1;
+}
+
+/* The name in the message is cut to 255 bytes. */
+static int test_nul_under_a_long_key_fails(void)
+{
+    config_t cfg;
+    char     key[301], cut[246], toml[512], want[512], err[1024];
+
+    snprintf(toml, sizeof(toml), "[dashboard]\n%s = \"x\\u0000\"\n", xs(key, 300));
+    snprintf(want, sizeof(want), "config: dashboard.%s holds a NUL (\\u0000); aborting\n",
+             xs(cut, 245));
+
+    return load_cfg_err(&cfg, toml, err, sizeof(err)) == -1 && strstr(err, want) ? 0 : 1;
+}
+
+/* With a key before it, the message names only the table. */
+static int test_nul_in_a_key_fails(void)
+{
+    config_t cfg;
+    char     err[512];
+    int      rc = load_cfg_err(&cfg, "[dashboard]\ntitle = \"x\"\n\"theme\\u0000y\" = \"z\"\n", err,
+                               sizeof(err));
+
+    return rc == -1 && strstr(err, "config: a key in dashboard holds a NUL (\\u0000); aborting")
+               ? 0
+               : 1;
+}
+
+static int test_nul_in_a_top_level_key_fails(void)
+{
+    config_t cfg;
+    char     err[512];
+    int      rc = load_cfg_err(&cfg, "\"a\\u0000\" = 1\n", err, sizeof(err));
+
+    return rc == -1 && strstr(err, "config: a key in the top level holds a NUL (\\u0000); aborting")
+               ? 0
+               : 1;
+}
+
 /* --- Runner --- */
 
 static const test_t ALL_TESTS[] = {
@@ -1382,6 +1477,15 @@ static const test_t ALL_TESTS[] = {
     T(range_over_max_fails),
     T(ranges_over_max_fail),
     T(missing_disk_path_fails),
+    /* text holding a NUL */
+    T(nul_in_a_webhook_fails),
+    T(nul_in_a_condition_fails),
+    T(nul_in_the_title_fails),
+    T(nul_in_a_list_entry_fails),
+    T(nul_in_a_second_alert_fails),
+    T(nul_under_a_long_key_fails),
+    T(nul_in_a_key_fails),
+    T(nul_in_a_top_level_key_fails),
 };
 
 int main(void)
