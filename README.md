@@ -346,6 +346,7 @@ key and the limit.
   alert's `name` 63.
 - **No NUL**: a string or a key that holds a NUL (`\u0000`) fails the load rather than lose the text
   after it. The error names the string's key, or the key's table.
+- **UTF-8**: a file that is not valid UTF-8 fails the load, and the error gives the line.
 - **List size**: at most 16 `[[alert]]` blocks and 8 `ranges`.
 - **Alerts are an array of tables**: each one starts with `[[alert]]`, and a single `[alert]` table
   is an error rather than no alerts. What they share goes in `[alerts]`.

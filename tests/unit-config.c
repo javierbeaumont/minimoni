@@ -1046,6 +1046,66 @@ static int test_escape_past_unicode_fails(void)
     return load_cfg(&cfg, "[dashboard]\ntitle = \"\\U00110000\"\n") == -1 ? 0 : 1;
 }
 
+static int test_latin1_text_fails(void)
+{
+    config_t cfg;
+    char     err[512];
+    int      rc = load_cfg_err(&cfg, "[dashboard]\ntitle = \"Z\xfcrich\"\n", err, sizeof(err));
+
+    return rc == -1 && strstr(err, "invalid UTF8 char on line 2") ? 0 : 1;
+}
+
+static int test_overlong_utf8_fails(void)
+{
+    config_t cfg;
+
+    return load_cfg(&cfg, "[dashboard]\ntitle = \"a\xc0\xaf"
+                          "b\"\n") == -1
+               ? 0
+               : 1;
+}
+
+static int test_utf8_past_unicode_fails(void)
+{
+    config_t cfg;
+
+    return load_cfg(&cfg, "[dashboard]\ntitle = \"\xf4\x90\x80\x80\"\n") == -1 ? 0 : 1;
+}
+
+static int test_utf8_surrogate_fails(void)
+{
+    config_t cfg;
+    char     err[512];
+    int      rc = load_cfg_err(&cfg, "[dashboard]\ntitle = \"\xed\xa0\x80\"\n", err, sizeof(err));
+
+    return rc == -1 && strstr(err, "invalid UTF8 char \\ud800 on line 2") ? 0 : 1;
+}
+
+static int test_utf8_cut_at_the_end_fails(void)
+{
+    config_t cfg;
+
+    return load_cfg(&cfg, "[dashboard]\n# \xc3") == -1 ? 0 : 1;
+}
+
+/* TOML requires UTF-8 in comments too. */
+static int test_invalid_utf8_in_a_comment_fails(void)
+{
+    config_t cfg;
+
+    return load_cfg(&cfg, "# Z\xfcrich\n[dashboard]\n") == -1 ? 0 : 1;
+}
+
+static int test_utf8_text_loads(void)
+{
+    config_t cfg;
+
+    return load_cfg(&cfg, "[dashboard]\ntitle = \"Z\xc3\xbcrich\"\n") == 0 &&
+                   strcmp(cfg.title, "Z\xc3\xbcrich") == 0
+               ? 0
+               : 1;
+}
+
 /* Some editors start a UTF-8 file with a byte order mark. */
 static int test_byte_order_mark_is_skipped(void)
 {
@@ -1483,6 +1543,13 @@ static const test_t ALL_TESTS[] = {
     T(malformed_toml_fails),
     T(non_ascii_bare_key_fails),
     T(escape_past_unicode_fails),
+    T(latin1_text_fails),
+    T(overlong_utf8_fails),
+    T(utf8_past_unicode_fails),
+    T(utf8_surrogate_fails),
+    T(utf8_cut_at_the_end_fails),
+    T(invalid_utf8_in_a_comment_fails),
+    T(utf8_text_loads),
     T(byte_order_mark_is_skipped),
     T(config_open_keeps_defaults_without_file),
     /* net link-speed fallback */

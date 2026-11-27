@@ -421,6 +421,12 @@ void config_defaults(config_t *cfg)
 
 int config_load(config_t *cfg, const char *path)
 {
+    /* TOML requires UTF-8, which tomlc17 checks only when asked. */
+    toml_option_t option = toml_default_option();
+
+    option.check_utf8 = true;
+    toml_set_option(option);
+
     toml_result_t res = toml_parse_file_ex(path);
 
     if (!res.ok) {
