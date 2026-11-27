@@ -55,7 +55,7 @@ const civetwebVersion = headerVersion(
     "vendor/civetweb.h", /^#define CIVETWEB_VERSION\s+"([^"]+)"/m, "civetweb version");
 
 /* Pinned by hand: no version macro in the source. Update on a vendored bump. */
-const tomlc17Version = "R260618"; /* tomlc17.h: "A crude way ... Manually changed." */
+const tomlc17Version = "R261116"; /* upstream's release tag */
 const bearsslVersion = "0.6";     /* last upstream release (2018); no version macro */
 
 const cpe = (vendor, product, version) =>

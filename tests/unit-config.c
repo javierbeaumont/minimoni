@@ -1030,6 +1030,33 @@ static int test_malformed_toml_fails(void)
     return load_cfg(&cfg, "[dashboard\ntitle = \n") == -1 ? 0 : 1;
 }
 
+/* TOML allows only ASCII bare keys. */
+static int test_non_ascii_bare_key_fails(void)
+{
+    config_t cfg;
+
+    return load_cfg(&cfg, "[dashboard]\ncaf\xc3\xa9 = 1\n") == -1 ? 0 : 1;
+}
+
+/* Unicode ends at U+10FFFF. */
+static int test_escape_past_unicode_fails(void)
+{
+    config_t cfg;
+
+    return load_cfg(&cfg, "[dashboard]\ntitle = \"\\U00110000\"\n") == -1 ? 0 : 1;
+}
+
+/* Some editors start a UTF-8 file with a byte order mark. */
+static int test_byte_order_mark_is_skipped(void)
+{
+    config_t cfg;
+
+    return load_cfg(&cfg, "\xef\xbb\xbf[dashboard]\ntitle = \"x\"\n") == 0 &&
+                   strcmp(cfg.title, "x") == 0
+               ? 0
+               : 1;
+}
+
 static int test_config_open_keeps_defaults_without_file(void)
 {
     config_t cfg;
@@ -1454,6 +1481,9 @@ static const test_t ALL_TESTS[] = {
     /* file-level errors */
     T(missing_file_fails),
     T(malformed_toml_fails),
+    T(non_ascii_bare_key_fails),
+    T(escape_past_unicode_fails),
+    T(byte_order_mark_is_skipped),
     T(config_open_keeps_defaults_without_file),
     /* net link-speed fallback */
     T(net_max_speed_default),

@@ -6,13 +6,25 @@
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
+#include <locale.h>
 #include <math.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+// static_assert is C11; provide a fallback for C99 (issue #58).
+#if !defined(__cplusplus) &&                                                   \
+    (!defined(__STDC_VERSION__) || (__STDC_VERSION__ < 201112L))
+#undef static_assert
+#define TOML_CAT_(a, b) a##b
+#define TOML_CAT(a, b) TOML_CAT_(a, b)
+#define static_assert(cond, msg)                                               \
+  enum { TOML_CAT(toml_static_assert_, __LINE__) = 1 / (int)(!!(cond)) }
+#endif
 
 const toml_datum_t DATUM_ZERO = {0};
 
@@ -66,48 +78,136 @@ static int SETERROR(ebuf_t ebuf, int lineno, const char *fmt, ...) {
 }
 
 /*
- *  Memory pool. Allocated a big block once and hand out piecemeal.
+ *  Memory pool. A pool is a pair of page_t lists: small allocations
+ *  (<= PAGE_LARGE_THRESHOLD bytes) are bump-allocated out of
+ *  PAGE_SMALL_SIZE pages, handed out piecemeal until a page fills up
+ *  and a fresh one is linked in front. Large allocations get their
+ *  own exactly-sized page, used once and never shared. This avoids
+ *  ever mallocing one giant block sized for the whole document.
  */
+#define PAGE_SMALL_SIZE 4096
+#define PAGE_LARGE_THRESHOLD 1024
+// Small allocations must always fit in a fresh small page.
+static_assert(PAGE_SMALL_SIZE > PAGE_LARGE_THRESHOLD,
+              "page/threshold invariant");
+
+#define PAGE_MAGIC 0x50414745u // "PAGE"
+
+typedef struct page_t page_t;
+struct page_t {
+  uint32_t magic; // PAGE_MAGIC, checked to catch corruption/use-after-free
+  int top;        // offset of first free byte in data[]
+  int max;        // size of data[]
+  page_t *next;   // link to next page in list
+  char data[1];   // first byte starts here
+};
+
+#define POOL_MAGIC 0x504f4f4cu // "POOL"
+
 typedef struct pool_t pool_t;
 struct pool_t {
-  int max;     // size of buf[]
-  int top;     // offset of first free byte in buf[]
-  char buf[1]; // first byte starts here
+  uint32_t magic; // POOL_MAGIC, checked to catch corruption/use-after-free
+  page_t *small;  // most recent small page, bump-allocated piecemeal
+  page_t *large;  // most recent large page, each used for one alloc only
 };
 
 /**
- *  Create a memory pool of N bytes. Return the memory pool on
- *  success, or NULL if out of memory.
+ *  Create a page of `size` bytes. Return the page on success, or
+ *  NULL if out of memory.
  */
-static pool_t *pool_create(int N) {
-  if (N <= 0) {
-    N = 100; // minimum
+static page_t *page_create(int size) {
+  if (!(0 <= size && size <= (1 << 30))) { // [0..1GB]
+    return NULL;
   }
-  int totalsz = sizeof(pool_t) + N;
-  pool_t *pool = MALLOC(totalsz);
+  size_t totalsz = offsetof(page_t, data) + (size_t)size;
+  page_t *page = MALLOC(totalsz);
+  if (!page) {
+    return NULL;
+  }
+  page->magic = PAGE_MAGIC;
+  page->top = 0;
+  page->max = size;
+  page->next = NULL;
+  return page;
+}
+
+/**
+ *  Create an empty memory pool. Return the memory pool on success,
+ *  or NULL if out of memory. pool->small is always non-NULL: a
+ *  pool holds at least one small page for its whole lifetime.
+ */
+static pool_t *pool_create(void) {
+  pool_t *pool = MALLOC(sizeof(pool_t));
   if (!pool) {
     return NULL;
   }
-  memset(pool, 0, totalsz);
-  pool->max = N;
+  pool->magic = POOL_MAGIC;
+  pool->small = page_create(PAGE_SMALL_SIZE);
+  if (!pool->small) {
+    FREE(pool);
+    return NULL;
+  }
+  pool->large = NULL;
   return pool;
 }
 
 /**
- *  Destroy a memory pool.
+ *  Destroy a memory pool, freeing every page in it.
  */
-static void pool_destroy(pool_t *pool) { FREE(pool); }
+static void pool_destroy(pool_t *pool) {
+  if (!pool) {
+    return;
+  }
+  assert(pool->magic == POOL_MAGIC);
+  pool->magic = 0; // catch use-after-free/double-destroy
+  for (page_t *p = pool->small; p;) {
+    page_t *next = p->next;
+    assert(p->magic == PAGE_MAGIC);
+    p->magic = 0; // catch use-after-free/double-destroy
+    FREE(p);
+    p = next;
+  }
+  for (page_t *p = pool->large; p;) {
+    page_t *next = p->next;
+    assert(p->magic == PAGE_MAGIC);
+    p->magic = 0; // catch use-after-free/double-destroy
+    FREE(p);
+    p = next;
+  }
+  FREE(pool);
+}
 
 /**
  *  Allocate n bytes from pool. Return the memory allocated on
  *  success, or NULL if out of memory.
  */
 static char *pool_alloc(pool_t *pool, int n) {
-  if (pool->top + n > pool->max) {
-    return NULL;
+  assert(pool->magic == POOL_MAGIC);
+  if (n > PAGE_LARGE_THRESHOLD) {
+    // Large alloc: own exactly-sized page, used once.
+    page_t *page = page_create(n);
+    if (!page) {
+      return NULL;
+    }
+    page->next = pool->large;
+    pool->large = page;
+    page->top = page->max;
+    return page->data;
   }
-  char *ret = pool->buf + pool->top;
-  pool->top += n;
+
+  assert(pool->small->magic == PAGE_MAGIC);
+  if (pool->small->top + n > pool->small->max) {
+    // Current small page doesn't have room: abandon its leftover
+    // space and start a fresh one.
+    page_t *page = page_create(PAGE_SMALL_SIZE);
+    if (!page) {
+      return NULL;
+    }
+    page->next = pool->small;
+    pool->small = page;
+  }
+  char *ret = pool->small->data + pool->small->top;
+  pool->small->top += n;
   return ret;
 }
 
@@ -177,17 +277,21 @@ struct keypart_t {
 static int utf8_to_ucs(const char *s, int len, uint32_t *ret);
 static int ucs_to_utf8(uint32_t code, char buf[4]);
 
-// flags for toml_datum_t::flag.
-#define FLAG_INLINED 1
-#define FLAG_STDEXPR 2
-#define FLAG_EXPLICIT 4
-
 // Maximum levels of brackets and braces to prevent
 // stack overflow during recursive descent of the parser.
 #define BRACKET_LEVEL_MAX 30
 #define BRACE_LEVEL_MAX 30
 #define TABLE_MAX (1 << 14) // 16k
 #define ARRAY_MAX (1 << 14) // 16k
+
+// Buffer size for scanning a number or a timestamp. TOML does not limit the
+// length of either literal; tomlc17 does, like the limits above: a literal that
+// fills the buffer is rejected as too long, so LITBUF_SIZE - 2 bytes is the
+// longest one accepted. That accommodates "9_007_199_254_740_991.0",
+// picosecond-precision timestamps, and every other spelling of ordinary length.
+// The checks test the length of the literal itself, not of the copy, because
+// scan_copystr() also copies whatever follows the literal.
+#define LITBUF_SIZE 120
 
 enum toktyp_t {
   TOK_DOT = 1,
@@ -224,6 +328,8 @@ struct scanner_state_t {
   const char *cur; // points into scanner_t::src[]
   int lineno;      // current line number
   const char *line_start;
+  int bracket_level;
+  int brace_level;
 };
 
 // A scan token
@@ -250,8 +356,8 @@ struct token_t {
 
 // Scanner object
 struct scanner_t {
-  const char *src;  // src[] is a NUL-terminated string
-  const char *endp; // end of src[]. always pointing at a NUL char.
+  const char *src;  // src[]
+  const char *endp; // end of src[], i.e. src + len
   const char *cur;  // current char in src[]
   int lineno;       // line number of current char
   const char *line_start;
@@ -331,8 +437,8 @@ static toml_datum_t *tab_emplace(toml_datum_t *tab, span_t key,
   }
 
   {
-    char **pkey = (char **)cell_realloc((char *)(void *)tab->u.tab.key,
-                                        sizeof(*pkey) * (N + 1));
+    char **pkey =
+        (char **)cell_realloc((char *)tab->u.tab.key, sizeof(*pkey) * (N + 1));
     int *plen =
         (int *)cell_realloc((char *)tab->u.tab.len, sizeof(*plen) * (N + 1));
     toml_datum_t *value = (toml_datum_t *)cell_realloc(
@@ -456,8 +562,11 @@ static void datum_free(toml_datum_t *datum) {
 }
 
 // Maps each distinct source-name pointer to a single copy in the destination
-// pool (deduplicated), so the merged pool holds at most one copy of each source
-// name (keeping it within the r1pool->top + r2pool->top budget).
+// pool (deduplicated), so the merged pool holds at most one copy per distinct
+// source pointer. Dedup is by pointer identity, not string content: every
+// datum from one parse shares one source pointer (set_source_recursive), so
+// dedup is exact within a tree, but two trees with content-identical source
+// names (e.g. the same filename parsed twice) still get separate copies.
 typedef struct srcmap_t srcmap_t;
 struct srcmap_t {
   pool_t *pool;
@@ -473,6 +582,9 @@ static const char *dedup_source(srcmap_t *m, const char *src) {
   if (!src) {
     return NULL;
   }
+  // Pointer-identity match (see srcmap_t above). The scan is O(n) in the
+  // number of distinct source pointers seen so far, not in the (much
+  // larger) number of datums, since repeats short-circuit here.
   for (int i = 0; i < m->n; i++) {
     if (m->olds[i] == src) {
       return m->news[i];
@@ -481,14 +593,14 @@ static const char *dedup_source(srcmap_t *m, const char *src) {
   // Grow the memo first, so an allocation failure aborts cleanly.
   if (m->n == m->cap) {
     int newcap = m->cap ? m->cap * 2 : 4;
-    const char **no = (const char **)cell_realloc((char *)(void *)m->olds,
-                                                  sizeof(*no) * newcap);
+    const char **no =
+        (const char **)cell_realloc((char *)m->olds, sizeof(*no) * newcap);
     if (!no) {
       return NULL; // out of memory
     }
     m->olds = no;
-    const char **nn = (const char **)cell_realloc((char *)(void *)m->news,
-                                                  sizeof(*nn) * newcap);
+    const char **nn =
+        (const char **)cell_realloc((char *)m->news, sizeof(*nn) * newcap);
     if (!nn) {
       return NULL; // out of memory
     }
@@ -515,6 +627,8 @@ static int datum_copy(toml_datum_t *dst, toml_datum_t src, srcmap_t *sm,
   dst->flag = src.flag;
   switch (src.type) {
   case TOML_STRING:
+    // String bytes live in src's pool; copy them into dst's pool so dst
+    // stays independently owned.
     dst->u.str.ptr = pool_alloc(sm->pool, src.u.str.len + 1);
     if (!dst->u.str.ptr) {
       *reason = "out of memory";
@@ -524,6 +638,8 @@ static int datum_copy(toml_datum_t *dst, toml_datum_t src, srcmap_t *sm,
     memcpy((char *)dst->u.str.ptr, src.u.str.ptr, src.u.str.len + 1);
     break;
   case TOML_TABLE:
+    // Recreate each entry in dst: the key bytes are pool-copied (like a
+    // string value), and the value is deep-copied recursively.
     for (int i = 0; i < src.u.tab.size; i++) {
       char *keycopy = pool_alloc(sm->pool, src.u.tab.len[i] + 1);
       if (!keycopy) {
@@ -542,6 +658,7 @@ static int datum_copy(toml_datum_t *dst, toml_datum_t src, srcmap_t *sm,
     }
     break;
   case TOML_ARRAY:
+    // Deep-copy each element into a freshly emplaced slot in dst.
     for (int i = 0; i < src.u.arr.size; i++) {
       toml_datum_t *pelem = arr_emplace(dst, reason);
       if (!pelem) {
@@ -553,6 +670,8 @@ static int datum_copy(toml_datum_t *dst, toml_datum_t src, srcmap_t *sm,
     }
     break;
   default:
+    // Every other type (int, float, bool, timestamp, invalid) is a plain
+    // value with no pool-owned pointers, so a struct copy is a full copy.
     *dst = src;
     break;
   }
@@ -569,9 +688,13 @@ bail:
   return -1;
 }
 
-// Check if datum is an array of tables.
+// Check if datum is an array of tables. An empty array is deliberately
+// excluded: it has no elements to type-check, so treating it as an array
+// of tables here would be true only vacuously, and datum_merge's caller
+// relies on this to distinguish "override with an empty array" from
+// "append zero table elements" (see below).
 static inline bool is_array_of_tables(toml_datum_t datum) {
-  bool ret = (datum.type == TOML_ARRAY);
+  bool ret = (datum.type == TOML_ARRAY) && (datum.u.arr.size > 0);
   for (int i = 0; ret && i < datum.u.arr.size; i++) {
     ret = (datum.u.arr.elem[i].type == TOML_TABLE);
   }
@@ -612,7 +735,7 @@ static int datum_merge(toml_datum_t *dst, toml_datum_t src, srcmap_t *sm,
     }
     return 0;
   case TOML_ARRAY:
-    if (is_array_of_tables(src)) {
+    if (is_array_of_tables(*dst) && is_array_of_tables(src)) {
       // append src array to dst
       for (int i = 0; i < src.u.arr.size; i++) {
         toml_datum_t *pelem = arr_emplace(dst, reason);
@@ -675,19 +798,26 @@ static bool datum_equiv(toml_datum_t a, toml_datum_t b) {
     }
     return true;
   case TOML_TABLE:
+    // Tables are unordered maps: match each key of a against any key of b,
+    // not positionally. Equal sizes plus a full one-way key match implies a
+    // bijection because keys are unique within a table.
     N = a.u.tab.size;
     if (N != b.u.tab.size) {
       return false;
     }
     for (int i = 0; i < N; i++) {
       int len = a.u.tab.len[i];
-      if (len != b.u.tab.len[i]) {
+      int j = 0;
+      for (; j < N; j++) {
+        if (len == b.u.tab.len[j] &&
+            0 == memcmp(a.u.tab.key[i], b.u.tab.key[j], len)) {
+          break;
+        }
+      }
+      if (j == N) {
         return false;
       }
-      if (0 != memcmp(a.u.tab.key[i], b.u.tab.key[i], len)) {
-        return false;
-      }
-      if (!datum_equiv(a.u.tab.value[i], b.u.tab.value[i])) {
+      if (!datum_equiv(a.u.tab.value[i], b.u.tab.value[j])) {
         return false;
       }
     }
@@ -730,15 +860,15 @@ toml_result_t toml_merge(const toml_result_t *r1, const toml_result_t *r2) {
     reason = "param error: r2 not ok";
     goto bail;
   }
-  {
-    pool_t *r1pool = (pool_t *)r1->__internal;
-    pool_t *r2pool = (pool_t *)r2->__internal;
-    pool = pool_create(r1pool->top + r2pool->top);
-    if (!pool) {
-      reason = "out of memory";
-      goto bail;
-    }
+  pool = pool_create();
+  if (!pool) {
+    reason = "out of memory";
+    goto bail;
   }
+  // sm is scoped to this single merge call: its olds[]/news[] memo arrays
+  // are just bookkeeping to dedup source-name pointers while copying below,
+  // and are freed once the copy/merge is done. The deduplicated string
+  // copies they produced live on in `pool`, which becomes the result's pool.
   sm.pool = pool;
 
   // Make a copy of r1
@@ -888,19 +1018,20 @@ toml_result_t toml_parse_file_named(FILE *fp, const char *name) {
   char *buf = 0;
   int top = 0;                 // number of bytes read into buf[]
   enum { CHUNKSZ = 8 * 1024 }; // bytes to read per iteration
+  // File size limit. This also keeps cell_realloc's 30% growth margin
+  // well within INT_MAX.
+  enum { MAXFILESZ = 1 << 30 }; // 1GB
 
   // Read file into memory. cell_realloc handles capacity growth, so we only
-  // need to ask for room for one more chunk (plus a terminating NUL) each pass.
-  // Drive the loop off fread's return value rather than feof(): feof() only
-  // reports true after a read has already hit EOF, and this also guarantees buf
-  // is allocated at least once before the NUL terminator below.
+  // need to ask for room for one more chunk each pass. Drive the loop off
+  // fread's return value rather than feof(): feof() only reports true after
+  // a read has already hit EOF.
   for (;;) {
-    if (top > INT_MAX - CHUNKSZ - 1) {
+    if (top >= MAXFILESZ) {
       snprintf(result.errmsg, sizeof(result.errmsg), "file is too big");
       break;
     }
-    // add 1 to CHUNKSZ so we always have room for terminating NUL.
-    char *tmp = cell_realloc(buf, top + CHUNKSZ + 1);
+    char *tmp = cell_realloc(buf, top + CHUNKSZ);
     if (!tmp) {
       snprintf(result.errmsg, sizeof(result.errmsg), "out of memory");
       break;
@@ -927,8 +1058,6 @@ toml_result_t toml_parse_file_named(FILE *fp, const char *name) {
     cell_free(buf);
     return result;
   }
-  buf[top] = 0; // NUL terminator
-
   result = toml_parse_named(buf, top, name);
   cell_free(buf);
   return result;
@@ -970,11 +1099,13 @@ toml_result_t toml_parse_named(const char *src, int len, const char *name) {
     goto bail;
   }
 
-  // Check that src is NUL terminated.
-  if (src[len]) {
-    snprintf(result.errmsg, sizeof(result.errmsg),
-             "src[] must be NUL terminated");
-    goto bail;
+  // A UTF-8 BOM at the very start is an encoding artifact rather than content,
+  // so drop it before scanning. Everywhere else U+FEFF stays exactly as it is
+  // and remains an error, which is what bom-not-at-start expects.
+  if (len >= 3 && (unsigned char)src[0] == 0xEF &&
+      (unsigned char)src[1] == 0xBB && (unsigned char)src[2] == 0xBF) {
+    src += 3;
+    len -= 3;
   }
 
   // If user insists, check that src[] is a valid utf8 string.
@@ -1005,9 +1136,9 @@ toml_result_t toml_parse_named(const char *src, int len, const char *name) {
   pp->ebuf.ptr = result.errmsg; // parse error will be printed into pp->ebuf
   pp->ebuf.len = sizeof(result.errmsg);
 
-  // Alloc memory pool (extra bytes for NUL term, safety, and the source name)
+  // Alloc memory pool
   int namelen = name ? (int)strlen(name) + 1 : 0;
-  pp->pool = pool_create(len + 10 + namelen);
+  pp->pool = pool_create();
   if (!pp->pool) {
     snprintf(result.errmsg, sizeof(result.errmsg), "out of memory");
     goto bail;
@@ -1220,12 +1351,17 @@ static toml_datum_t *descend_keypart(parser_t *pp, int lineno, int colno,
 
   for (int i = 0; i < keypart->nspan; i++) {
     const char *reason;
+    // Cannot descend into an inline table.
+    if (tab->flag & TOML_FLAG_INLINED) {
+      SETERROR(pp->ebuf, lineno, "inline table cannot be extended");
+      return NULL;
+    }
     // Find the i-th keypart
     int j = tab_find(tab, keypart->span[i]);
     // Not found: add a new (key, tab) pair.
     if (j < 0) {
       toml_datum_t newtab = mkdatum_at(TOML_TABLE, lineno, colno);
-      newtab.flag |= stdtabexpr ? FLAG_STDEXPR : 0;
+      newtab.flag |= stdtabexpr ? TOML_FLAG_STDEXPR : 0;
       if (tab_add(tab, keypart->span[i], newtab, &reason)) {
         SETERROR(pp->ebuf, lineno, "%s", reason);
         return NULL;
@@ -1350,7 +1486,7 @@ static int parse_inline_array(parser_t *pp, token_t tok,
   }
 
   // Set the INLINE flag for all things in this array.
-  set_flag_recursive(ret_datum, FLAG_INLINED);
+  set_flag_recursive(ret_datum, TOML_FLAG_INLINED);
   return 0;
 }
 
@@ -1416,12 +1552,12 @@ static int parse_inline_table(parser_t *pp, token_t tok,
     }
 
     // If tab is a previously declared inline table: error.
-    if (tab->flag & FLAG_INLINED) {
+    if (tab->flag & TOML_FLAG_INLINED) {
       return SETERROR(pp->ebuf, tok.lineno, "inline table cannot be extended");
     }
 
     // We are explicitly defining it now.
-    tab->flag |= FLAG_EXPLICIT;
+    tab->flag |= TOML_FLAG_EXPLICIT;
 
     // match EQUAL
     DO(scan_value(&pp->scanner, &tok));
@@ -1451,7 +1587,7 @@ static int parse_inline_table(parser_t *pp, token_t tok,
     need_comma = 1, was_comma = 0;
   }
 
-  set_flag_recursive(ret_datum, FLAG_INLINED);
+  set_flag_recursive(ret_datum, TOML_FLAG_INLINED);
   return 0;
 }
 
@@ -1523,12 +1659,12 @@ static int parse_std_table_expr(parser_t *pp, token_t tok) {
   int j = tab_find(tab, lastkeypart);
   if (j < 0) {
     // If not found: add it.
-    if (tab->flag & FLAG_INLINED) {
+    if (tab->flag & TOML_FLAG_INLINED) {
       return SETERROR(pp->ebuf, keylineno, "inline table cannot be extended");
     }
     const char *reason;
     toml_datum_t newtab = mkdatum_at(TOML_TABLE, keylineno, keycolno);
-    newtab.flag |= FLAG_STDEXPR;
+    newtab.flag |= TOML_FLAG_STDEXPR;
     if (tab_add(tab, lastkeypart, newtab, &reason)) {
       return SETERROR(pp->ebuf, keylineno, "%s", reason);
     }
@@ -1537,7 +1673,7 @@ static int parse_std_table_expr(parser_t *pp, token_t tok) {
   } else {
     // Found: check for errors
     tab = &tab->u.tab.value[j];
-    if (tab->flag & FLAG_EXPLICIT) {
+    if (tab->flag & TOML_FLAG_EXPLICIT) {
       /*
         This is not OK:
         [x.y.z]
@@ -1549,7 +1685,7 @@ static int parse_std_table_expr(parser_t *pp, token_t tok) {
       */
       return SETERROR(pp->ebuf, keylineno, "table defined more than once");
     }
-    if (!(tab->flag & FLAG_STDEXPR)) {
+    if (!(tab->flag & TOML_FLAG_STDEXPR)) {
       /*
       [t1]			# OK
       t2.t3.v = 0		# OK
@@ -1561,7 +1697,7 @@ static int parse_std_table_expr(parser_t *pp, token_t tok) {
   }
 
   // Set explicit flag on tab
-  tab->flag |= FLAG_EXPLICIT;
+  tab->flag |= TOML_FLAG_EXPLICIT;
   tab->lineno = keylineno;
   tab->colno = keycolno;
 
@@ -1607,7 +1743,7 @@ static int parse_array_table_expr(parser_t *pp, token_t tok) {
   int idx = tab_find(tab, lastkeypart);
   if (idx == -1) {
     // If not found, add an array of table.
-    if (tab->flag & FLAG_INLINED) {
+    if (tab->flag & TOML_FLAG_INLINED) {
       return SETERROR(pp->ebuf, keylineno, "inline table cannot be extended");
     }
     toml_datum_t newarr = mkdatum_at(TOML_ARRAY, keylineno, keycolno);
@@ -1623,7 +1759,7 @@ static int parse_array_table_expr(parser_t *pp, token_t tok) {
   }
   // Add an empty table to the array
   toml_datum_t *arr = &tab->u.tab.value[idx];
-  if (arr->flag & FLAG_INLINED) {
+  if (arr->flag & TOML_FLAG_INLINED) {
     return SETERROR(pp->ebuf, keylineno, "cannot extend a static array");
   }
   toml_datum_t *pelem = arr_emplace(arr, &reason);
@@ -1659,7 +1795,7 @@ static int parse_keyvalue_expr(parser_t *pp, token_t tok) {
   for (int i = 0; i < keypart.nspan - 1; i++) {
     int j = tab_find(tab, keypart.span[i]);
     if (j < 0) {
-      if (i > 0 && (tab->flag & FLAG_EXPLICIT)) {
+      if (i > 0 && (tab->flag & TOML_FLAG_EXPLICIT)) {
         return SETERROR(
             pp->ebuf, keylineno,
             "cannot extend a previously defined table using dotted expression");
@@ -1673,6 +1809,16 @@ static int parse_keyvalue_expr(parser_t *pp, token_t tok) {
     }
     toml_datum_t *value = &tab->u.tab.value[j];
     if (value->type == TOML_TABLE) {
+      if (value->flag & TOML_FLAG_INLINED) {
+        return SETERROR(pp->ebuf, keylineno, "inline table cannot be extended");
+      }
+      if (value->flag & TOML_FLAG_EXPLICIT) {
+        return SETERROR(pp->ebuf, keylineno,
+                        "cannot extend a previously defined table using "
+                        "dotted expression");
+      }
+      // Now defined by dotted keys: a later [table] header must fail.
+      value->flag &= ~TOML_FLAG_STDEXPR;
       tab = value;
       continue;
     }
@@ -1686,10 +1832,10 @@ static int parse_keyvalue_expr(parser_t *pp, token_t tok) {
   }
 
   // Check for disallowed situations.
-  if (tab->flag & FLAG_INLINED) {
+  if (tab->flag & TOML_FLAG_INLINED) {
     return SETERROR(pp->ebuf, keylineno, "inline table cannot be extended");
   }
-  if (keypart.nspan > 1 && (tab->flag & FLAG_EXPLICIT)) {
+  if (keypart.nspan > 1 && (tab->flag & TOML_FLAG_EXPLICIT)) {
     return SETERROR(
         pp->ebuf, keylineno,
         "cannot extend a previously defined table using dotted expression");
@@ -1952,7 +2098,6 @@ static void scan_init(scanner_t *sp, const char *src, int len, char *errbuf,
   memset(sp, 0, sizeof(*sp));
   sp->src = src;
   sp->endp = src + len;
-  assert(*sp->endp == '\0');
   sp->cur = src;
   sp->lineno = 1;
   sp->line_start = src;
@@ -2026,7 +2171,7 @@ static int scan_multiline_string(scanner_t *sp, token_t *tok) {
     }
     // ch is backslash
     if (!escp) {
-      escp = sp->cur - 1;	/* mark the first esc position */
+      escp = sp->cur - 1; /* mark the first esc position */
       assert(*escp == '\\');
     }
 
@@ -2211,6 +2356,7 @@ static bool is_valid_time(int hour, int minute, int sec, int usec) {
   if (!(0 <= minute && minute <= 59)) {
     return false;
   }
+  // RFC 3339 permits sec == 60 for leap seconds; reject it deliberately.
   if (!(0 <= sec && sec <= 59)) {
     return false;
   }
@@ -2356,7 +2502,7 @@ static int read_tzone(const char *p, char *tzsign, int *tzhour, int *tzminute) {
 // Scan hh:mm:ss.xxxxx
 static int scan_time(scanner_t *sp, token_t *tok) {
   int lineno = sp->lineno;
-  char buffer[20];
+  char buffer[LITBUF_SIZE];
   scan_copystr(sp, buffer, sizeof(buffer));
 
   char *p = buffer;
@@ -2364,6 +2510,9 @@ static int scan_time(scanner_t *sp, token_t *tok) {
   int len = read_time(p, &hour, &minute, &sec, &usec);
   if (len == 0) {
     return SETERROR(sp->ebuf, lineno, "invalid time");
+  }
+  if (len + 1 >= (int)sizeof(buffer)) {
+    return SETERROR(sp->ebuf, lineno, "timestamp too long");
   }
   if (!is_valid_time(hour, minute, sec, usec)) {
     return SETERROR(sp->ebuf, lineno, "invalid time");
@@ -2390,7 +2539,7 @@ static int scan_timestamp(scanner_t *sp, token_t *tok) {
 
   int n;
   // make a copy of sp->cur into buffer to ensure NUL terminated string
-  char buffer[80];
+  char buffer[LITBUF_SIZE];
   scan_copystr(sp, buffer, sizeof(buffer));
 
   toktyp_t toktyp = TOK_FIN;
@@ -2453,6 +2602,9 @@ static int scan_timestamp(scanner_t *sp, token_t *tok) {
 done:
   *tok = mktoken(sp, toktyp);
   n = p - buffer;
+  if (n + 1 >= (int)sizeof(buffer)) {
+    return SETERROR(sp->ebuf, lineno, "timestamp too long");
+  }
   tok->str.len = n;
   sp->cur += n;
 
@@ -2550,7 +2702,7 @@ static int process_numstr(char *buffer, int base, const char **reason) {
 }
 
 static int scan_float(scanner_t *sp, token_t *tok) {
-  char buffer[50]; // need to accommodate "9_007_199_254_740_991.0"
+  char buffer[LITBUF_SIZE];
   scan_copystr(sp, buffer, sizeof(buffer));
 
   int lineno = sp->lineno;
@@ -2562,6 +2714,9 @@ static int scan_float(scanner_t *sp, token_t *tok) {
     p += strspn(p, "_0123456789eE.+-");
   }
   int len = p - buffer;
+  if (len + 1 >= (int)sizeof(buffer)) {
+    return SETERROR(sp->ebuf, lineno, "number too long");
+  }
   buffer[len] = 0;
 
   const char *reason;
@@ -2569,10 +2724,39 @@ static int scan_float(scanner_t *sp, token_t *tok) {
     return SETERROR(sp->ebuf, lineno, "%s", reason);
   }
 
+  // strtod() honors LC_NUMERIC, but TOML always uses '.'; substitute the
+  // locale's decimal point, which may be multi-byte (issue #57).
+  // No-op in the "C" locale. Literals without '.' (1e3, inf, nan) skip this.
+  char *dot = strchr(buffer, '.');
+  const char *dp = localeconv()->decimal_point; // never empty per C std
+  if (dot && 0 != strcmp(dp, ".")) {
+    size_t dplen = strlen(dp);
+    // Result is strlen(buffer) - 1 + dplen bytes plus NUL; ensure it fits.
+    if (strlen(buffer) + dplen > sizeof(buffer)) {
+      return SETERROR(sp->ebuf, lineno, "number too long");
+    }
+    // Shift the tail (including NUL) to make room, then write dp over '.'.
+    // Regions overlap, hence memmove.
+    memmove(dot + dplen, dot + 1, strlen(dot + 1) + 1);
+    memcpy(dot, dp, dplen);
+  }
+
   errno = 0;
   char *q;
   double fp64 = strtod(buffer, &q);
-  if (errno || *q || q == buffer) {
+  // glibc sets ERANGE on underflow even when strtod's result is correctly
+  // rounded, e.g. 5e-324; accept such results, but still reject a value that
+  // underflowed to zero or overflowed to infinity. Test the raw bits rather
+  // than "fp64 != 0.0" and isfinite(): if the calling program enables
+  // denormals-are-zero (e.g. an app linked with -ffast-math, or built with
+  // Intel icx), an FP compare reads a subnormal as 0.0 (issue #49).
+  static_assert(sizeof(fp64) == sizeof(uint64_t), "double must be 64 bits");
+  uint64_t fp64_bits;
+  memcpy(&fp64_bits, &fp64, sizeof(fp64));
+  uint64_t fp64_mag = fp64_bits & 0x7fffffffffffffffULL; // drop the sign bit
+  int is_ok_subnormal =
+      (errno == ERANGE) && fp64_mag != 0 && fp64_mag < 0x7ff0000000000000ULL;
+  if ((errno && !is_ok_subnormal) || *q || q == buffer) {
     return SETERROR(sp->ebuf, lineno, "error parsing float");
   }
 
@@ -2585,7 +2769,7 @@ static int scan_float(scanner_t *sp, token_t *tok) {
 
 static int scan_number(scanner_t *sp, token_t *tok) {
   const char *reason;
-  char buffer[50]; // need to accommodate "9_007_199_254_740_991.0"
+  char buffer[LITBUF_SIZE];
   scan_copystr(sp, buffer, sizeof(buffer));
 
   char *p = buffer;
@@ -2612,6 +2796,9 @@ static int scan_number(scanner_t *sp, token_t *tok) {
       p += 2;
       p += strspn(p, span);
       int len = p - buffer;
+      if (len + 1 >= (int)sizeof(buffer)) {
+        return SETERROR(sp->ebuf, lineno, "number too long");
+      }
       buffer[len] = 0;
 
       if (process_numstr(buffer + 2, base, &reason)) {
@@ -2644,6 +2831,9 @@ static int scan_number(scanner_t *sp, token_t *tok) {
   p = buffer;
   p += strspn(p, "0123456789_+-.eE");
   int len = p - buffer;
+  if (len + 1 >= (int)sizeof(buffer)) {
+    return SETERROR(sp->ebuf, lineno, "number too long");
+  }
   buffer[len] = 0;
 
   if (process_numstr(buffer, 10, &reason)) {
@@ -2746,60 +2936,16 @@ static int scan_nonstring_literal(scanner_t *sp, token_t *tok) {
   return SETERROR(sp->ebuf, lineno, "invalid value");
 }
 
-// Return true if Unicode codepoint is allowed in a TOML 1.1 bare key.
-// Ranges taken verbatim from the TOML 1.1 spec grammar for bare-key-char.
-static bool is_unicode_bare_key_char(uint32_t cp) {
-  if (cp == 0xB2 || cp == 0xB3 || cp == 0xB9)
-    return true;
-  if (0xBC <= cp && cp <= 0xBE)
-    return true;
-  if (0xC0 <= cp && cp <= 0xD6)
-    return true;
-  if (0xD8 <= cp && cp <= 0xF6)
-    return true;
-  if (0xF8 <= cp && cp <= 0x37D)
-    return true;
-  if (0x37F <= cp && cp <= 0x1FFF)
-    return true;
-  if (cp == 0x200C || cp == 0x200D)
-    return true;
-  if (0x203F <= cp && cp <= 0x2040)
-    return true;
-  if (0x2070 <= cp && cp <= 0x218F)
-    return true;
-  if (0x2460 <= cp && cp <= 0x24FF)
-    return true;
-  if (0x2C00 <= cp && cp <= 0x2FEF)
-    return true;
-  if (0x3001 <= cp && cp <= 0xD7FF)
-    return true;
-  if (0xF900 <= cp && cp <= 0xFDCF)
-    return true;
-  if (0xFDF0 <= cp && cp <= 0xFFFD)
-    return true;
-  if (0x10000 <= cp && cp <= 0xEFFFF)
-    return true;
-  return false;
-}
-
 // Scan a literal
 static int scan_literal(scanner_t *sp, token_t *tok) {
   *tok = mktoken(sp, TOK_LIT);
   const char *p = sp->cur;
-  while (p < sp->endp) {
-    if (isalnum((unsigned char)*p) || *p == '_' || *p == '-') {
-      p++;
-      continue;
-    }
-    if ((unsigned char)*p >= 0x80) {
-      uint32_t cp;
-      int n = utf8_to_ucs(p, sp->endp - p, &cp);
-      if (n > 0 && is_unicode_bare_key_char(cp)) {
-        p += n;
-        continue;
-      }
-    }
-    break;
+  // Bare keys are ASCII only: A-Z a-z 0-9 - _ (not isalnum(); it is
+  // locale-dependent).
+  while (p < sp->endp &&
+         (('A' <= *p && *p <= 'Z') || ('a' <= *p && *p <= 'z') ||
+          ('0' <= *p && *p <= '9') || *p == '_' || *p == '-')) {
+    p++;
   }
   tok->str.len = p - tok->str.ptr;
   sp->cur = p;
@@ -2813,6 +2959,8 @@ static scanner_state_t scan_mark(scanner_t *sp) {
   mark.cur = sp->cur;
   mark.lineno = sp->lineno;
   mark.line_start = sp->line_start;
+  mark.bracket_level = sp->bracket_level;
+  mark.brace_level = sp->brace_level;
   return mark;
 }
 
@@ -2822,6 +2970,8 @@ static void scan_restore(scanner_t *sp, scanner_state_t mark) {
   sp->cur = mark.cur;
   sp->lineno = mark.lineno;
   sp->line_start = mark.line_start;
+  sp->bracket_level = mark.bracket_level;
+  sp->brace_level = mark.brace_level;
 }
 
 // Return the next token
@@ -2954,6 +3104,9 @@ static int scan_value(scanner_t *sp, token_t *tok) {
  * Return #bytes consumed or -1 on failure.
  */
 static int utf8_to_ucs(const char *orig, int len, uint32_t *ret) {
+  if (len <= 0) {
+    return -1;
+  }
   const unsigned char *buf = (const unsigned char *)orig;
   unsigned i = *buf++;
   uint32_t v;
@@ -2962,8 +3115,6 @@ static int utf8_to_ucs(const char *orig, int len, uint32_t *ret) {
      0xxxxxxx
   */
   if (0 == (i >> 7)) {
-    if (len < 1)
-      return -1;
     v = i;
     return *ret = v, 1;
   }
@@ -2979,6 +3130,9 @@ static int utf8_to_ucs(const char *orig, int len, uint32_t *ret) {
       if (0x2 != (i >> 6))
         return -1;
       v = (v << 6) | (i & 0x3f);
+    }
+    if (v < 0x80) {
+      return -1; // overlong encoding
     }
     return *ret = v, (const char *)buf - orig;
   }
@@ -2996,10 +3150,13 @@ static int utf8_to_ucs(const char *orig, int len, uint32_t *ret) {
         return -1;
       v = (v << 6) | (i & 0x3f);
     }
+    if (v < 0x800) {
+      return -1; // overlong encoding
+    }
     return *ret = v, (const char *)buf - orig;
   }
 
-  /* 0x00010000 - 0x001FFFFF:
+  /* 0x00010000 - 0x0010FFFF:
      11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
   */
   if (0x1E == (i >> 3)) {
@@ -3011,6 +3168,12 @@ static int utf8_to_ucs(const char *orig, int len, uint32_t *ret) {
       if (0x2 != (i >> 6))
         return -1;
       v = (v << 6) | (i & 0x3f);
+    }
+    // Reject overlong forms and anything above the last Unicode scalar
+    // value. This also rejects the 0xF5..0xF7 lead bytes, which can only
+    // encode code points past U+10FFFF.
+    if (v < 0x10000 || v > 0x10FFFF) {
+      return -1;
     }
     return *ret = v, (const char *)buf - orig;
   }
@@ -3105,10 +3268,10 @@ static int ucs_to_utf8(uint32_t code, char buf[4]) {
     return 3;
   }
 
-  /* 0x00010000 - 0x001FFFFF:
+  /* 0x00010000 - 0x0010FFFF:
      11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
   */
-  if (code <= 0x001FFFFF) {
+  if (code <= 0x0010FFFF) {
     buf[0] = (unsigned char)(0xf0 | (code >> 18));
     buf[1] = (unsigned char)(0x80 | ((code >> 12) & 0x3f));
     buf[2] = (unsigned char)(0x80 | ((code >> 6) & 0x3f));

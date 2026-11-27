@@ -43,8 +43,8 @@
     {
       "type": "library",
       "name": "tomlc17",
-      "version": "R260618",
-      "purl": "pkg:generic/tomlc17@R260618",
+      "version": "R261116",
+      "purl": "pkg:generic/tomlc17@R261116",
       "licenses": [
         {
           "license": {
